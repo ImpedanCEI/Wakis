@@ -10,13 +10,11 @@ os.environ["MKL_NUM_THREADS"] = (
     "1"  # change the number of threads to be used in the simualtion
 )
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pyvista as pv
-import matplotlib.pyplot as plt
 
-from wakis import SolverFIT3D
-from wakis import GridFIT3D
-from wakis import WakeSolver
+from wakis import GridFIT3D, SolverFIT3D, WakeSolver
 
 # ---------- Domain setup ---------
 
@@ -65,7 +63,9 @@ grid = GridFIT3D(
 grid.inspect(add_stl=["cavity", "shell"], stl_opacity=1.0)
 
 # BONUS: Visualize imported solids - Uncomment for plotting!
-grid.plot_solids(bounding_box=True, opacity=1.0, specular=0.5, anti_aliasing=None)
+grid.plot_solids(
+    bounding_box=True, opacity=1.0, specular=0.5, anti_aliasing=None
+)
 
 # ------------ Beam source & Wake ----------------
 # Beam parameters
