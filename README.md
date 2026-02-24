@@ -62,7 +62,7 @@ Check 🌐📁 [`wakis-benchmarks/`](https://github.com/ImpedanCEI/wakis-benchma
 Check 🌐📁 [`BE-Seminar-demo/`](https://github.com/ImpedanCEI/CEI-logo) for a complete demonstration of Wakis usage.
 
 ## Installation
-Wakis supports `Python 3.9 - 3.12` and can be installed in any `conda` environment.
+Wakis supports `Python 3.9 - 3.14` and can be installed in any `conda` or `venv` environment.
 
 📖 **For a detailed installation guide (GPU, MPI setup, FAQs), check our [documentation](https://wakis.readthedocs.io/en/latest/installation.html).**
 
@@ -71,10 +71,17 @@ For basic usage, simply run:
 ```bash
 pip install wakis
 ```
-For additional features, including **interactive 3D plots in Jupyter notebooks**, use:
+For additional features, including **interactive 3D plots in Jupyter notebooks** and Wakis' satellite packages, use:
 ```bash
+pip install wakis['all']
+```
+To use the *version-frozen* environment specified in `requirements.txt`, with python 3.9-3.11 do:
+```bash
+conda create --name wakis-env python=3.11
+conda activate wakis-env
 pip install wakis['notebook']
 ```
+
 To install Wakis from the source, clone the repository and install it in *editable* mode:
 ```bash
 git clone https://github.com/ImpedanCEI/wakis.git
@@ -103,7 +110,7 @@ These effects can be characterized through the beam coupling impedance in the fr
 
 * 🌳 It has now evolved from a post-processing tool to a full 3D electromagnetic, time domain solver; and has been presented at the **ICAP24: The 14th International Computational Accelerator Physics Conference in 2024**: https://indico.gsi.de/event/19249/contributions/82636/
 
-* 🌸 A dedicated paper has been submitted and will be presented at **IPAC'25: The 16th International Particle Accelerator Conference**: https://indico.jacow.org/event/81/contributions/8026/
+* 🌸 A dedicated contribution was presented at **IPAC'25: The 16th International Particle Accelerator Conference**: https://inspirehep.net/literature/3101186
 
 ## Citing `Wakis`
 🔖 Each Wakis release is linked to a [Zenodo](https://zenodo.org/records/15011421) publication under a unique [DOI](https://doi.org/10.5281/zenodo.15011421). If you are using Wakis in your scientific research, please help our scientific visibility by citing this work:
