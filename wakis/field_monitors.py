@@ -4,8 +4,10 @@
 # ########################################### #
 
 
-import numpy as np
 from typing import Sequence
+
+import numpy as np
+
 from wakis.field import Field
 
 

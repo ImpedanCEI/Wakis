@@ -35,7 +35,7 @@ to <>.
 Before you ask a question, it is best to search for existing [Issues](https://github.com/ImpedanCEI/wakis/issues) that might help you. In case you have found a suitable issue and still need clarification, you can write your question in this issue. It is also advisable to search the internet for answers first.
 
 If you then still feel the need to ask a question and need clarification, we recommend the following:
-- Contact the developer elena.de.la.fuente.garcia@cern.ch :woman_technologist: :wave: 
+- Contact the developer elena.de.la.fuente.garcia@cern.ch :woman_technologist: :wave:
 - Or open an [Issue](https://github.com/ImpedanCEI/wakis/issues/new).
   - Provide as much context as you can about what you're running into.
   - Provide project and platform versions (nodejs, npm, etc), depending on what seems relevant.
@@ -51,9 +51,9 @@ We will then take care of the issue as soon as possible.
 Wakis is an open-source code developed and maintained at CERN. It aims to be a platform for the electromagnetism and accelerator community to use and improve with each individual expertise. Therefore, if you as a user feel you can improve the code, we would be very grateful to review and accept pull-requests!
 
 We recommend the following workflow:
-* Create a fork: https://github.com/ImpedanCEI/wakis/fork 
+* Create a fork: https://github.com/ImpedanCEI/wakis/fork
 * Commit your contributions to your fork
-* If any feature is added, it needs a test! Inside the `tests/` folder, add a reproducible piece of code that can check the correct functionality of your feature. 
+* If any feature is added, it needs a test! Inside the `tests/` folder, add a reproducible piece of code that can check the correct functionality of your feature.
 * Run your new `test_00x_your feature.py` together with all other Wakis tests by doing `pytest -v -s`. All tests must be passing before your feature can be merged!
 * Last step is to open a pull request on https://github.com/ImpedanCEI/wakis/pulls. The maintainer will review and approve your contribution and it will be available for the next package relase 🎉
 

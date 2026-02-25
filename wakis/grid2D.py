@@ -342,7 +342,7 @@ class Grid2D:
             )
 
     """
-  Function to compute the one-cell extension of the unstable cells 
+  Function to compute the one-cell extension of the unstable cells
     """
 
     @staticmethod
@@ -412,7 +412,7 @@ class Grid2D:
                             flag_ext_cell[ii, jj] = False
 
     """
-  Function to compute the four-cell extension of the unstable cells 
+  Function to compute the four-cell extension of the unstable cells
     """
 
     @staticmethod
@@ -509,7 +509,7 @@ class Grid2D:
                         flag_ext_cell[ii, jj] = False
 
     """
-  Function to compute the eight-cell extension of the unstable cells 
+  Function to compute the eight-cell extension of the unstable cells
     """
 
     @staticmethod

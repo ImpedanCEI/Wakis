@@ -7,9 +7,7 @@ import numpy as np
 import pyvista as pv
 import trimesh
 
-from wakis import SolverFIT3D
-from wakis import GridFIT3D
-from wakis import WakeSolver
+from wakis import GridFIT3D, SolverFIT3D, WakeSolver
 from wakis.field_monitors import FieldMonitor
 
 # ---------- Geometry Parameters (in mm) ----------

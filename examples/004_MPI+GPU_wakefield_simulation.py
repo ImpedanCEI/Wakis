@@ -8,24 +8,21 @@
 # where 2 is the number of GPU devices
 
 import os
-import numpy as np
-import pyvista as pv
-import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-
 import sys
 
+import matplotlib.pyplot as plt
+import numpy as np
+import pyvista as pv
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+
 sys.path.append("../")
-
-from wakis import SolverFIT3D
-from wakis import GridFIT3D
-from wakis import WakeSolver
-
-from tqdm import tqdm
 
 # ---------- MPI setup ------------
 # can be skipped since it is handled inside GridFIT3D
 from mpi4py import MPI
+from tqdm import tqdm
+
+from wakis import GridFIT3D, SolverFIT3D, WakeSolver
 
 comm = MPI.COMM_WORLD  # Get MPI communicator
 rank = comm.Get_rank()  # Process ID
@@ -90,8 +87,9 @@ xt = 0.0  # x test position [m]
 yt = 0.0  # y test position [m]
 # [DEFAULT] tinj = 8.53*sigmaz/c_light  # injection time offset [s]
 
-from wakis.sources import Beam
 from scipy.constants import c
+
+from wakis.sources import Beam
 
 beam = Beam(q=q, sigmaz=sigmaz, beta=beta, xsource=xs, ysource=ys, ti=3 * sigmaz / c)
 

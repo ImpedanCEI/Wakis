@@ -3,11 +3,11 @@
 # Copyright (c) CERN, 2024.                   #
 # ########################################### #
 
+import time
+
+import h5py
 import numpy as np
 import pyvista as pv
-import time
-import h5py
-
 from scipy.optimize import least_squares
 
 from .field import Field

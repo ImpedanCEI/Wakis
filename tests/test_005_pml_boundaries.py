@@ -1,12 +1,12 @@
-import sys
 import os
+import sys
+
 import numpy as np
 from scipy.constants import c, mu_0
 from tqdm import tqdm
 
 sys.path.append("../")
 import wakis
-
 
 flag_interactive = False  # Set to true to run plot tests
 

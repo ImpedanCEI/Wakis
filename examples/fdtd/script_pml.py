@@ -1,16 +1,17 @@
-import numpy as np
-from scipy.constants import mu_0 as mu_0
-import matplotlib.pyplot as plt
 import os
-from tqdm import tqdm
-from solver2D import EMSolver2D
-from grid2D import Grid2D
+
+import matplotlib.pyplot as plt
+import numpy as np
 from conductors import (
+    ConductorsAssembly,
     OutRect,
     Plane,
-    ConductorsAssembly,
     noConductor,
 )
+from grid2D import Grid2D
+from scipy.constants import mu_0 as mu_0
+from solver2D import EMSolver2D
+from tqdm import tqdm
 
 L = 1.0
 # Number of mesh cells

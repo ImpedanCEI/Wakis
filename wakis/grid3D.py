@@ -1,8 +1,9 @@
 import numpy as np
-from grid2D import Grid2D
-from grid2D import compute_areas as compute_areas_2D, mark_cells as mark_cells_2D
-from numba import jit
 from field import Field
+from grid2D import Grid2D
+from grid2D import compute_areas as compute_areas_2D
+from grid2D import mark_cells as mark_cells_2D
+from numba import jit
 
 
 def seg_length(x_1, y_1, z_1, x_2, y_2, z_2):
@@ -546,7 +547,7 @@ class Grid3D:
             )
 
     """
-  Function to mark wich cells are interior (int), require extension (unst), 
+  Function to mark wich cells are interior (int), require extension (unst),
   are on the boundary(bound), are available for intrusion (avail)
     """
 

@@ -64,4 +64,4 @@ jobs:
         git push origin gh-pages
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        #  ![Lines of Code](https://raw.githubusercontent.com/ImpedanCEI/wakis/gh-pages/badge.svg)        
+        #  ![Lines of Code](https://raw.githubusercontent.com/ImpedanCEI/wakis/gh-pages/badge.svg)

@@ -2,11 +2,11 @@
 
 This section aims to showcase `wakis`capabilities together with useful recipes to use in the simulation scripts.
 
-Since `wakis` has been developed for computing bea, coupling impedance for particle accelerator components, the example that will serve as a conductive thread for the explanation is a **pillbox cavity with a passing proton beam**. 
+Since `wakis` has been developed for computing bea, coupling impedance for particle accelerator components, the example that will serve as a conductive thread for the explanation is a **pillbox cavity with a passing proton beam**.
 
 The guide will go into detailed step-by-step on how to write the simulation script and visualize or access the computed data.
 
-```{contents} 
+```{contents}
 :depth: 3
 ```
 
@@ -29,7 +29,7 @@ import numpy as np               # for handling arrays
 import matplotlib.pyplot as plt  # for plotting
 import os, sys                   # for path handling
 import pyvista as pv             # for geometry modelling and 3D visualization
-import h5py                      # for data save/import 
+import h5py                      # for data save/import
 from tqdm import tqdm            # for time loop prpgress bar
 from scipy.constants import c as c_light    # speed of light constant
 ```
@@ -61,13 +61,13 @@ Nz = 100
 ```{note}
 Note that the number of cells will heavily affect the simulation time (in particular, the timestep due to CFL condition), and also the memory requirements.
 ```
- 
+
 ### `STL` geometry importing
 In beam-coupling impedance simulations one is usually interested in the geometric impedance, together with the impedance coming from material properties. In `wakis`, the geometry to simulate (sometimes referred as Embedded boundaries) can be imported from a `.stl` file containing a CAD model, and the units should be meters [m].
 
 ```python
 # stl geometry files (add path to them if necessary)
-stl_cavity = 'cavity.stl' 
+stl_cavity = 'cavity.stl'
 stl_shell = 'shell.stl'
 stl_solids = {'cavity': stl_cavity, 'shell': stl_shell}
 
@@ -112,7 +112,7 @@ Each `stl` solid can be associated with a material by indicating `[eps, mu, cond
 
 ```python
 # Indicate relative permittivity, relative permeability and conductivity [S/m]
-# [eps_r, mu_r, conductivity] 
+# [eps_r, mu_r, conductivity]
 # or the material name from the library:
 stl_materials = {'cavity': 'vacuum',       # equivalent to [1.0, 1.0, 0]
                 'shell': [1e3, 1.0, 1e3]}  # equivalent to a 'lossy metal'
@@ -131,9 +131,9 @@ Finally, we can build our simulation grid using `GridFIT3D` class including all 
 
 ```python
 # initialize grid object
-grid = GridFIT3D(xmin, xmax, ymin, ymax, zmin, zmax, 
-                Nx, Ny, Nz, 
-                stl_solids=stl_solids, 
+grid = GridFIT3D(xmin, xmax, ymin, ymax, zmin, zmax,
+                Nx, Ny, Nz,
+                stl_solids=stl_solids,
                 stl_materials=stl_materials,
                 stl_translate=stl_translate,
                 stl_scale=stl_scale,
@@ -154,9 +154,9 @@ grid.inspect(add_stl=['cavity', 'shell'] #default is all stl solids
 `wakis` API is fully exposed, so all the `grid` class parameters relevant for the simulation can be accessed as class attributes and modified once the class has been instantiated. E.g., `grid.dx` gives the mesh step size in x direction, `grid.N` gives the total number of cells. Attributes can be checked by typing `grid.` and then pressing `TAB` when running on `ipython`.
 
 ```{tip}
-Thanks to a fully exposed python API, all (relevant) class attributes can be checked by typing the class instance (e.g., `grid` or `solver`) followed a dot `.` and the name of the attribute. 
+Thanks to a fully exposed python API, all (relevant) class attributes can be checked by typing the class instance (e.g., `grid` or `solver`) followed a dot `.` and the name of the attribute.
 
-When running on `ipython` all attributes and functions() can be viewed by typing the name of the class instance + `.` and then pressing `TAB`. Similarly, when writing code on a IDE (e.g., Visual Studio), a list with all the attributes and functions will be shown when typing e.g., `solver.`. 
+When running on `ipython` all attributes and functions() can be viewed by typing the name of the class instance + `.` and then pressing `TAB`. Similarly, when writing code on a IDE (e.g., Visual Studio), a list with all the attributes and functions will be shown when typing e.g., `solver.`.
 ```
 
 ### Setting up the electromagnetic solver
@@ -167,10 +167,10 @@ Once the simulation domain has been defined through the geometry and the grid, t
 solver = SolverFIT3D(grid=grid,     # pass grid object
                      dt=dt,         # (OPTIONAL) define timestep
                      cfl=0.5,       # Default if no dt is defined
-                     bc_low=bc_low, 
-                     bc_high=bc_high, 
+                     bc_low=bc_low,
+                     bc_high=bc_high,
                      use_stl=True,     # Enables or disables geometry import
-                     bg='vacuum',      # Background material 
+                     bg='vacuum',      # Background material
                      )
 
 ```
@@ -186,7 +186,7 @@ self.dt = cfln / (c_light * np.sqrt(1 / self.grid.dx ** 2 + 1 / self.grid.dy ** 
 ### Boundary conditions
 The required parameters `bc_low` and `bc_high` allow to choose the 6 boundary conditions for our simulation box. For the lower-end boundaries bc_low = [x-, y-, z-] and for the high-end boundaries bc_high = [x+, y+, z+] is used. The supported values to give for -/+ boundaries are:
 
-* `pec` stands for Perfect Electric Conductor: it is a Dirichlet boundary conditions that forces the tangent electric $E$ field at the boundary to be 0. 
+* `pec` stands for Perfect Electric Conductor: it is a Dirichlet boundary conditions that forces the tangent electric $E$ field at the boundary to be 0.
 * `pmc` stands for Perfect Magnetic Conductor: similarly to pec, it is a Dirichlet boundary conditions that forces the tangent magnetic $H$ field at the boundary to be 0.
 * `periodic`: The field values of the high-end boundary are passed to the lower-end boundary, simulating a periodic structure where the fields re-enter the simulation domain.
 * `abc` First order extrapolation (FOEXTRAP) absorbing boundary condition (ABC)[^2]: a type of Dirichlet absorbing boundary condition that allows to absorb longitudinally propagating fields when they reach the boundary. Only works under specific circumstances.
@@ -211,9 +211,9 @@ Once the solver has been instantiated, the electromagnetic fields electric $E$, 
 
 ```python
 # modify the lower left bottom corner (cell [0,0,0]) of the simulation domain.
-solver.E[0,0,0,'z'] = c_light 
+solver.E[0,0,0,'z'] = c_light
 
-# modify the x component of H for a XY plane at a particular z 
+# modify the x component of H for a XY plane at a particular z
 iz = Nz//3
 solver.H[:, :, iz, 'x'] = np.ones((Nx, Ny))
 
@@ -232,9 +232,9 @@ solver.E.inspect(plane='YZ',            # 2d plane, cut at the domain center
                  dpi=100,               # plot DPI value (pixel resolution)
                  # also, the plane can be specified as a 2D slice in x,y,z
                  # e.g., for the YZ plane at x = Nx//2
-                 x=Nx//2, 
-                 y=slice(0,Ny), 
-                 z=slice(0,Nz) 
+                 x=Nx//2,
+                 y=slice(0,Ny),
+                 z=slice(0,Nz)
                 )
 
 ```
@@ -252,7 +252,7 @@ solver.imu[:, :, :, 'y']
 
 # Modify first 10 cells in x of the conductivity tensor:
 for d in ['x', 'y', 'z']:
-    solver.sigma[:10, :, :, d] = np.ones(10)*1e3 #S/m 
+    solver.sigma[:10, :, :, d] = np.ones(10)*1e3 #S/m
 ```
 
 Since `wakis` supports anisotropy, the tensors are 3D matrices of sizes `[Nx, Ny, Nz]x3` since there are values for each simulation cell in $x$, $y$, and $z$ direction. Similarly, one can inspect the values given to the tensors by using e.g., `solver.sigma.inspect()`
@@ -275,18 +275,18 @@ for n in tqdm(range(Nt)):
 
     # [OPTIONAL] Modify field
     #source_fun(t) can be any function, see next section
-    solver.E[:, :, :, 'x'] = source_fun(n*dt) 
+    solver.E[:, :, :, 'x'] = source_fun(n*dt)
 
     # Advance
     solver.one_step()
 
     # [OPTIONAL] Plot 2D on-the-fly. -->See dedicated section.
-    solver.plot2D(field='E', component='x', plane='ZY', pos=0.5, # 
-                  cmap='rainbow', title='img/Ex', off_screen=True,  
+    solver.plot2D(field='E', component='x', plane='ZY', pos=0.5, #
+                  cmap='rainbow', title='img/Ex', off_screen=True,
                   n=n, interpolation='spline36')
-    
-    # [OPTIONAL] Save in hdf5 format 
-    hf['#'+str(n).zfill(5)]=solver.E[Nx//2, :, :, 'x'] 
+
+    # [OPTIONAL] Save in hdf5 format
+    hf['#'+str(n).zfill(5)]=solver.E[Nx//2, :, :, 'x']
 ```
 
 A more optimized solution for running a EM simulation is the routine `solver.emsolve()`. This removes the need of the loop, while still allows to use built-in plotting routines and saving the fields at any timestep though the input arguments:
@@ -296,7 +296,7 @@ A more optimized solution for running a EM simulation is the routine `solver.ems
 Nt = 10000              # Number of timesteps to run
 source = sources.Beam() # [OPTIONAL] ->See next section for details
 
-solver.emsolve(Nt, source=source, # [OPT] field or current time-dependent source 
+solver.emsolve(Nt, source=source, # [OPT] field or current time-dependent source
             save=False, fields=['E'], components=['Abs'], # [OPT] field components to save
             every=1, subdomain=None, # [OPT] frequency of save and subdomain slice [x,y,z]
             plot=False, plot_every=1,  # [OPT] on-the-fly plot enable and frequency
@@ -314,18 +314,18 @@ All the functions inside `wakis` are documented with `docstrings` explaining eac
 
 In most time-domain simulations, when the field is not excited by initial conditions, a time-dependent source is used that to update the field values at a particular region in the simulation domain. In `wakis`, several time-dependent sources are available inside `sources.py`. They can be passed to the `solver` object in order for them to be added to the time-stepping routine.
 
-Sources in `wakis` can be: 
+Sources in `wakis` can be:
 * Point sources: only modifying the field or field component at one specific location $(x_s, y_s, z_s)$
 * Line sources: modifying the field over a line $(x_s, y_s, \forall z)$
 * Plane or port sources: modifying the field on a 2d plane e.g., $z=z_s \forall x,y$
-* Volume sources: modify the field in a 3d subdomain: e.g., $z=slice(0, Nz-30) \forall x,y$. 
+* Volume sources: modify the field in a 3d subdomain: e.g., $z=slice(0, Nz-30) \forall x,y$.
 
 The sources can modify any component of the $E$, $H$ fields or the current $J$, and be introduced in the simulation as a callback
 
 To add a time-dependent source, one can simply setup a time-loop and run the routine `solver.one_step()` after the source has been applied (see [Running a simulation](#running-a-simulation) section). However, a more optimized way is to pass a `source` to the EM solver. The `source` objects available inside `sources.py` are:
-* `Beam`: a line source for $J_z$ that adds a gaussian-shaped current traversing the domain from z- to z+. Beam's longitudinal size $sigma_z$ and peak current $q$, as well as transverse position, can be defined as class attributes during instantiation. 
-* `PlaneWave`: a port source that excites a sinusoidal plane wave n +z direction by modifying $E_x$ and $H_y$ in the XY plane. Plane wave's frequency $f$, longitudinal position $z_s$, and plane extent $(\bold{x_s}, \bold{y_s})$ an be defined as class attributes. 
-* `WavePacket`: a port source that excites a gaussian wave packet that travels in z+ direction, by modifying $H_y$ and $E_x$ field components. The frequency $f$ or wavelength $\lambda$, longitudinal size $sigma_z$, transverse size $sigma_{xy}$ and propagation speed (relativistic $\beta$), can be defined as class attributes. 
+* `Beam`: a line source for $J_z$ that adds a gaussian-shaped current traversing the domain from z- to z+. Beam's longitudinal size $sigma_z$ and peak current $q$, as well as transverse position, can be defined as class attributes during instantiation.
+* `PlaneWave`: a port source that excites a sinusoidal plane wave n +z direction by modifying $E_x$ and $H_y$ in the XY plane. Plane wave's frequency $f$, longitudinal position $z_s$, and plane extent $(\bold{x_s}, \bold{y_s})$ an be defined as class attributes.
+* `WavePacket`: a port source that excites a gaussian wave packet that travels in z+ direction, by modifying $H_y$ and $E_x$ field components. The frequency $f$ or wavelength $\lambda$, longitudinal size $sigma_z$, transverse size $sigma_{xy}$ and propagation speed (relativistic $\beta$), can be defined as class attributes.
 * `Dipole`: Updates the user-defined field and component every timestep to introduce a dipole-like sinusoidal excitation
 * `Pulse`: Injects an electromagnetic pulse at the given source point (xs, ys, zs), with the selected shape {"Harris", "Gaussian", "Rectangular"}, length, and amplitude
 
@@ -365,7 +365,7 @@ Combining `wakis` sources, geometry capabilities and material tensors, many diff
 
 ### A few words about beam-coupling impedance and wakefields
 
-The determination of electromagnetic wakefields and their impact on accelerator performance is a significant issue in current accelerator components. These wakefields, which are generated within the accelerator vacuum chamber as a result of the interaction between the structure and a passing beam, can have significant effects on the machine. 
+The determination of electromagnetic wakefields and their impact on accelerator performance is a significant issue in current accelerator components. These wakefields, which are generated within the accelerator vacuum chamber as a result of the interaction between the structure and a passing beam, can have significant effects on the machine.
 
 These effects can be characterized through the beam coupling impedance in the frequency domain, and wake potential in the time domain. Accurate evaluation of these properties is essential for predicting dissipated power and maintaining beam stability. `wakis` project was conceived at CERN, in the ABP-CEI group, to provide the accelerator community with a python based, open-source tool able to compute the beam-coupling impedance for present and future accelerator components.
 
@@ -381,8 +381,8 @@ wake = WakeSolver(q=q, # beam charge in Coulombs [C]
                  xtest=xt, ytest=yt,     # beam transverse integration path (QUADRUPOLAR)
                  add_space=add_space,    # remove no. cells in z- and z+ from the wake integration
                  save=True, logfile=True # save results in txt format and enable logfile
-                 results_folder='results/',   # Name of the results folder 
-                 Ez_file='Ez.h5',        # Name of the HDF5 file to store E field 
+                 results_folder='results/',   # Name of the results folder
+                 Ez_file='Ez.h5',        # Name of the HDF5 file to store E field
                  )
 ```
 
@@ -398,10 +398,10 @@ A wakefield simulation can be run using the `solver.wakesolve` routine. Similarl
 ```python
 solver.wakesolve(wakelength, # Simulation wakelength in [m]
                 wake=wake,   # wake object of WakeSolver class
-                add_space=add_space,  
+                add_space=add_space,
                 save_J=True,   # [OPT] Save source current Jz in HDF5 format
                 plot=False, plot_every=30, # [OPT] Enable 2Dplot and plot frequency
-                **plotkw, # [OPT] plot arguments. ->See built-in plotting section for details 
+                **plotkw, # [OPT] plot arguments. ->See built-in plotting section for details
                 )
 ```
 ### Recomputing some magnitudes
@@ -473,7 +473,7 @@ heights = np.zeros_like(Z)
 heights[:] = 450
 heights[np.logical_and(f>0.70e9,f<0.8e9)] = 3000
 
-bounds = iddefix.SmartBoundDetermination(f, np.real(Z), 
+bounds = iddefix.SmartBoundDetermination(f, np.real(Z),
                                         Rs_bounds=[0.8, 10],    # bound multipliers for peak Rs
                                         Q_bounds=[0.5, 5],      # bound multipliers for estimated Q
                                         fres_bounds=[-0.01e9, +0.01e9]) # bound margins for estimated fres
@@ -487,15 +487,15 @@ bounds.to_table()       # print as a table the estimated bounds
 Now it is time to pass the data to the `EvolutionaryAlgorithm` class. The available fit founctions use the Broadband Resonator Formalism, and the evolutionary algorithm find the list of parameters (Rs, Q, fr) that better describe the impedance. To run the Differential Evolution algorithm, follow:
 ```python
 %%time
-DE_model = iddefix.EvolutionaryAlgorithm(f, 
-                                         Z.real, 
-                                         N_resonators=bounds.N_resonators, 
+DE_model = iddefix.EvolutionaryAlgorithm(f,
+                                         Z.real,
+                                         N_resonators=bounds.N_resonators,
                                          parameterBounds=bounds.parameterBounds,
                                          plane='longitudinal',
-                                         fitFunction='impedance', 
+                                         fitFunction='impedance',
                                          wake_length=wake_length, # in [m]
                                          objectiveFunction=iddefix.ObjectiveFunctions.sumOfSquaredErrorReal
-                                         ) 
+                                         )
 
 # Run the differential evolution
 DE_model.run_differential_evolution(maxiter=30000,
@@ -579,11 +579,11 @@ fig1.tight_layout()
 ```
 
 ## 🧮 Compute non-equidistant Fourier Transforms with [`neffint`](https://github.com/ImpedanCEI/neffint)
-Neffint is an acronym for Non-equidistant Filon Fourier integration. This is a python package for computing Fourier integrals using a method based on Filon's rule with non-equidistant grid spacing. Developed by Eskil Vik and Nicolas Mounet, it is part of the Wakis ecosystem of python packages developed at CERN, and available in the [ImpedanCEI](https://github.com/ImpedanCEI/) organization. 
+Neffint is an acronym for Non-equidistant Filon Fourier integration. This is a python package for computing Fourier integrals using a method based on Filon's rule with non-equidistant grid spacing. Developed by Eskil Vik and Nicolas Mounet, it is part of the Wakis ecosystem of python packages developed at CERN, and available in the [ImpedanCEI](https://github.com/ImpedanCEI/) organization.
 
 `neffint` has been integrated in `IDDEFIX` as an alternative method to compute Fourier Transforms:
 ```python
-time, wake_function = iddefix.compute_ineffint(frequency_data, impedance_data, 
+time, wake_function = iddefix.compute_ineffint(frequency_data, impedance_data,
                                  times=np.linspace(1e-11, 50e-9, 1000), #avoid starting at zero
                                  plane='transverse', #or longitudinal, changes normalization
                                  adaptative=True, # refines the sampling, but can be slow/unstable
@@ -603,7 +603,7 @@ Check out `IDDEFIX`'s [test_001](https://github.com/ImpedanCEI/IDDEFIX/blob/main
 Beam Induced Heating Computation (BIHC) tool is a package that allows the estimation of the dissipated power due to the passage of a particle beam inside an accelerator component. The dissipated power value depends on the characteristics of the particle beam (**beam spectrum and intensity**) and on the characteristics of the consdiered accelerator component (**beam-coupling impedance**). BIHC helps generating different beam filling schemes, bunch profiles, bunch intensities, and load machine parameters for the different accelerators at CERN.
 
 ```{seealso}
-Specific documentation for [`BIHC`](https://github.com/ImpedanCEI/BIHC) is available at [https://bihc.readthedocs.io/](https://bihc.readthedocs.io/) 
+Specific documentation for [`BIHC`](https://github.com/ImpedanCEI/BIHC) is available at [https://bihc.readthedocs.io/](https://bihc.readthedocs.io/)
 ```
 
 ### Generate beam parameters
@@ -612,7 +612,7 @@ To generate the beam spectrum, we need the filling scheme used in the machine, c
 ```python
 def fillingSchemeLHC(ninj, ntrain=5, nbunches=36):
     '''
-    Returns the filling scheme for the LHC 
+    Returns the filling scheme for the LHC
     using the standard pattern
 
     Parameters
@@ -624,7 +624,7 @@ def fillingSchemeLHC(ninj, ntrain=5, nbunches=36):
     #ninj = 11 # Defining number of injections
     nslots = 3564 # Defining total number of slots for LHC
     #ntrain = 5 # Defining the number of trains
-    #nbunches = 36 # Defining a number of bunchs e.g. 18, 36, 72.. 
+    #nbunches = 36 # Defining a number of bunchs e.g. 18, 36, 72..
     batchS = 7 # Batch spacing in 25 ns slots
     injspacing = 37 # Injection spacing in 25 ns slots
 
@@ -644,13 +644,13 @@ With this information, we can use `BIHC` to fill the `Beam` class:
 fillingScheme = fillingSchemeLHC(ninj=9, ntrain=4, nbunches=72)
 bl = 1.2e-9                 # bunch length [s]
 Np = 2.3e11                 # bunch intensity [protons/bunch]
-bunchShape = 'q-GAUSSIAN'   # bunch profile shape in time 
+bunchShape = 'q-GAUSSIAN'   # bunch profile shape in time
 qvalue = 3/5                # value of q parameter in the q-gaussian distribution
 fillMode = 'FLATTOP'        # Energy
 fmax = 2e9                  # Maximum frequency of the beam spectrum [Hz]
 
 beam = bihc.Beam(Np=Np, bunchLength=bl, fillingScheme=fillingScheme,
-                bunchShape=bunchShape, qvalue=qvalue, 
+                bunchShape=bunchShape, qvalue=qvalue,
                 machine='LHC', fillMode=fillMode, spectrum='numeric', fmax=fmax)
 
 print(f'* Number of bunches used: {np.sum(fillingScheme)}')
@@ -686,13 +686,13 @@ Z.getRWImpedance(L ,b, sigma)    # single-layer resistive wall impedance
 ```
 
 ### Power loss calculation, 1 beam case
-With `BIHC` we can simply calculate the power loss by `beam.getPloss(Z)`. However, due to inacuracies in the wakefield simulation or the CAD model, or to account for changes in the revolution frequency during operation, `BIHC` also performs a statistical analysis by rigidly shifting the impedance curve in piece-wise shifts `beam.getShiftedPloss(Z, shift=shift)` to account for different overlaps with the beam spectral lines. 
+With `BIHC` we can simply calculate the power loss by `beam.getPloss(Z)`. However, due to inacuracies in the wakefield simulation or the CAD model, or to account for changes in the revolution frequency during operation, `BIHC` also performs a statistical analysis by rigidly shifting the impedance curve in piece-wise shifts `beam.getShiftedPloss(Z, shift=shift)` to account for different overlaps with the beam spectral lines.
 A basic **power loss calculation** can be done by:
 ```python
 print('Calculate beam-induced power loss')
 print('---------------------------------')
-# Get unshifted ploss 
-ploss, ploss_density = beam.getPloss(Z) 
+# Get unshifted ploss
+ploss, ploss_density = beam.getPloss(Z)
 print(f'Dissipated power (no-shift): {ploss:.3} W')
 
 # Get min/max power loss with rigid shift
@@ -709,10 +709,10 @@ Z_max = beam.Zmax
 One can also plot the **power loss density** across the frequencies of interest:
 ```python
 # Unshifted impedance
-ploss, ploss_density = beam.getPloss(Z) 
+ploss, ploss_density = beam.getPloss(Z)
 
 # Shifted impedance
-ploss_max, ploss_density_max = beam.getPloss(Z_max) 
+ploss_max, ploss_density_max = beam.getPloss(Z_max)
 
 fig, ax = plt.subplots(figsize=[10,7])
 l1, = ax.plot(np.linspace(0, Z_max.f.max()/1e9, len(ploss_density_max )), ploss_density_max , color='r', marker='v', lw=3, alpha=0.8)

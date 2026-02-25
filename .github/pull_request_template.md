@@ -3,11 +3,11 @@
 
 ## 🔧 Changes Made
 <!-- List the key changes introduced in this PR. -->
-- 
+-
 
 ## ✅ Checklist
 - [ ] Code follows the project's style and guidelines
-- [ ] Added tests for new functionality 
+- [ ] Added tests for new functionality
 - [ ] Updated documentation (mentioned in `docs/` or included in `examples/` and `notebooks/`)
 - [ ] Verified that changes do not break existing functionality (automatic tests passing)
 

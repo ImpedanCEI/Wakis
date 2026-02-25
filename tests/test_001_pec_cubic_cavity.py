@@ -1,15 +1,14 @@
 import os
 import sys
+
 import numpy as np
 import pyvista as pv
 
 sys.path.append("../wakis")
 
-from wakis import SolverFIT3D
-from wakis import GridFIT3D
-from wakis import WakeSolver
-
 import pytest
+
+from wakis import GridFIT3D, SolverFIT3D, WakeSolver
 
 
 @pytest.mark.slow
