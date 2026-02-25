@@ -3,19 +3,21 @@
 # Copyright (c) CERN, 2024.                   #
 # ########################################### #
 
-import numpy as np
 import time
-import h5py
 
-from scipy.constants import c as c_light, epsilon_0 as eps_0, mu_0 as mu_0
+import h5py
+import numpy as np
+from scipy.constants import c as c_light
+from scipy.constants import epsilon_0 as eps_0
+from scipy.constants import mu_0 as mu_0
 from scipy.sparse import csc_matrix as sparse_mat
 from scipy.sparse import diags, hstack, vstack
 
 from .field import Field
+from .logger import Logger
 from .materials import material_lib
 from .plotting import PlotMixin
 from .routines import RoutinesMixin
-from .logger import Logger
 
 try:
     from cupyx.scipy.sparse import csc_matrix as gpu_sparse_mat
@@ -25,7 +27,8 @@ except ImportError:
     imported_cupyx = False
 
 try:
-    from sparse_dot_mkl import csr_matrix as mkl_sparse_mat, dot_product_mkl
+    from sparse_dot_mkl import csr_matrix as mkl_sparse_mat
+    from sparse_dot_mkl import dot_product_mkl
 
     imported_mkl = True
 except ImportError:

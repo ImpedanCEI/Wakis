@@ -10,13 +10,11 @@ os.environ["MKL_NUM_THREADS"] = (
     "1"  # change the number of threads to be used in the simualtion
 )
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pyvista as pv
-import matplotlib.pyplot as plt
 
-from wakis import SolverFIT3D
-from wakis import GridFIT3D
-from wakis import WakeSolver
+from wakis import GridFIT3D, SolverFIT3D, WakeSolver
 
 # ---------- Domain setup ---------
 

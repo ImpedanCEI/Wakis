@@ -1,15 +1,16 @@
-import numpy as np
-import matplotlib.pyplot as plt
 import sys
+
+import matplotlib.pyplot as plt
+import numpy as np
 import pyvista as pv
-from tqdm import tqdm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.constants import c as c_light
+from tqdm import tqdm
 
 sys.path.append("../")
 
-from solverFIT3D import SolverFIT3D
 from gridFIT3D import GridFIT3D
+from solverFIT3D import SolverFIT3D
 
 # ----- Funtions -----#
 m = 1
@@ -350,7 +351,7 @@ for nt in tqdm(range(Nt)):
 
 # convert -delay 5 -loop 0 imgRes/*.png imgRes/.gif
 """
-solver.plot3D(field='H', component='z', clim=None,  hide_solids=None, show_solids=None, 
+solver.plot3D(field='H', component='z', clim=None,  hide_solids=None, show_solids=None,
                add_stl='Solid 1', stl_opacity=0.1, stl_colors='white',
                title=None, cmap='rainbow', clip_volume=True, clip_normal='-z',
                clip_box=False, clip_bounds=None, off_screen=False, zoom=0.4, n=nt)

@@ -4,10 +4,10 @@
 # ########################################### #
 
 
-import os
 import json
-import numpy as np
+import os
 
+import numpy as np
 from scipy.constants import mu_0 as mu_0
 
 

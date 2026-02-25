@@ -3,12 +3,15 @@
 # Copyright (c) CERN, 2024.                   #
 # ########################################### #
 
-import numpy as np
-import h5py
 import time
+
+import h5py
+import numpy as np
 from tqdm import tqdm
-from wakis.sources import Beam
+
 from wakis.plotting import PlotMixin
+from wakis.sources import Beam
+
 
 class RoutinesMixin:
     def emsolve(
@@ -458,22 +461,28 @@ class RoutinesMixin:
         self.logger.wakeSolver["simulationTime"] = time.time() - t0
         self.logger.save_logs()
 
-    def get_plotting_kwargs(self, name='plot2D'):
-
-        if name == 'plot1D':
+    def get_plotting_kwargs(self, name="plot2D"):
+        if name == "plot1D":
             plotkw = {
                 "field": "E",
                 "component": "z",
-                "line" : "z",
-                "pos" : [0.8, 0.6, 0.5, 0.4, 0.2],
-                "xscale" : "linear",
-                "yscale" : "linear",
-                "off_screen" : True,
-                "colors" : ["#5ccfe6", "#fdb6d0", "#ffae57", "#bae67e", "#ffd580", "#a2aabc"],
-                "title" : "plot1D",
+                "line": "z",
+                "pos": [0.8, 0.6, 0.5, 0.4, 0.2],
+                "xscale": "linear",
+                "yscale": "linear",
+                "off_screen": True,
+                "colors": [
+                    "#5ccfe6",
+                    "#fdb6d0",
+                    "#ffae57",
+                    "#bae67e",
+                    "#ffd580",
+                    "#a2aabc",
+                ],
+                "title": "plot1D",
             }
 
-        if name == 'plot2D':
+        if name == "plot2D":
             plotkw = {
                 "field": "E",
                 "component": "z",
@@ -485,7 +494,7 @@ class RoutinesMixin:
                 "interpolation": "spline36",
                 "title": "plot2D",
             }
-        elif name == 'plot3D':
+        elif name == "plot3D":
             plotkw = {
                 "field": "E",
                 "component": "z",
@@ -500,22 +509,22 @@ class RoutinesMixin:
                 "nan_opacity": 1.0,
                 "title": "plot3D",
             }
-        elif name == 'plot3DonSTL':
+        elif name == "plot3DonSTL":
             plotkw = {
                 "field": "E",
                 "component": "z",
-                "cmap" : "rainbow",
-                "stl_with_field" : list(self.grid.stl_solids.keys())[0],
-                "field_opacity" : 1.0,
-                "stl_transparent" : list(self.grid.stl_solids.keys()),
-                "stl_opacity" : 0.1,
-                "stl_colors" : list(self.grid.stl_colors.values()),
-                "clip_plane" : True,
-                "clip_normal" : "-y",
-                "clip_origin" : [0,0,0],
-                "off_screen" : True,
-                "zoom" : 1.2,
-                "title" : "plot3DonSTL"
+                "cmap": "rainbow",
+                "stl_with_field": list(self.grid.stl_solids.keys())[0],
+                "field_opacity": 1.0,
+                "stl_transparent": list(self.grid.stl_solids.keys()),
+                "stl_opacity": 0.1,
+                "stl_colors": list(self.grid.stl_colors.values()),
+                "clip_plane": True,
+                "clip_normal": "-y",
+                "clip_origin": [0, 0, 0],
+                "off_screen": True,
+                "zoom": 1.2,
+                "title": "plot3DonSTL",
             }
 
         return plotkw

@@ -3,8 +3,9 @@
 # Copyright (c) CERN, 2024.                   #
 # ########################################### #
 
-from setuptools import setup, find_packages
 from pathlib import Path
+
+from setuptools import find_packages, setup
 
 # read version
 version_file = Path(__file__).parent / "wakis/_version.py"

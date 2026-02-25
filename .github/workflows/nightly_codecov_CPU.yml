@@ -5,7 +5,7 @@ name: nighlty_codecov
 # Controls when the action will run. CRON schedule runs at mm hh dd mm yy UTC TIME
 on:
   workflow_dispatch:
-  
+
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   run_tests:

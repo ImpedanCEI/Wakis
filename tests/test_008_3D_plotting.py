@@ -1,19 +1,17 @@
 import os
 import sys
-import pyvista as pv
+
 import numpy as np
+import pyvista as pv
 
 sys.path.append("../wakis")
 
-from tqdm import tqdm
-from scipy.constants import c
-
-from wakis import SolverFIT3D
-from wakis import GridFIT3D
-from wakis.sources import Beam
-from wakis import WakeSolver
-
 import pytest
+from scipy.constants import c
+from tqdm import tqdm
+
+from wakis import GridFIT3D, SolverFIT3D, WakeSolver
+from wakis.sources import Beam
 
 # Turn False when running local
 flag_offscreen = True

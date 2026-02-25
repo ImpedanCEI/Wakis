@@ -10,12 +10,12 @@ assignees: elenafuengar
 Suggest an idea that should be implemented in Wakis ⚙️💖
 
 
-#### 🔍 Describe the solution you'd like  
-What would the ideal solution look like? Be specific!  
+#### 🔍 Describe the solution you'd like
+What would the ideal solution look like? Be specific!
 _Example: "I wish I could [...], and the solver would automatically [...]"_
 
 
-#### 🔄 Describe alternatives you've considered 
+#### 🔄 Describe alternatives you've considered
 Have you tried other workarounds, external tools, or existing features? You can include some Python code/pseudo-code here if you don't want to go through the Pull-Request hassle:
 
 ```python
@@ -26,6 +26,5 @@ Have you tried other workarounds, external tools, or existing features? You can 
 
 
 
->**🙏 PS: Thank you!**  
+>**🙏 PS: Thank you!**
 >We're excited to hear your suggestions. Your feedback makes Wakis better for everyone! 🌟
-

@@ -1,20 +1,18 @@
 import os
 import sys
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pyvista as pv
-import matplotlib.pyplot as plt
 
 sys.path.append("../wakis")
 
-from tqdm import tqdm
-from scipy.constants import c
-
-from wakis import SolverFIT3D
-from wakis import GridFIT3D
-from wakis import WakeSolver
-from wakis.sources import Beam
-
 import pytest
+from scipy.constants import c
+from tqdm import tqdm
+
+from wakis import GridFIT3D, SolverFIT3D, WakeSolver
+from wakis.sources import Beam
 
 # Run with:
 # mpiexec -n 2 python -m pytest --color=yes -v -s tests/test_007_mpi_lossy_cavity.py
@@ -249,7 +247,7 @@ class TestMPILossyCavity:
             Nt = 3000
             for n in tqdm(range(Nt)):
                 beam.update(solver, n * solver.dt)
-                solver.one_step() # MPI handled internally
+                solver.one_step()  # MPI handled internally
 
             Ez = solver.mpi_gather("Ez", x=int(Nx / 2), y=int(Ny / 2))
             if solver.rank == 0:

@@ -3,21 +3,21 @@
 # Copyright (c) CERN, 2024.                   #
 # ########################################### #
 
-from . import field
-from . import gridFIT3D
-from . import solverFIT3D
-from . import sources
-from . import materials
-from . import wakeSolver
-from . import geometry
-from . import logger
-from . import field_monitors
-
-from .field_monitors import FieldMonitor
+from . import (
+    field,
+    field_monitors,
+    geometry,
+    gridFIT3D,
+    logger,
+    materials,
+    solverFIT3D,
+    sources,
+    wakeSolver,
+)
+from ._version import __version__
 from .field import Field
+from .field_monitors import FieldMonitor
 from .gridFIT3D import GridFIT3D
+from .logger import Logger
 from .solverFIT3D import SolverFIT3D
 from .wakeSolver import WakeSolver
-from .logger import Logger
-
-from ._version import __version__

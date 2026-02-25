@@ -1,6 +1,8 @@
 import numpy as np
-from scipy.constants import c as c_light, epsilon_0 as eps_0, mu_0 as mu_0
 from pmlBlock2D import PmlBlock2D
+from scipy.constants import c as c_light
+from scipy.constants import epsilon_0 as eps_0
+from scipy.constants import mu_0 as mu_0
 
 
 def eq(a, b, tol=1e-8):

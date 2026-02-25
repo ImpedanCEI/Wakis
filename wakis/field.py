@@ -4,8 +4,9 @@
 # ########################################### #
 
 
-import numpy as xp
 import copy
+
+import numpy as xp
 
 try:
     import cupy as xp_gpu
@@ -758,8 +759,8 @@ class Field:
 
         # ---------- matplotlib backend ---------------
         if backend.lower() == "matplotlib":
-            import matplotlib.pyplot as plt
             import matplotlib as mpl
+            import matplotlib.pyplot as plt
 
             fig = plt.figure(tight_layout=True, dpi=dpi, figsize=[12, 6])
 

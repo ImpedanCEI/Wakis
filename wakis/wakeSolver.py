@@ -3,14 +3,15 @@
 # Copyright (c) CERN, 2024.                   #
 # ########################################### #
 
-import time
-import os
 import glob
+import os
 import shutil
+import time
+
 import h5py
 import numpy as np
-from tqdm import tqdm
 from scipy.constants import c as c_light
+from tqdm import tqdm
 
 from .logger import Logger
 

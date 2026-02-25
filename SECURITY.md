@@ -19,7 +19,7 @@ We take security seriously and appreciate your help in keeping the project safe 
 
 If you discover a vulnerability or security issue, please report it **privately** by following these steps:
 
-1. **Email us at:** [elena.de.la.fuente.garcia@cern.ch] 
+1. **Email us at:** [elena.de.la.fuente.garcia@cern.ch]
 2. Please include:
    - A detailed description of the issue
    - Steps to reproduce (if applicable)

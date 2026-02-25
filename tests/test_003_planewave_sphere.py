@@ -1,16 +1,16 @@
 import os
 import sys
-import pyvista as pv
+
 import numpy as np
+import pyvista as pv
 from scipy.constants import c
 
 sys.path.append("../wakis")
 
-from wakis import SolverFIT3D
-from wakis import GridFIT3D
-from wakis.sources import PlaneWave
-
 import pytest
+
+from wakis import GridFIT3D, SolverFIT3D
+from wakis.sources import PlaneWave
 
 # Turn False when running local
 flag_offscreen = True
