@@ -1,0 +1,115 @@
+name: Publish Wakis to PyPI
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*.[0-9]*.[0-9]*'
+
+jobs:
+  build-wheels:
+    name: Build wheels (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-15-intel, macos-latest]
+        pyver: [cp39, cp310, cp311, cp312, cp313, cp314]
+
+    steps:
+      - name: Check out source (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install cibuildwheel
+        run: python -m pip install --upgrade pip cibuildwheel
+
+      - name: Build wheels with cibuildwheel
+        run: python -m cibuildwheel --output-dir wheelhouse
+        env:
+          # Build for these CPython versions
+          CIBW_BUILD: ${{ matrix.pyver }}-*
+
+          # Linux: run inside manylinux containers, use yum
+          CIBW_BEFORE_BUILD_LINUX: |
+            python -m pip install --upgrade pip
+            python -m pip install -r requirements.txt
+
+          # macOS: runs directly on the macOS runner, use Homebrew
+          CIBW_BEFORE_BUILD_MACOS: |
+            python -m pip install --upgrade pip
+            python -m pip install -r requirements.txt
+
+          # Skip 32-bit & musllinux if you don’t care about them
+          CIBW_SKIP: "cp3?-manylinux_i686 *musllinux*"
+
+      - name: Upload wheel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}-${{ strategy.job-index }}
+          path: wheelhouse/*.whl
+
+  build-sdist:
+    name: Build sdist
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build
+        run: python -m pip install --upgrade pip build
+
+      - name: Build sdist
+        run: python -m build --sdist
+
+      - name: Upload sdist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  publish-to-pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: [build-wheels, build-sdist]
+
+    environment:
+      name: pypi
+      url: https://pypi.org/project/wakis/
+
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+
+      - name: Download sdist
+        uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist
+
+      - name: Show files to be uploaded
+        run: ls -R dist
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          verbose: true
