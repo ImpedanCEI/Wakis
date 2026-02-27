@@ -1,25 +1,22 @@
 import os
 import sys
-import pyvista as pv
+
+import matplotlib.pyplot as plt
 import numpy as np
+import pyvista as pv
 from scipy.constants import c
 
 sys.path.append("../wakis")
 
-from wakis import SolverFIT3D
-from wakis import GridFIT3D
+
+from wakis import GridFIT3D, SolverFIT3D
 from wakis.sources import PlaneWave
-
-import pytest
-
-# Turn False when running local
-flag_offscreen = True
 
 
 class TestPlanewave:
     img_folder = "tests/003_img/"
 
-    def test_simulation(self):
+    def test_simulation(self, flag_offscreen):
         print("\n---------- Initializing simulation ------------------")
         # Number of mesh cells
         Nx = 60
@@ -42,7 +39,11 @@ class TestPlanewave:
 
         # Domain bounds and grid
         xmin, xmax, ymin, ymax, zmin, zmax = surf.bounds
-        padx, pady, padz = (xmax - xmin) * 0.2, (ymax - ymin) * 0.2, (zmax - zmin) * 1.0
+        padx, pady, padz = (
+            (xmax - xmin) * 0.2,
+            (ymax - ymin) * 0.2,
+            (zmax - zmin) * 1.0,
+        )
 
         xmin, ymin, zmin = (xmin - padx), (ymin - pady), (zmin - padz)
         xmax, ymax, zmax = (xmax + padx), (ymax + pady), (zmax + padz)
@@ -75,7 +76,11 @@ class TestPlanewave:
         # simulation
         global solver
         solver = SolverFIT3D(
-            grid, use_stl=True, bc_low=bc_low, bc_high=bc_high, dtype=np.float32
+            grid,
+            use_stl=True,
+            bc_low=bc_low,
+            bc_high=bc_high,
+            dtype=np.float32,
         )
 
         # source
@@ -87,16 +92,32 @@ class TestPlanewave:
         Nt = int(1.0 * (solver.z.max() - solver.z.min()) / c / solver.dt)
         solver.emsolve(Nt, source)
 
-    def test_field_inspect(self):
+        if not flag_offscreen:
+            plt.ion()
+
+    def test_field_inspect(self, flag_offscreen):
         global solver
         # Inspect plane
-        solver.E.inspect(plane="YZ", cmap="bwr", dpi=100, figsize=[8, 6])
+        solver.E.inspect(
+            plane="YZ",
+            cmap="bwr",
+            dpi=100,
+            figsize=[8, 6],
+            off_screen=flag_offscreen,
+        )
         # Inspect custom slice
-        solver.ieps.inspect(x=slice(20, 60), y=slice(20, 60), z=int(grid.Nz / 2))
+        solver.ieps.inspect(
+            x=slice(20, 60),
+            y=slice(20, 60),
+            z=int(grid.Nz / 2),
+            off_screen=flag_offscreen,
+        )
         # Inspect with handles
-        _, _ = solver.H.inspect(plane="XY", cmap="bwr", handles=True)
+        _, _ = solver.H.inspect(
+            plane="XY", cmap="bwr", handles=True, off_screen=flag_offscreen
+        )
 
-    def test_plot1D(self):
+    def test_plot1D(self, flag_offscreen):
         global solver
         solver.plot1D(
             "Ex",
@@ -106,11 +127,18 @@ class TestPlanewave:
             yscale="linear",
             off_screen=flag_offscreen,
             n=solver.Nt,
-            colors=["#5ccfe6", "#fdb6d0", "#ffae57", "#bae67e", "#ffd580", "#a2aabc"],
+            colors=[
+                "#5ccfe6",
+                "#fdb6d0",
+                "#ffae57",
+                "#bae67e",
+                "#ffd580",
+                "#a2aabc",
+            ],
             title=self.img_folder + "1Dplot_Ex",
         )
 
-    def test_plot2D(self):
+    def test_plot2D(self, flag_offscreen):
         global solver
         solver.plot2D(
             "Hy",
@@ -125,8 +153,7 @@ class TestPlanewave:
             title=self.img_folder + "2Dplot_Hy",
         )
 
-    @pytest.mark.skipif(flag_offscreen, reason="Requires interactive plotting")
-    def test_plot3D_interactive(self):
+    def test_plot3D_plane(self, flag_offscreen):
         global solver
         solver.plot3D(
             field="E",
@@ -137,10 +164,11 @@ class TestPlanewave:
             stl_colors="white",
             clip_interactive=True,
             clip_normal="-y",
-            off_screen=False,
+            off_screen=flag_offscreen,
+            title=self.img_folder + "3Dplot_Ex",
         )
 
-    def test_plot3D_offscreen(self):
+    def test_plot3D_box(self, flag_offscreen):
         global solver
         solver.plot3D(
             field="H",
@@ -155,8 +183,7 @@ class TestPlanewave:
             title=self.img_folder + "3Dplot_Hy",
         )
 
-    @pytest.mark.skipif(flag_offscreen, reason="Requires interactive plotting")
-    def test_plot3DonSTL_interactive(self):
+    def test_plot3DonSTL_interactive(self, flag_offscreen):
         global solver
         solver.plot3DonSTL(
             "Ex",
@@ -168,11 +195,11 @@ class TestPlanewave:
             stl_colors="white",
             clip_interactive=True,
             clip_normal="-y",
-            off_screen=False,
+            off_screen=flag_offscreen,
             zoom=1.0,
         )
 
-    def test_plot3DonSTL_offscreen(self):
+    def test_plot3DonSTL_offscreen(self, flag_offscreen):
         global solver
         solver.plot3DonSTL(
             "Ex",

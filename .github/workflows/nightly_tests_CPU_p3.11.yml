@@ -1,6 +1,6 @@
 # This is a basic workflow that is nighly triggered
 
-name: nightly_tests_CPU_python10
+name: nightly_tests_CPU_py3.11
 
 # Controls when the action will run. CRON schedule runs at mm hh dd mm yy UTC TIME
 on:
@@ -24,19 +24,23 @@ jobs:
       uses: conda-incubator/setup-miniconda@v2
       with:
         miniforge-version: latest
-        python-version: "3.10"
-    - name: pip install
-      run:  |
-        pip install wakis['notebook']
-        pip uninstall vtk -y
-        pip install --extra-index-url https://wheels.vtk.org vtk-osmesa
-    - name: Print versions
-      run: conda list
+        python-version: "3.11"
     - name: Checkout wakis
       uses: actions/checkout@v4
       with:
         path: wakis
+    - name: pip install
+      run:  |
+        cd wakis
+        pip install .
+        pip install pytest pytest-cov
+        pip uninstall vtk -y
+        pip install --extra-index-url https://wheels.vtk.org vtk-osmesa
+
+    - name: Print versions
+      run: conda list
     - name: Run pytest
       run:  |
         cd wakis
-        python -m pytest --color=yes -v -s tests
+        python -m pytest --cov=wakis --cov-config=tests/.coveragerc --cov-report=term -v tests
+

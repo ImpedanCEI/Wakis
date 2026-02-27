@@ -3,11 +3,11 @@
 # Copyright (c) CERN, 2024.                   #
 # ########################################### #
 
+import time
+
+import h5py
 import numpy as np
 import pyvista as pv
-import time
-import h5py
-
 from scipy.optimize import least_squares
 
 from .field import Field
@@ -210,11 +210,15 @@ class GridFIT3D:
             if verbose:
                 print("Applying mesh refinement...")
             if self.snap_points is None and stl_solids is not None:
-                self._compute_snap_points(snap_solids=snap_solids, snap_tol=snap_tol)
+                self._compute_snap_points(
+                    snap_solids=snap_solids, snap_tol=snap_tol
+                )
             self._refine_xyz_axis(method=refinement_method, tol=refinement_tol)
 
         if verbose:
-            print(f"Generating grid with {self.Nx * self.Ny * self.Nz} mesh cells...")
+            print(
+                f"Generating grid with {self.Nx * self.Ny * self.Nz} mesh cells..."
+            )
             if verbose > 1:
                 print(
                     f" * Simulation domain bounds: \n\
@@ -261,7 +265,9 @@ class GridFIT3D:
         Sets up the structured grid, cell lengths, inverse areas, and tilde grid.
         """
         X, Y, Z = np.meshgrid(self.x, self.y, self.z, indexing="ij")
-        self.grid = pv.StructuredGrid(X.transpose(), Y.transpose(), Z.transpose())
+        self.grid = pv.StructuredGrid(
+            X.transpose(), Y.transpose(), Z.transpose()
+        )
 
         self.L = Field(self.Nx, self.Ny, self.Nz)
         self.L.field_x = X[1:, 1:, 1:] - X[:-1, :-1, :-1]
@@ -291,11 +297,17 @@ class GridFIT3D:
 
         self.itA = Field(self.Nx, self.Ny, self.Nz)
         aux = self.tL.field_y * self.tL.field_z
-        self.itA.field_x = np.divide(1.0, aux, out=np.zeros_like(aux), where=aux != 0)
+        self.itA.field_x = np.divide(
+            1.0, aux, out=np.zeros_like(aux), where=aux != 0
+        )
         aux = self.tL.field_x * self.tL.field_z
-        self.itA.field_y = np.divide(1.0, aux, out=np.zeros_like(aux), where=aux != 0)
+        self.itA.field_y = np.divide(
+            1.0, aux, out=np.zeros_like(aux), where=aux != 0
+        )
         aux = self.tL.field_x * self.tL.field_y
-        self.itA.field_z = np.divide(1.0, aux, out=np.zeros_like(aux), where=aux != 0)
+        self.itA.field_z = np.divide(
+            1.0, aux, out=np.zeros_like(aux), where=aux != 0
+        )
         del aux
 
     def _mpi_initialize(self):
@@ -319,12 +331,16 @@ class GridFIT3D:
         # global z quantities [ALLCAPS]
         self.ZMIN = self.zmin
         self.ZMAX = self.zmax
-        self.NZ = self.Nz - self.Nz % (self.size)  # ensure multiple of MPI size
+        self.NZ = self.Nz - self.Nz % (
+            self.size
+        )  # ensure multiple of MPI size
         self.Z = np.linspace(self.ZMIN, self.ZMAX, self.NZ + 1)[:-1]
         self.Z += (self.ZMAX - self.ZMIN) / (2 * self.NZ)
 
         if self.verbose and self.rank == 0:
-            print(f" * Global grid ZMIN={self.ZMIN}, ZMAX={self.ZMAX}, NZ={self.NZ}")
+            print(
+                f" * Global grid ZMIN={self.ZMIN}, ZMAX={self.ZMAX}, NZ={self.NZ}"
+            )
 
         # MPI subdomain quantities [TODO: support non-uniform dz with MPI]
         self.Nz = self.NZ // (self.size)
@@ -453,7 +469,8 @@ class GridFIT3D:
         """
         # Obtain masks with grid cells inside each stl solid
         stl_tolerance = (
-            np.min([np.min(self.dx), np.min(self.dy), np.min(self.dz)]) * self.stl_tol
+            np.min([np.min(self.dx), np.min(self.dy), np.min(self.dz)])
+            * self.stl_tol
         )
         progress_bar = False
         if self.Nx * self.Ny * self.Nz > 5e6 and self.verbose:
@@ -480,7 +497,8 @@ class GridFIT3D:
                     )
 
             self.grid[key] = (
-                select.point_data_to_cell_data()["SelectedPoints"] > stl_tolerance
+                select.point_data_to_cell_data()["SelectedPoints"]
+                > stl_tolerance
             )
 
             if self.verbose and np.sum(self.grid[key]) == 0:
@@ -550,7 +568,9 @@ class GridFIT3D:
             else:
                 model = model + solid
 
-        edges = model.extract_feature_edges(boundary_edges=True, manifold_edges=False)
+        edges = model.extract_feature_edges(
+            boundary_edges=True, manifold_edges=False
+        )
 
         # Extract points lying in the X-Z plane (Y ≈ 0)
         xz_plane_points = edges.points[np.abs(edges.points[:, 1]) < snap_tol]
@@ -559,7 +579,9 @@ class GridFIT3D:
         # Extract points lying in the X-Y plane (Z ≈ 0)
         xy_plane_points = edges.points[np.abs(edges.points[:, 2]) < snap_tol]
 
-        self.snap_points = np.r_[xz_plane_points, yz_plane_points, xy_plane_points]
+        self.snap_points = np.r_[
+            xz_plane_points, yz_plane_points, xy_plane_points
+        ]
 
         # get the unique x, y, z coordinates
         x_snaps = np.unique(np.round(self.snap_points[:, 0], 5))
@@ -567,9 +589,15 @@ class GridFIT3D:
         z_snaps = np.unique(np.round(self.snap_points[:, 2], 5))
 
         # Include simulation domain bounds
-        self.x_snaps = np.unique(np.concatenate(([self.xmin], x_snaps, [self.xmax])))
-        self.y_snaps = np.unique(np.concatenate(([self.ymin], y_snaps, [self.ymax])))
-        self.z_snaps = np.unique(np.concatenate(([self.zmin], z_snaps, [self.zmax])))
+        self.x_snaps = np.unique(
+            np.concatenate(([self.xmin], x_snaps, [self.xmax]))
+        )
+        self.y_snaps = np.unique(
+            np.concatenate(([self.ymin], y_snaps, [self.ymax]))
+        )
+        self.z_snaps = np.unique(
+            np.concatenate(([self.zmin], z_snaps, [self.zmax]))
+        )
 
     def plot_snap_points(self, snap_solids=None, snap_tol=1e-8):
         """
@@ -595,7 +623,9 @@ class GridFIT3D:
             else:
                 model = model + solid
 
-        edges = model.extract_feature_edges(boundary_edges=True, manifold_edges=False)
+        edges = model.extract_feature_edges(
+            boundary_edges=True, manifold_edges=False
+        )
 
         # Extract points lying in the X-Z plane (Y ≈ 0)
         xz_plane_points = edges.points[np.abs(edges.points[:, 1]) < snap_tol]
@@ -676,13 +706,17 @@ class GridFIT3D:
             dx = np.diff(x)
             penalty_variance = np.std(dx) * 10
             # return penalty_snap + penalty_small_gaps + penalty_variance
-            return np.hstack([penalty_snap, penalty_small_gaps, penalty_variance])
+            return np.hstack(
+                [penalty_snap, penalty_small_gaps, penalty_variance]
+            )
 
         # Uniformly distributed points as initial guess
         x_snaps = (x_snaps - xmin) / (xmax - xmin)  # normalize to [0,1]
 
         if method == "insert":
-            x0 = np.unique(np.append(x_snaps, np.linspace(0, 1, Nx - len(x_snaps))))
+            x0 = np.unique(
+                np.append(x_snaps, np.linspace(0, 1, Nx - len(x_snaps)))
+            )
 
         elif method == "neighbor":
             x = np.linspace(0, 1, Nx)
@@ -701,7 +735,10 @@ class GridFIT3D:
 
                 # print(f"Bigger segment starts at {x[idx_max_diffs]}")
                 # compute new point in the middle of the segment
-                val = x[idx_max_diffs] + (x[idx_max_diffs + 1] - x[idx_max_diffs]) / 2
+                val = (
+                    x[idx_max_diffs]
+                    + (x[idx_max_diffs + 1] - x[idx_max_diffs]) / 2
+                )
 
                 # insert the new point
                 x = np.insert(x, idx_max_diffs + 1, val)
@@ -752,19 +789,34 @@ class GridFIT3D:
         if self.verbose > 1:
             print(f" * Refining x axis with {len(self.x_snaps)} snaps...")
         self.x = self.refine_axis(
-            self.xmin, self.xmax, self.Nx + 1, self.x_snaps, method=method, tol=tol
+            self.xmin,
+            self.xmax,
+            self.Nx + 1,
+            self.x_snaps,
+            method=method,
+            tol=tol,
         )
 
         if self.verbose > 1:
             print(f" * Refining y axis with {len(self.y_snaps)} snaps...")
         self.y = self.refine_axis(
-            self.ymin, self.ymax, self.Ny + 1, self.y_snaps, method=method, tol=tol
+            self.ymin,
+            self.ymax,
+            self.Ny + 1,
+            self.y_snaps,
+            method=method,
+            tol=tol,
         )
 
         if self.verbose > 1:
             print(f" * Refining z axis with {len(self.z_snaps)} snaps...")
         self.z = self.refine_axis(
-            self.zmin, self.zmax, self.Nz + 1, self.z_snaps, method=method, tol=tol
+            self.zmin,
+            self.zmax,
+            self.Nz + 1,
+            self.z_snaps,
+            method=method,
+            tol=tol,
         )
 
         self.Nx = len(self.x) - 1
@@ -775,7 +827,9 @@ class GridFIT3D:
         self.dz = np.diff(self.z)
 
         if self.verbose > 1:
-            print(f"Refined grid: Nx = {self.Nx}, Ny ={self.Ny}, Nz = {self.Nz}")
+            print(
+                f"Refined grid: Nx = {self.Nx}, Ny ={self.Ny}, Nz = {self.Nz}"
+            )
 
     def _assign_colors(self):
         """
@@ -901,11 +955,16 @@ class GridFIT3D:
 
         if show_grid:
             pl.add_mesh(
-                self.grid, style="wireframe", color="grey", opacity=0.3, name="grid"
+                self.grid,
+                style="wireframe",
+                color="grey",
+                opacity=0.3,
+                name="grid",
             )
 
         if off_screen:
-            pl.export_html("grid_plot_solids.html")
+            return pl
+            # pl.export_html("grid_plot_solids.html")
         else:
             pl.show()
 
@@ -1014,7 +1073,9 @@ class GridFIT3D:
 
             # add slice wireframe (grid structure)
             if show_grid:
-                pl.add_mesh(slice_obj, style="wireframe", color="grey", name="slice")
+                pl.add_mesh(
+                    slice_obj, style="wireframe", color="grey", name="slice"
+                )
 
         # Plot stl surface(s)
         if add_stl is not None:
@@ -1145,7 +1206,8 @@ class GridFIT3D:
             )
 
         if off_screen:
-            pl.export_html(f"grid_stl_mask_{stl_solid}.html")
+            return pl
+            # pl.export_html(f"grid_stl_mask_{stl_solid}.html")
         else:
             pl.show()
 
@@ -1187,7 +1249,9 @@ class GridFIT3D:
 
         pv.global_theme.allow_empty_mesh = True
         pl = pv.Plotter()
-        pl.add_mesh(self.grid, show_edges=True, cmap=["white", "white"], name="grid")
+        pl.add_mesh(
+            self.grid, show_edges=True, cmap=["white", "white"], name="grid"
+        )
 
         def clip(widget):
             # Plot structured grid
@@ -1196,9 +1260,13 @@ class GridFIT3D:
             y = self.y[np.logical_and(self.y >= b[2], self.y <= b[3])]
             z = self.z[np.logical_and(self.z >= b[4], self.z <= b[5])]
             X, Y, Z = np.meshgrid(x, y, z, indexing="ij")
-            grid = pv.StructuredGrid(X.transpose(), Y.transpose(), Z.transpose())
+            grid = pv.StructuredGrid(
+                X.transpose(), Y.transpose(), Z.transpose()
+            )
 
-            pl.add_mesh(grid, show_edges=True, cmap=["white", "white"], name="grid")
+            pl.add_mesh(
+                grid, show_edges=True, cmap=["white", "white"], name="grid"
+            )
             # Plot stl surface(s)
             if add_stl is not None:  # add 1 selected stl solid
                 if type(add_stl) is str:
@@ -1336,7 +1404,7 @@ class GridFIT3D:
                 for key, val in dct.items():
                     # Use dtype='S' for strings, otherwise np.array
                     if isinstance(val, str):
-                        grp.create_dataset(str(key), data=np.string_(val))
+                        grp.create_dataset(str(key), data=np.bytes_(val))
                     else:
                         grp.create_dataset(str(key), data=np.array(val))
 
@@ -1408,8 +1476,12 @@ class GridFIT3D:
 
         # add verbosity
         if self.verbose > 1:
-            print(f"Loaded grid with {self.Nx * self.Ny * self.Nz} mesh cells:")
-            print(f" * Number of cells: Nx={self.Nx}, Ny={self.Ny}, Nz={self.Nz}")
+            print(
+                f"Loaded grid with {self.Nx * self.Ny * self.Nz} mesh cells:"
+            )
+            print(
+                f" * Number of cells: Nx={self.Nx}, Ny={self.Ny}, Nz={self.Nz}"
+            )
             print(
                 f" * Simulation domain bounds: \n\
                 x:[{self.xmin:.3f}, {self.xmax:.3f}],\n\

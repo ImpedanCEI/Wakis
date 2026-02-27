@@ -4,8 +4,9 @@
 # ########################################### #
 
 
-import numpy as xp
 import copy
+
+import numpy as xp
 
 try:
     import cupy as xp_gpu
@@ -65,7 +66,9 @@ class Field:
             if imported_cupy:
                 self.xp = xp_gpu
             else:
-                print("*** cupy could not be imported, please CUDA check installation")
+                print(
+                    "*** cupy could not be imported, please CUDA check installation"
+                )
         else:
             self.xp = xp
 
@@ -155,7 +158,9 @@ class Field:
             )
         if key == 1 or key == "y":
             return self.xp.reshape(
-                self.array[self.N : 2 * self.N], (self.Nx, self.Ny, self.Nz), order="F"
+                self.array[self.N : 2 * self.N],
+                (self.Nx, self.Ny, self.Nz),
+                order="F",
             )
         if key == 2 or key == "z":
             return self.xp.reshape(
@@ -178,7 +183,9 @@ class Field:
         if key == 0 or key == "x":
             self.array[0 : self.N] = self.xp.reshape(mat, self.N, order="F")
         elif key == 1 or key == "y":
-            self.array[self.N : 2 * self.N] = self.xp.reshape(mat, self.N, order="F")
+            self.array[self.N : 2 * self.N] = self.xp.reshape(
+                mat, self.N, order="F"
+            )
         elif key == 2 or key == "z":
             self.array[2 * self.N : 3 * self.N] = self.xp.reshape(
                 mat, self.N, order="F"
@@ -235,16 +242,22 @@ class Field:
         """
         if type(key) is tuple:
             if len(key) != 4:
-                raise IndexError("Need 3 indexes and component to access the field")
+                raise IndexError(
+                    "Need 3 indexes and component to access the field"
+                )
             if key[3] == 0 or key[3] == "x":
                 if self.on_gpu:
                     field = self.xp.reshape(
-                        self.array[0 : self.N], (self.Nx, self.Ny, self.Nz), order="F"
+                        self.array[0 : self.N],
+                        (self.Nx, self.Ny, self.Nz),
+                        order="F",
                     )
                     return field[key[0], key[1], key[2]].get()
                 else:
                     field = self.xp.reshape(
-                        self.array[0 : self.N], (self.Nx, self.Ny, self.Nz), order="F"
+                        self.array[0 : self.N],
+                        (self.Nx, self.Ny, self.Nz),
+                        order="F",
                     )
                     return field[key[0], key[1], key[2]]
             elif key[3] == 1 or key[3] == "y":
@@ -321,7 +334,9 @@ class Field:
 
         if type(key) is tuple:
             if len(key) != 4:
-                raise IndexError("Need 3 indexes and component to access the field")
+                raise IndexError(
+                    "Need 3 indexes and component to access the field"
+                )
             else:
                 field = self.to_matrix(key[3])
                 field[key[0], key[1], key[2]] = value
@@ -560,7 +575,9 @@ class Field:
                     self.field_x**2 + self.field_y**2 + self.field_z**2
                 ).get()
             else:
-                return xp.sqrt(self.field_x**2 + self.field_y**2 + self.field_z**2)
+                return xp.sqrt(
+                    self.field_x**2 + self.field_y**2 + self.field_z**2
+                )
 
     def inspect(
         self,
@@ -571,7 +588,7 @@ class Field:
         x=None,
         y=None,
         z=None,
-        show=True,
+        off_screen=False,
         handles=False,
         **kwargs,
     ):
@@ -590,8 +607,8 @@ class Field:
             Figure size. Default is [8, 6].
         x, y, z : int, slice, or None, optional
             Custom slice indices. If all are not None, use as custom slice.
-        show : bool, optional
-            If True, display the plot. Default is True.
+        off_screen : bool, optional
+            If True, display the plot off-screen. Default is False.
         handles : bool, optional
             If True, return (fig, axs) instead of showing. Default is False.
         **kwargs
@@ -633,7 +650,9 @@ class Field:
             xax, yax = "nz", "ny"
             transpose = False
 
-        fig, axs = plt.subplots(1, 3, tight_layout=True, figsize=figsize, dpi=dpi)
+        fig, axs = plt.subplots(
+            1, 3, tight_layout=True, figsize=figsize, dpi=dpi
+        )
         dims = {0: "x", 1: "y", 2: "z"}
 
         im = {}
@@ -670,7 +689,9 @@ class Field:
             ax.set_title(f"Field {dims[i]}, plane {plane}")
             fig.colorbar(
                 im[i],
-                cax=make_axes_locatable(ax).append_axes("right", size="5%", pad=0.1),
+                cax=make_axes_locatable(ax).append_axes(
+                    "right", size="5%", pad=0.1
+                ),
             )
             ax.set_xlabel(xax)
             ax.set_ylabel(yax)
@@ -678,7 +699,7 @@ class Field:
         if handles:
             return fig, axs
 
-        if show:
+        if not off_screen:
             plt.show()
             return None
 
@@ -694,7 +715,7 @@ class Field:
         show_grid=True,
         cmap="viridis",
         dpi=100,
-        show=True,
+        off_screen=False,
         handles=False,
     ):
         """
@@ -758,8 +779,8 @@ class Field:
 
         # ---------- matplotlib backend ---------------
         if backend.lower() == "matplotlib":
-            import matplotlib.pyplot as plt
             import matplotlib as mpl
+            import matplotlib.pyplot as plt
 
             fig = plt.figure(tight_layout=True, dpi=dpi, figsize=[12, 6])
 
@@ -789,7 +810,9 @@ class Field:
 
             # field x
             if plot_x:
-                arr = self.to_matrix("x")[0 : int(xmax), 0 : int(ymax), 0 : int(zmax)]
+                arr = self.to_matrix("x")[
+                    0 : int(xmax), 0 : int(ymax), 0 : int(zmax)
+                ]
                 if field == "all":
                     ax = fig.add_subplot(1, 3, 1, projection="3d")
                 else:
@@ -801,7 +824,9 @@ class Field:
                 )
                 norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
                 colors = mpl.colormaps[cmap](norm(arr))
-                ax.voxels(x, y, z, filled=self.xp.ones_like(arr), facecolors=colors)
+                ax.voxels(
+                    x, y, z, filled=self.xp.ones_like(arr), facecolors=colors
+                )
 
                 m = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
                 m.set_array([])
@@ -811,7 +836,9 @@ class Field:
 
             # field y
             if plot_y:
-                arr = self.to_matrix("y")[0 : int(xmax), 0 : int(ymax), 0 : int(zmax)]
+                arr = self.to_matrix("y")[
+                    0 : int(xmax), 0 : int(ymax), 0 : int(zmax)
+                ]
                 if field == "all":
                     ax = fig.add_subplot(1, 3, 2, projection="3d")
                 else:
@@ -823,7 +850,9 @@ class Field:
                 )
                 norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
                 colors = mpl.colormaps[cmap](norm(arr))
-                ax.voxels(x, y, z, filled=self.xp.ones_like(arr), facecolors=colors)
+                ax.voxels(
+                    x, y, z, filled=self.xp.ones_like(arr), facecolors=colors
+                )
 
                 m = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
                 m.set_array([])
@@ -833,7 +862,9 @@ class Field:
 
             # field z
             if plot_z:
-                arr = self.to_matrix("z")[0 : int(xmax), 0 : int(ymax), 0 : int(zmax)]
+                arr = self.to_matrix("z")[
+                    0 : int(xmax), 0 : int(ymax), 0 : int(zmax)
+                ]
                 if field == "all":
                     ax = fig.add_subplot(1, 3, 3, projection="3d")
                 else:
@@ -845,7 +876,9 @@ class Field:
                 )
                 norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
                 colors = mpl.colormaps[cmap](norm(arr))
-                ax.voxels(x, y, z, filled=self.xp.ones_like(arr), facecolors=colors)
+                ax.voxels(
+                    x, y, z, filled=self.xp.ones_like(arr), facecolors=colors
+                )
 
                 m = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
                 m.set_array([])
@@ -867,7 +900,7 @@ class Field:
             if handles:
                 return fig, axs
 
-            if show:
+            if not off_screen:
                 plt.show()
 
         # ----------- pyvista backend ---------------
@@ -926,7 +959,9 @@ class Field:
                 if zmax is None:
                     zmax = self.Nz
                 X, Y, Z = xp.meshgrid(x, y, z, indexing="ij")
-                grid = pv.StructuredGrid(X.transpose(), Y.transpose(), Z.transpose())
+                grid = pv.StructuredGrid(
+                    X.transpose(), Y.transpose(), Z.transpose()
+                )
 
                 if field == "x":
                     scalars = "Field " + field
@@ -959,7 +994,14 @@ class Field:
                 # add clipped volume (scalars)
                 pl.add_mesh(
                     grid.clip_box(
-                        bounds=(xlo, vals["x"], ylo, vals["y"], zlo, vals["z"]),
+                        bounds=(
+                            xlo,
+                            vals["x"],
+                            ylo,
+                            vals["y"],
+                            zlo,
+                            vals["z"],
+                        ),
                         invert=False,
                     ),
                     scalars=scalars,
@@ -970,7 +1012,10 @@ class Field:
                 # add slice wireframe (grid structure)
                 if show_grid:
                     pl.add_mesh(
-                        slice_obj, style="wireframe", color="grey", name="slice"
+                        slice_obj,
+                        style="wireframe",
+                        color="grey",
+                        name="slice",
                     )
 
             # --- Sliders (placed side-by-side vertically) ---
@@ -1029,7 +1074,7 @@ class Field:
             if handles:
                 return pl
 
-            if not show:
+            if off_screen:
                 pl.export_html("Field.html")
             else:
                 pl.show()
