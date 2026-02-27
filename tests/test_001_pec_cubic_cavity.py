@@ -1,15 +1,14 @@
 import os
 import sys
+
 import numpy as np
 import pyvista as pv
 
 sys.path.append("../wakis")
 
-from wakis import SolverFIT3D
-from wakis import GridFIT3D
-from wakis import WakeSolver
-
 import pytest
+
+from wakis import GridFIT3D, SolverFIT3D, WakeSolver
 
 
 @pytest.mark.slow
@@ -70,7 +69,7 @@ class TestPecCubicCavity:
 
     dtype = np.float32
 
-    def test_simulation(self):
+    def test_simulation(self, use_gpu):
         print("\n---------- Initializing simulation ------------------")
         # Number of mesh cells
         Nx = 50
@@ -140,6 +139,7 @@ class TestPecCubicCavity:
             use_stl=True,
             bg="pec",
             dtype=self.dtype,
+            use_gpu=use_gpu,
         )
 
         wakelength = 1.0  # [m]
@@ -181,9 +181,15 @@ class TestPecCubicCavity:
         global grid
         grid2 = GridFIT3D(load_from_h5="tests/001_grid.h5", verbose=2)
 
-        assert np.array_equal(grid.x, grid2.x), "Grid load_from_h5 x-coords failed"
-        assert np.array_equal(grid.y, grid2.y), "Grid load_from_h5 y-coords failed"
-        assert np.array_equal(grid.z, grid2.z), "Grid load_from_h5 z-coords failed"
+        assert np.array_equal(grid.x, grid2.x), (
+            "Grid load_from_h5 x-coords failed"
+        )
+        assert np.array_equal(grid.y, grid2.y), (
+            "Grid load_from_h5 y-coords failed"
+        )
+        assert np.array_equal(grid.z, grid2.z), (
+            "Grid load_from_h5 z-coords failed"
+        )
         assert np.array_equal(grid.grid["cavity"], grid2.grid["cavity"]), (
             "Grid load_from_h5 solid mask failed"
         )

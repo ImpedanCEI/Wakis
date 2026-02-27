@@ -5,7 +5,8 @@
 [![Documentation Status](https://readthedocs.org/projects/wakis/badge/?version=latest)](https://wakis.readthedocs.io/en/latest/?badge=latest)
 ![Tests badge](https://github.com/impedanCEI/wakis/actions/workflows/nightly_tests_CPU.yml/badge.svg)
 [![codecov](https://codecov.io/github/elenafuengar/wakis/graph/badge.svg?token=7QPYJC23A0)](https://codecov.io/github/elenafuengar/wakis)
-![Tokei - LOC](https://tokei.rs/b1/github/ImpedanCEI/wakis?category=code?/style=square&color=green)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+![LoC](https://raw.githubusercontent.com/ImpedanCEI/wakis/gh-pages/badge.svg)
 
 ![PyPI - Version](https://img.shields.io/pypi/v/wakis?style=flat-square&color=fuchsia)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/wakis)
@@ -19,22 +20,22 @@
 🚀 Some of `wakis` features:
 * Wake potential and impedance calculations for particle beams with different relativistic $\beta$
 * Material tensors: permittivity $\varepsilon$, permeability $\mu$, conductivity $\sigma$. Possibility of anisotropy.
-* CAD geometry importer (`STL` & `STEP` format) for definition of embedded boundaries and material regions, based on [`pyvista`](https://github.com/pyvista/pyvista) 
+* CAD geometry importer (`STL` & `STEP` format) for definition of embedded boundaries and material regions, based on [`pyvista`](https://github.com/pyvista/pyvista)
 * Boundary conditions: PEC, PMC, Periodic, ABC-FOEXTRAP, Perfect Matched Layers (PML)
 * Different time-domain sources: particle beam, planewave, gaussian wavepacket
 * 100% python, fully exposed API (material tensors, fields $E$, $H$, $J$). Matrix operators based on `numpy` and `scipy.sparse` routines ensure fast calculations.
 * 1d, 2d, 3d built-in plotting on-the-fly
-* Optimized memory consumption
-* GPU acceleration using `cupy/cupyx`
+* Optimized memory consumption & GPU acceleration using `cupy/cupyx`
 * CUDA-aware MPI parallelization with `mpi4py` and `ipyparallel`: added in[#v0.6.0](https://github.com/ImpedanCEI/wakis/releases/tag/v0.6.0)
+* Snappy Smart mesh added in [#v0.6.2](https://github.com/ImpedanCEI/wakis/releases/tag/v0.6.2)
 
 🧩 Other complementary tools in the ecosystem:
 * Wakefield extrapolation via broadband resonator fitting with PIML [`iddefix`](https://github.com/ImpedanCEI/IDDEFIX) evolutionary algorithms
 * Non-equidistant Filon Fourier integration with [`neffint`](https://github.com/ImpedanCEI/neffint)
 * Beam-induced heating estimation due to impedance with [`bihc`](https://github.com/ImpedanCEI/BIHC)
 
-📣 Tag and version changes are decribed in each Wakis [Github Release](https://github.com/ImpedanCEI/wakis/releases):
-* To be informed of the latest features/bug fixes pushed to `main`, check the draft [`release.md`](https://github.com/ImpedanCEI/wakis/blob/main/release.md)
+📣 Tag and version changes are decribed in each Wakis [Github Release](https://github.com/ImpedanCEI/wakis/releases)
+
 * For specific needs, please contact the developer 👩‍💻👋: elena.de.la.fuente.garcia@cern.ch
 
 ## How to use
@@ -43,7 +44,7 @@
 Check 📁 `examples/` and `notebooks/` for different physical applications:
 * Planewave interacting with a PEC or dielectric sphere
 * Gaussian wavepacket travelling through vacuum / dielectric
-* Custom perturbation interacting with PEC geometry 
+* Custom perturbation interacting with PEC geometry
 * Wakefield simulation of accelerator cavity on CPU, GPU and with MPI
 
 Check 🌐📁 [`SWAN_tutorial/`](https://github.com/ImpedanCEI/SWAN_tutorial) for hands-on notebook examples ready to run on CERN's SWAN service's GPUs (A100, Tesla T4):
@@ -58,63 +59,58 @@ Check 🌐📁 [`wakis-benchmarks/`](https://github.com/ImpedanCEI/wakis-benchma
 * Lossy pillbox cavity (cylindrical) above cutoff
 * Simulations using beams with different relativistic $\beta$
 
-Check 🌐📁 [`CEI-logo/`](https://github.com/ImpedanCEI/CEI-logo) for a fun & complete beam-coupling impedance workflow tutorial, including:
-* **001**: Electromagnetic simulation preparation, inspection & 1d, 2d, 3d plotting.
-* **002**: Wakefield simulation on GPU
-* **003**: Extrapolation of wakefield simulation to fully decayed with [`iddefix`](https://github.com/ImpedanCEI/IDDEFIX). Conversion to wake function for beam dynamics simulation with [`neffint`](https://github.com/ImpedanCEI/neffint).
-* **004**: Beam-induced heating estimation due to impedance with [`bihc`](https://github.com/ImpedanCEI/BIHC)
-* **005**: MPI simulation example in notebooks with `ipyparallel` and `mpi4py`
+Check 🌐📁 [`BE-Seminar-demo/`](https://github.com/ImpedanCEI/CEI-logo) for a complete demonstration of Wakis usage.
 
 ## Installation
-Wakis supports `Python 3.9 - 3.11` and can be installed in any `conda` environment.
+Wakis supports `Python 3.9 - 3.14` and can be installed in any `conda` or `venv` environment.
 
 📖 **For a detailed installation guide (GPU, MPI setup, FAQs), check our [documentation](https://wakis.readthedocs.io/en/latest/installation.html).**
 
-### Users: Install via PyPI  
+### Install via PyPI
 For basic usage, simply run:
 ```bash
 pip install wakis
 ```
-For additional features, including **interactive 3D plots in Jupyter notebooks**, use:
+For additional features, including **interactive 3D plots in Jupyter notebooks** and Wakis' satellite packages, use:
 ```bash
-pip install wakis['notebook']
+pip install wakis['all']
 ```
-To install **complementary tools** in the Wakis ecosystem:
+To use the *version-frozen* environment specified in `requirements.txt`, with python 3.9-3.11 do:
 ```bash
-pip install neffint iddefix bihc
-```
-💡 **Have a bug, feature request, or suggestion?** Open a [GitHub Issue](https://github.com/ImpedanCEI/wakis/issues) so the community can track it.
-
-### Developers: Contribute to Wakis  
-First, [Fork](https://github.com/ImpedanCEI/wakis/fork) the repository and clone it from `main`:
-```bash
-# SSH:
-git clone git@github.com:YourUserName/wakis.git
-
-# or HTTPS:
-git clone https://github.com/YourUserName/wakis.git
-```
-Create a dedicated **conda environment** and install dependencies:
-```bash
-cd wakis/
 conda create --name wakis-env python=3.11
 conda activate wakis-env
-pip install -r requirements.txt
-pip install -e .  # install wakis in editable mode
-pip install neffint iddefix bihc  # Optional tools
+pip install wakis['notebook']
 ```
+
+To install Wakis from the source, clone the repository and install it in *editable* mode:
+```bash
+git clone https://github.com/ImpedanCEI/wakis.git
+cd wakis
+pip install -e .
+```
+
+### Install via Docker
+A pre-built [Docker image of Wakis](https://hub.docker.com/r/edelafue/wakis) is available for easy setup and reproducibility.
+
+```bash
+sudo docker pull docker.io/edelafue/wakis:latest
+sudo docker run --rm -it docker.io/edelafue/wakis:latest /bin/bash
+```
+
+💡 **Have a bug, feature request, or suggestion?** Open a [GitHub Issue](https://github.com/ImpedanCEI/wakis/issues) so the community can track it.
+
 🛠️ **Want to contribute?**  To merge your changes into `main`, create a **Pull Request (PR)** following our [PR template](https://github.com/ImpedanCEI/wakis/blob/main/.github/pull_request_template.md).
 
 ## Motivation
-🎯 The determination of electromagnetic wakefields and their impact on accelerator performance is a significant issue in current accelerator components. These wakefields, which are generated within the accelerator vacuum chamber as a result of the interaction between the structure and a passing beam, can have significant effects on the machine. 
-These effects can be characterized through the beam coupling impedance in the frequency domain and wake potential in the time domain. Accurate evaluation of these properties is essential for predicting dissipated power and maintaining beam stability. 
-`wakis` is an open-source tool that can compute wake potential and impedance for both longitudinal and transverse planes for general 3D structures. 
+🎯 The determination of electromagnetic wakefields and their impact on accelerator performance is a significant issue in current accelerator components. These wakefields, which are generated within the accelerator vacuum chamber as a result of the interaction between the structure and a passing beam, can have significant effects on the machine.
+These effects can be characterized through the beam coupling impedance in the frequency domain and wake potential in the time domain. Accurate evaluation of these properties is essential for predicting dissipated power and maintaining beam stability.
+`wakis` is an open-source tool that can compute wake potential and impedance for both longitudinal and transverse planes for general 3D structures.
 
 * 🌱 `wakis` was firstly presented at the **International Particle Accelerator Conference in 2023** (IPAC23) as a post-processing tool: https://doi.org/10.18429/JACoW-IPAC2023-WEPL170
-  
+
 * 🌳 It has now evolved from a post-processing tool to a full 3D electromagnetic, time domain solver; and has been presented at the **ICAP24: The 14th International Computational Accelerator Physics Conference in 2024**: https://indico.gsi.de/event/19249/contributions/82636/
 
-* 🌸 A dedicated paper has been submitted and will be presented at **IPAC'25: The 16th International Particle Accelerator Conference**: https://indico.jacow.org/event/81/contributions/8026/ 
+* 🌸 A dedicated contribution was presented at **IPAC'25: The 16th International Particle Accelerator Conference**: https://inspirehep.net/literature/3101186
 
 ## Citing `Wakis`
 🔖 Each Wakis release is linked to a [Zenodo](https://zenodo.org/records/15011421) publication under a unique [DOI](https://doi.org/10.5281/zenodo.15011421). If you are using Wakis in your scientific research, please help our scientific visibility by citing this work:

@@ -1,11 +1,11 @@
-# This is a basic workflow that is manually triggered
+# This is a basic workflow that is nighly triggered
 
-name: manual_tests_CPU_python10
+name: nightly_tests_CPU_py3.13
 
-# Controls when the action will run. Workflow runs when manually triggered using the UI
-# or API.
+# Controls when the action will run. CRON schedule runs at mm hh dd mm yy UTC TIME
 on:
-  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * *"
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
@@ -42,6 +42,4 @@ jobs:
     - name: Run pytest
       run:  |
         cd wakis
-        python -m pytest --cov=wakis --cov-config=tests/.coveragerc --cov-report=term -vs tests
-
-
+        python -m pytest --cov=wakis --cov-config=tests/.coveragerc --cov-report=term -v tests

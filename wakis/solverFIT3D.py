@@ -3,19 +3,21 @@
 # Copyright (c) CERN, 2024.                   #
 # ########################################### #
 
-import numpy as np
 import time
-import h5py
 
-from scipy.constants import c as c_light, epsilon_0 as eps_0, mu_0 as mu_0
+import h5py
+import numpy as np
+from scipy.constants import c as c_light
+from scipy.constants import epsilon_0 as eps_0
+from scipy.constants import mu_0 as mu_0
 from scipy.sparse import csc_matrix as sparse_mat
 from scipy.sparse import diags, hstack, vstack
 
 from .field import Field
+from .logger import Logger
 from .materials import material_lib
 from .plotting import PlotMixin
 from .routines import RoutinesMixin
-from .logger import Logger
 
 try:
     from cupyx.scipy.sparse import csc_matrix as gpu_sparse_mat
@@ -25,7 +27,8 @@ except ImportError:
     imported_cupyx = False
 
 try:
-    from sparse_dot_mkl import csr_matrix as mkl_sparse_mat, dot_product_mkl
+    from sparse_dot_mkl import csr_matrix as mkl_sparse_mat
+    from sparse_dot_mkl import dot_product_mkl
 
     imported_mkl = True
 except ImportError:
@@ -122,7 +125,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin):
         self.use_mpi = use_mpi
         self.activate_abc = False  # Will turn true if abc BCs are chosen
         self.activate_pml = False  # Will turn true if pml BCs are chosen
-        self.use_conductivity = False  # Will turn true with conductive material or pml
+        self.use_conductivity = (
+            False  # Will turn true with conductive material or pml
+        )
         self.imported_mkl = imported_mkl  # Use MKL backend when available
         self.one_step = self._one_step
         if use_stl:
@@ -185,15 +190,25 @@ class SolverFIT3D(PlotMixin, RoutinesMixin):
         N = self.N
         self.Px = diags([-1, 1], [0, 1], shape=(N, N), dtype=np.int8)
         self.Py = diags([-1, 1], [0, self.Nx], shape=(N, N), dtype=np.int8)
-        self.Pz = diags([-1, 1], [0, self.Nx * self.Ny], shape=(N, N), dtype=np.int8)
+        self.Pz = diags(
+            [-1, 1], [0, self.Nx * self.Ny], shape=(N, N), dtype=np.int8
+        )
 
         # original grid
-        self.Ds = diags(self.L.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
-        self.iDa = diags(self.iA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+        self.Ds = diags(
+            self.L.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
+        )
+        self.iDa = diags(
+            self.iA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
+        )
 
         # tilde grid
-        self.tDs = diags(self.tL.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
-        self.itDa = diags(self.itA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+        self.tDs = diags(
+            self.tL.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
+        )
+        self.itDa = diags(
+            self.itA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
+        )
 
         # Curl matrix
         self.C = vstack(
@@ -220,10 +235,18 @@ class SolverFIT3D(PlotMixin, RoutinesMixin):
             bg = material_lib[bg.lower()]
 
         if len(bg) == 3:
-            self.eps_bg, self.mu_bg, self.sigma_bg = bg[0] * eps_0, bg[1] * mu_0, bg[2]
+            self.eps_bg, self.mu_bg, self.sigma_bg = (
+                bg[0] * eps_0,
+                bg[1] * mu_0,
+                bg[2],
+            )
             self.use_conductivity = True
         else:
-            self.eps_bg, self.mu_bg, self.sigma_bg = bg[0] * eps_0, bg[1] * mu_0, 0.0
+            self.eps_bg, self.mu_bg, self.sigma_bg = (
+                bg[0] * eps_0,
+                bg[1] * mu_0,
+                0.0,
+            )
 
         # fmt: off
         self.ieps = (
@@ -279,7 +302,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin):
                 self.ieps.toarray() != 0,
             )  # for PEC eps=inf
 
-            self.tau = (1 / self.ieps.toarray()[mask]) / self.sigma.toarray()[mask]
+            self.tau = (1 / self.ieps.toarray()[mask]) / self.sigma.toarray()[
+                mask
+            ]
 
             if self.dt > self.tau.min():
                 self.dt = self.tau.min()
@@ -287,14 +312,20 @@ class SolverFIT3D(PlotMixin, RoutinesMixin):
         # Pre-computing
         if verbose:
             print("Pre-computing...")
-        self.iDeps = diags(self.ieps.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
-        self.iDmu = diags(self.imu.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+        self.iDeps = diags(
+            self.ieps.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
+        )
+        self.iDmu = diags(
+            self.imu.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
+        )
         self.Dsigma = diags(
             self.sigma.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
         )
 
         self.tDsiDmuiDaC = self.iDa * self.iDmu * self.C * self.Ds
-        self.itDaiDepsDstC = self.iDeps * self.itDa * self.C.transpose() * self.tDs
+        self.itDaiDepsDstC = (
+            self.iDeps * self.itDa * self.C.transpose() * self.tDs
+        )
 
         if imported_mkl and not self.use_gpu:  # MKL backend for CPU
             if verbose:
@@ -349,31 +380,45 @@ class SolverFIT3D(PlotMixin, RoutinesMixin):
 
         if tensor == "ieps":
             self.iDeps = diags(
-                self.ieps.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
+                self.ieps.toarray(),
+                shape=(3 * self.N, 3 * self.N),
+                dtype=self.dtype,
             )
         elif tensor == "imu":
             self.iDmu = diags(
-                self.imu.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
+                self.imu.toarray(),
+                shape=(3 * self.N, 3 * self.N),
+                dtype=self.dtype,
             )
         elif tensor == "sigma":
             self.Dsigma = diags(
-                self.sigma.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
+                self.sigma.toarray(),
+                shape=(3 * self.N, 3 * self.N),
+                dtype=self.dtype,
             )
         elif tensor == "all":
             self.iDeps = diags(
-                self.ieps.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
+                self.ieps.toarray(),
+                shape=(3 * self.N, 3 * self.N),
+                dtype=self.dtype,
             )
             self.iDmu = diags(
-                self.imu.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
+                self.imu.toarray(),
+                shape=(3 * self.N, 3 * self.N),
+                dtype=self.dtype,
             )
             self.Dsigma = diags(
-                self.sigma.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
+                self.sigma.toarray(),
+                shape=(3 * self.N, 3 * self.N),
+                dtype=self.dtype,
             )
 
         if self.verbose:
             print("Re-Pre-computing ...")
         self.tDsiDmuiDaC = self.iDa * self.iDmu * self.C * self.Ds
-        self.itDaiDepsDstC = self.iDeps * self.itDa * self.C.transpose() * self.tDs
+        self.itDaiDepsDstC = (
+            self.iDeps * self.itDa * self.C.transpose() * self.tDs
+        )
         self.step_0 = False
 
     def _one_step(self):
@@ -558,7 +603,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin):
                 field = field[0]
             elif component is None:
                 component = "z"
-                print("[!] `component` not specified, using default component='z'")
+                print(
+                    "[!] `component` not specified, using default component='z'"
+                )
 
             if field == "E":
                 local = self.E[x, y, :, component].ravel()
@@ -569,7 +616,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin):
         else:
             if component is None:
                 component = "z"
-                print("[!] `component` not specified, using default component='z'")
+                print(
+                    "[!] `component` not specified, using default component='z'"
+                )
             local = field[x, y, :, component].ravel()
 
         buffer = self.comm.gather(local, root=0)
@@ -582,13 +631,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin):
                 for r in range(self.size):
                     zz = np.s_[r * nz : (r + 1) * nz]
                     if r == 0:
-                        _field[zz] = np.reshape(buffer[r], (nz + self.grid.n_ghosts))[
-                            :-1
-                        ]
+                        _field[zz] = np.reshape(
+                            buffer[r], (nz + self.grid.n_ghosts)
+                        )[:-1]
                     elif r == (self.size - 1):
-                        _field[zz] = np.reshape(buffer[r], (nz + self.grid.n_ghosts))[
-                            1:
-                        ]
+                        _field[zz] = np.reshape(
+                            buffer[r], (nz + self.grid.n_ghosts)
+                        )[1:]
                     else:
                         _field[zz] = np.reshape(
                             buffer[r], (nz + 2 * self.grid.n_ghosts)
@@ -698,15 +747,18 @@ class SolverFIT3D(PlotMixin, RoutinesMixin):
                     zz = np.s_[r * nz : (r + 1) * nz]
                     if r == 0:
                         _field[:, :, zz, d] = np.reshape(
-                            buffer[r], (self.Nx, self.Ny, nz + self.grid.n_ghosts)
+                            buffer[r],
+                            (self.Nx, self.Ny, nz + self.grid.n_ghosts),
                         )[:, :, :-1]
                     elif r == (self.size - 1):
                         _field[:, :, zz, d] = np.reshape(
-                            buffer[r], (self.Nx, self.Ny, nz + self.grid.n_ghosts)
+                            buffer[r],
+                            (self.Nx, self.Ny, nz + self.grid.n_ghosts),
                         )[:, :, 1:]
                     else:
                         _field[:, :, zz, d] = np.reshape(
-                            buffer[r], (self.Nx, self.Ny, nz + 2 * self.grid.n_ghosts)
+                            buffer[r],
+                            (self.Nx, self.Ny, nz + 2 * self.grid.n_ghosts),
                         )[:, :, 1:-1]
 
         return _field
@@ -764,13 +816,21 @@ class SolverFIT3D(PlotMixin, RoutinesMixin):
                 dtype=self.dtype,
             )
             self.itDa = diags(
-                self.itA.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
+                self.itA.toarray(),
+                shape=(3 * self.N, 3 * self.N),
+                dtype=self.dtype,
             )
 
         # Dirichlet PEC: tangential E field = 0 at boundary
         if any(
-            True for x in self.bc_low if x.lower() in ("electric", "pec", "pml")
-        ) or any(True for x in self.bc_high if x.lower() in ("electric", "pec", "pml")):
+            True
+            for x in self.bc_low
+            if x.lower() in ("electric", "pec", "pml")
+        ) or any(
+            True
+            for x in self.bc_high
+            if x.lower() in ("electric", "pec", "pml")
+        ):
             if self.bc_low[0].lower() in ("electric", "pec", "pml"):
                 xlo = 0
             if self.bc_low[1].lower() in ("electric", "pec", "pml"):
@@ -785,7 +845,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin):
                 zhi = 0
 
             # Assemble matrix
-            self.BC = Field(self.Nx, self.Ny, self.Nz, dtype=np.int8, use_ones=True)
+            self.BC = Field(
+                self.Nx, self.Ny, self.Nz, dtype=np.int8, use_ones=True
+            )
 
             for d in ["x", "y", "z"]:  # tangential to zero
                 if d != "x":
@@ -799,14 +861,18 @@ class SolverFIT3D(PlotMixin, RoutinesMixin):
                     self.BC[:, :, -1, d] = zhi
 
             self.Dbc = diags(
-                self.BC.toarray(), shape=(3 * self.N, 3 * self.N), dtype=np.int8
+                self.BC.toarray(),
+                shape=(3 * self.N, 3 * self.N),
+                dtype=np.int8,
             )
 
             # Update C (columns)
             self.C = self.C * self.Dbc
 
         # Dirichlet PMC: tangential H field = 0 at boundary
-        if any(True for x in self.bc_low if x.lower() in ("magnetic", "pmc")) or any(
+        if any(
+            True for x in self.bc_low if x.lower() in ("magnetic", "pmc")
+        ) or any(
             True for x in self.bc_high if x.lower() in ("magnetic", "pmc")
         ):
             if self.bc_low[0].lower() == "magnetic" or self.bc_low[0] == "pmc":
@@ -815,15 +881,26 @@ class SolverFIT3D(PlotMixin, RoutinesMixin):
                 ylo = 0
             if self.bc_low[2].lower() == "magnetic" or self.bc_low[2] == "pmc":
                 zlo = 0
-            if self.bc_high[0].lower() == "magnetic" or self.bc_high[0] == "pmc":
+            if (
+                self.bc_high[0].lower() == "magnetic"
+                or self.bc_high[0] == "pmc"
+            ):
                 xhi = 0
-            if self.bc_high[1].lower() == "magnetic" or self.bc_high[1] == "pmc":
+            if (
+                self.bc_high[1].lower() == "magnetic"
+                or self.bc_high[1] == "pmc"
+            ):
                 yhi = 0
-            if self.bc_high[2].lower() == "magnetic" or self.bc_high[2] == "pmc":
+            if (
+                self.bc_high[2].lower() == "magnetic"
+                or self.bc_high[2] == "pmc"
+            ):
                 zhi = 0
 
             # Assemble matrix
-            self.BC = Field(self.Nx, self.Ny, self.Nz, dtype=np.int8, use_ones=True)
+            self.BC = Field(
+                self.Nx, self.Ny, self.Nz, dtype=np.int8, use_ones=True
+            )
 
             for d in ["x", "y", "z"]:  # tangential to zero
                 if d != "x":
@@ -837,7 +914,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin):
                     self.BC[:, :, -1, d] = zhi
 
             self.Dbc = diags(
-                self.BC.toarray(), shape=(3 * self.N, 3 * self.N), dtype=np.int8
+                self.BC.toarray(),
+                shape=(3 * self.N, 3 * self.N),
+                dtype=np.int8,
             )
 
             # Update C (rows)
@@ -897,59 +976,87 @@ class SolverFIT3D(PlotMixin, RoutinesMixin):
         # Fill
         if self.bc_low[0].lower() == "pml":
             # sx[0:self.n_pml] = eps_0/(2*self.dt)*((self.x[self.n_pml] - self.x[:self.n_pml])/(self.n_pml*self.dx))**pml_exp
-            sx[0 : self.n_pml] = self.pml_func(self.pml_hi, self.pml_lo, self.n_pml)
+            sx[0 : self.n_pml] = self.pml_func(
+                self.pml_hi, self.pml_lo, self.n_pml
+            )
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the yz plane
-                ieps_0_pml = self.ieps[self.n_pml + 1, self.Ny // 2, self.Nz // 2, d]
-                sigma_0_pml = self.sigma[self.n_pml + 1, self.Ny // 2, self.Nz // 2, d]
+                ieps_0_pml = self.ieps[
+                    self.n_pml + 1, self.Ny // 2, self.Nz // 2, d
+                ]
+                sigma_0_pml = self.sigma[
+                    self.n_pml + 1, self.Ny // 2, self.Nz // 2, d
+                ]
                 sigma_mult_pml = (
                     1 if sigma_0_pml < 1 else sigma_0_pml
                 )  # avoid null sigma in PML for relaxation time computation
                 for i in range(self.n_pml):
                     self.ieps[i, :, :, d] = ieps_0_pml
-                    self.sigma[i, :, :, d] = sigma_0_pml + sigma_mult_pml * sx[i]
+                    self.sigma[i, :, :, d] = (
+                        sigma_0_pml + sigma_mult_pml * sx[i]
+                    )
                     # if sx[i] > 0 : self.ieps[i, :, :, d] = 1/(eps_0+sx[i]*(2*self.dt))
 
         if self.bc_low[1].lower() == "pml":
             # sy[0:self.n_pml] = 1/(2*self.dt)*((self.y[self.n_pml] - self.y[:self.n_pml])/(self.n_pml*self.dy))**pml_exp
-            sy[0 : self.n_pml] = self.pml_func(self.pml_hi, self.pml_lo, self.n_pml)
+            sy[0 : self.n_pml] = self.pml_func(
+                self.pml_hi, self.pml_lo, self.n_pml
+            )
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the xz plane
-                ieps_0_pml = self.ieps[self.Nx // 2, self.n_pml + 1, self.Nz // 2, d]
-                sigma_0_pml = self.sigma[self.Nx // 2, self.n_pml + 1, self.Nz // 2, d]
+                ieps_0_pml = self.ieps[
+                    self.Nx // 2, self.n_pml + 1, self.Nz // 2, d
+                ]
+                sigma_0_pml = self.sigma[
+                    self.Nx // 2, self.n_pml + 1, self.Nz // 2, d
+                ]
                 sigma_mult_pml = (
                     1 if sigma_0_pml < 1 else sigma_0_pml
                 )  # avoid null sigma in PML for relaxation time computation
                 for j in range(self.n_pml):
                     self.ieps[:, j, :, d] = ieps_0_pml
-                    self.sigma[:, j, :, d] = sigma_0_pml + sigma_mult_pml * sy[j]
+                    self.sigma[:, j, :, d] = (
+                        sigma_0_pml + sigma_mult_pml * sy[j]
+                    )
                     # if sy[j] > 0 : self.ieps[:, j, :, d] = 1/(eps_0+sy[j]*(2*self.dt))
 
         if self.bc_low[2].lower() == "pml":
             # sz[0:self.n_pml] = eps_0/(2*self.dt)*((self.z[self.n_pml] - self.z[:self.n_pml])/(self.n_pml*self.dz))**pml_exp
-            sz[0 : self.n_pml] = self.pml_func(self.pml_hi, self.pml_lo, self.n_pml)
+            sz[0 : self.n_pml] = self.pml_func(
+                self.pml_hi, self.pml_lo, self.n_pml
+            )
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the xy plane
-                ieps_0_pml = self.ieps[self.Nx // 2, self.Ny // 2, self.n_pml + 1, d]
-                sigma_0_pml = self.sigma[self.Nx // 2, self.Ny // 2, self.n_pml + 1, d]
+                ieps_0_pml = self.ieps[
+                    self.Nx // 2, self.Ny // 2, self.n_pml + 1, d
+                ]
+                sigma_0_pml = self.sigma[
+                    self.Nx // 2, self.Ny // 2, self.n_pml + 1, d
+                ]
                 sigma_mult_pml = (
                     1 if sigma_0_pml < 1 else sigma_0_pml
                 )  # avoid null sigma in PML for relaxation time computation
                 for k in range(self.n_pml):
                     self.ieps[:, :, k, d] = ieps_0_pml
-                    self.sigma[:, :, k, d] = sigma_0_pml + sigma_mult_pml * sz[k]
+                    self.sigma[:, :, k, d] = (
+                        sigma_0_pml + sigma_mult_pml * sz[k]
+                    )
                     # if sz[k] > 0. : self.ieps[:, :, k, d] = 1/(np.mean(sz[:self.n_pml])*eps_0)
 
         if self.bc_high[0].lower() == "pml":
             # sx[-self.n_pml:] = 1/(2*self.dt)*((self.x[-self.n_pml:] - self.x[-self.n_pml])/(self.n_pml*self.dx))**pml_exp
-            sx[-self.n_pml :] = self.pml_func(self.pml_lo, self.pml_hi, self.n_pml)
+            sx[-self.n_pml :] = self.pml_func(
+                self.pml_lo, self.pml_hi, self.n_pml
+            )
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the yz plane
-                ieps_0_pml = self.ieps[-(self.n_pml + 1), self.Ny // 2, self.Nz // 2, d]
+                ieps_0_pml = self.ieps[
+                    -(self.n_pml + 1), self.Ny // 2, self.Nz // 2, d
+                ]
                 sigma_0_pml = self.sigma[
                     -(self.n_pml + 1), self.Ny // 2, self.Nz // 2, d
                 ]
@@ -959,16 +1066,22 @@ class SolverFIT3D(PlotMixin, RoutinesMixin):
                 for i in range(self.n_pml):
                     i += 1
                     self.ieps[-i, :, :, d] = ieps_0_pml
-                    self.sigma[-i, :, :, d] = sigma_0_pml + sigma_mult_pml * sx[-i]
+                    self.sigma[-i, :, :, d] = (
+                        sigma_0_pml + sigma_mult_pml * sx[-i]
+                    )
                     # if sx[-i] > 0 : self.ieps[-i, :, :, d] = 1/(eps_0+sx[-i]*(2*self.dt))
 
         if self.bc_high[1].lower() == "pml":
             # sy[-self.n_pml:] = 1/(2*self.dt)*((self.y[-self.n_pml:] - self.y[-self.n_pml])/(self.n_pml*self.dy))**pml_exp
-            sy[-self.n_pml :] = self.pml_func(self.pml_lo, self.pml_hi, self.n_pml)
+            sy[-self.n_pml :] = self.pml_func(
+                self.pml_lo, self.pml_hi, self.n_pml
+            )
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the xz plane
-                ieps_0_pml = self.ieps[self.Nx // 2, -(self.n_pml + 1), self.Nz // 2, d]
+                ieps_0_pml = self.ieps[
+                    self.Nx // 2, -(self.n_pml + 1), self.Nz // 2, d
+                ]
                 sigma_0_pml = self.sigma[
                     self.Nx // 2, -(self.n_pml + 1), self.Nz // 2, d
                 ]
@@ -978,16 +1091,22 @@ class SolverFIT3D(PlotMixin, RoutinesMixin):
                 for j in range(self.n_pml):
                     j += 1
                     self.ieps[:, -j, :, d] = ieps_0_pml
-                    self.sigma[:, -j, :, d] = sigma_0_pml + sigma_mult_pml * sy[-j]
+                    self.sigma[:, -j, :, d] = (
+                        sigma_0_pml + sigma_mult_pml * sy[-j]
+                    )
                     # if sy[-j] > 0 : self.ieps[:, -j, :, d] = 1/(eps_0+sy[-j]*(2*self.dt))
 
         if self.bc_high[2].lower() == "pml":
             # sz[-self.n_pml:] = eps_0/(2*self.dt)*((self.z[-self.n_pml:] - self.z[-self.n_pml])/(self.n_pml*self.dz))**pml_exp
-            sz[-self.n_pml :] = self.pml_func(self.pml_lo, self.pml_hi, self.n_pml)
+            sz[-self.n_pml :] = self.pml_func(
+                self.pml_lo, self.pml_hi, self.n_pml
+            )
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the xy plane
-                ieps_0_pml = self.ieps[self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d]
+                ieps_0_pml = self.ieps[
+                    self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d
+                ]
                 sigma_0_pml = self.sigma[
                     self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d
                 ]
@@ -997,7 +1116,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin):
                 for k in range(self.n_pml):
                     k += 1
                     self.ieps[:, :, -k, d] = ieps_0_pml
-                    self.sigma[:, :, -k, d] = sigma_0_pml + sigma_mult_pml * sz[-k]
+                    self.sigma[:, :, -k, d] = (
+                        sigma_0_pml + sigma_mult_pml * sz[-k]
+                    )
                     # self.ieps[:, :, -k, d] = 1/(np.mean(sz[-self.n_pml:])*eps_0)
 
     def get_abc(self):
@@ -1174,7 +1295,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin):
         self.stl_colors = self.grid.stl_colors
 
         for key in self.stl_solids.keys():
-            mask = np.reshape(grid[key], (self.Nx, self.Ny, self.Nz)).astype(int)
+            mask = np.reshape(grid[key], (self.Nx, self.Ny, self.Nz)).astype(
+                int
+            )
 
             if type(self.stl_materials[key]) is str:
                 # Retrieve from material library

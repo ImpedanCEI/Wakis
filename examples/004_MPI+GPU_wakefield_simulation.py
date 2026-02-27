@@ -8,24 +8,21 @@
 # where 2 is the number of GPU devices
 
 import os
-import numpy as np
-import pyvista as pv
-import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-
 import sys
 
+import matplotlib.pyplot as plt
+import numpy as np
+import pyvista as pv
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+
 sys.path.append("../")
-
-from wakis import SolverFIT3D
-from wakis import GridFIT3D
-from wakis import WakeSolver
-
-from tqdm import tqdm
 
 # ---------- MPI setup ------------
 # can be skipped since it is handled inside GridFIT3D
 from mpi4py import MPI
+from tqdm import tqdm
+
+from wakis import GridFIT3D, SolverFIT3D, WakeSolver
 
 comm = MPI.COMM_WORLD  # Get MPI communicator
 rank = comm.Get_rank()  # Process ID
@@ -90,10 +87,13 @@ xt = 0.0  # x test position [m]
 yt = 0.0  # y test position [m]
 # [DEFAULT] tinj = 8.53*sigmaz/c_light  # injection time offset [s]
 
-from wakis.sources import Beam
 from scipy.constants import c
 
-beam = Beam(q=q, sigmaz=sigmaz, beta=beta, xsource=xs, ysource=ys, ti=3 * sigmaz / c)
+from wakis.sources import Beam
+
+beam = Beam(
+    q=q, sigmaz=sigmaz, beta=beta, xsource=xs, ysource=ys, ti=3 * sigmaz / c
+)
 
 # ----------- Solver & Simulation ----------
 # boundary conditions
@@ -136,9 +136,11 @@ if run_timeloop:
             E = solver.mpi_gather_asField("E")
             if rank == 0:
                 fig, ax = E.inspect(
-                    figsize=[20, 6], plane="YZ", show=False, handles=True
+                    figsize=[20, 6], plane="YZ", off_screen=True, handles=True
                 )
-                fig.savefig(img_folder + "Einspect_" + str(n).zfill(4) + ".png")
+                fig.savefig(
+                    img_folder + "Einspect_" + str(n).zfill(4) + ".png"
+                )
                 plt.close(fig)
 
         # Plot E abs in 2D every 20 timesteps
@@ -258,7 +260,9 @@ if run_wakefield:
         ax[0].legend()
         ax[0].set_xlim(xmax=wakelength * 1e2)
 
-        ax[1].plot(wake.f * 1e-9, np.abs(wake.Zx), c="b", lw=1.5, label="Wakis")
+        ax[1].plot(
+            wake.f * 1e-9, np.abs(wake.Zx), c="b", lw=1.5, label="Wakis"
+        )
         ax[1].set_xlabel("f [GHz]")
         ax[1].set_ylabel("Transverse impedance X [Abs][$\Omega$]", color="b")
         ax[1].legend()
@@ -275,7 +279,9 @@ if run_wakefield:
         ax[0].legend()
         ax[0].set_xlim(xmax=wakelength * 1e2)
 
-        ax[1].plot(wake.f * 1e-9, np.abs(wake.Zy), c="b", lw=1.5, label="Wakis")
+        ax[1].plot(
+            wake.f * 1e-9, np.abs(wake.Zy), c="b", lw=1.5, label="Wakis"
+        )
         ax[1].set_xlabel("f [GHz]")
         ax[1].set_ylabel("Transverse impedance Y [Abs][$\Omega$]", color="b")
         ax[1].legend()
@@ -358,127 +364,145 @@ if run_wakefield:
 
 
 # --------------------- Extra -----------------------
+# Callback plotting functions for debugging
+# Need to gather field before, e.g.: Ez = solver.mpi_gather('Ez', x=Nx//2)
+# Need to be plotted in rank 0 only e.g.: if rank == 0: plot1D_field(Ez, 'Ez', n=n, results_folder=img_folder, vmin=-800, vmax=800)
+def plot1D_field(
+    field,
+    name="E",
+    y=Ny // 2,
+    n=None,
+    results_folder="img/",
+    vmin=None,
+    vmax=None,
+):
+    if vmin is None:
+        vmin = -field.max()
+    if vmax is None:
+        vmax = field.max()
+
+    fig, ax = plt.subplots()
+    ax.plot(field[y, :], c="g")
+    ax.set_title(f"{name} at timestep={n}")
+    ax.set_xlabel("z [m]")
+    ax.set_ylabel("Field amplitude")
+    ax.set_ylim((vmin, vmax))
+
+    # plot vertical lines at subdomain borders
+    for r in range(size):
+        if r == 0:
+            ax.axvline(
+                NZ // size * (r + 1) + grid.n_ghosts, c="red", alpha=0.5
+            )
+            ax.axvline(NZ // size * (r), c="blue", alpha=0.5)
+        elif r == (size - 1):
+            ax.axvline(NZ // size * (r + 1), c="red", alpha=0.5)
+            ax.axvline(NZ // size * (r) - grid.n_ghosts, c="blue", alpha=0.5)
+        else:  # outside subdomains
+            ax.axvline(
+                NZ // size * (r + 1) + grid.n_ghosts, c="red", alpha=0.5
+            )
+            ax.axvline(NZ // size * (r) - grid.n_ghosts, c="blue", alpha=0.5)
+
+    fig.tight_layout()
+    fig.savefig(results_folder + name + "1d_" + str(n).zfill(4) + ".png")
+
+    plt.clf()
+    plt.close(fig)
+
+
+def plot2D_field(
+    field,
+    name="E",
+    n=None,
+    results_folder="img/",
+    vmin=None,
+    vmax=None,
+):
+    extent = (0, NZ, 0, Ny)
+    if vmin is None:
+        vmin = -field.max()
+    if vmax is None:
+        vmax = field.max()
+
+    fig, ax = plt.subplots()
+    im = ax.imshow(field, cmap="rainbow", extent=extent, vmin=vmin, vmax=vmax)
+    fig.colorbar(
+        im,
+        cax=make_axes_locatable(ax).append_axes("right", size="5%", pad=0.05),
+    )
+    ax.set_title(f"{name} at timestep={n}")
+    ax.set_xlabel("z [id]")
+    ax.set_ylabel("y [id]")
+
+    # plot vertical lines at subdomain borders
+    if True:
+        for r in range(size):
+            if r == 0:
+                ax.axvline(
+                    NZ // size * (r + 1) + grid.n_ghosts,
+                    c="red",
+                    alpha=0.5,
+                )
+                ax.axvline(NZ // size * (r), c="blue", alpha=0.5)
+            elif r == (size - 1):
+                ax.axvline(NZ // size * (r + 1), c="red", alpha=0.5)
+                ax.axvline(
+                    NZ // size * (r) - grid.n_ghosts, c="blue", alpha=0.5
+                )
+            else:  # outside subdomains
+                ax.axvline(
+                    NZ // size * (r + 1) + grid.n_ghosts,
+                    c="red",
+                    alpha=0.5,
+                )
+                ax.axvline(
+                    NZ // size * (r) - grid.n_ghosts, c="blue", alpha=0.5
+                )
+
+    # plot fill rectangles for each subdomain
+    if False:
+        for r in range(size):
+            if r == 0:
+                ax.axvspan(
+                    NZ // size * (r),
+                    NZ // size * (r + 1) + grid.n_ghosts,
+                    color="darkorange",
+                    alpha=0.1,
+                )
+            elif r == (size - 1):
+                ax.axvspan(
+                    NZ // size * (r) - grid.n_ghosts,
+                    NZ // size * (r + 1),
+                    color="darkorange",
+                    alpha=0.1,
+                )
+            else:  # outside subdomains
+                ax.axvspan(
+                    NZ // size * (r) - grid.n_ghosts,
+                    NZ // size * (r + 1) + grid.n_ghosts,
+                    color="green",
+                    alpha=0.1,
+                )
+
+    fig.tight_layout(h_pad=0.3)
+    fig.savefig(results_folder + name + "2d_" + str(n).zfill(4) + ".png")
+
+    plt.clf()
+    plt.close(fig)
+
+
 # # Check global material tensors
 if False:
     ieps = solver.mpi_gather_asField(solver.ieps)
     sigma = solver.mpi_gather(solver.sigma, "z", x=Nx // 2)
     if rank == 0:
         # Plot eps^-1 tensor
-        fig, ax = ieps.inspect(figsize=[20, 6], plane="YZ", show=False, handles=True)
+        fig, ax = ieps.inspect(
+            figsize=[20, 6], plane="YZ", show=False, handles=True
+        )
         fig.savefig(img_folder + "ieps_inspect.png")
         plt.close(fig)
 
         # Plot
         plot2D_field(sigma, "sigmaz_", results_folder=img_folder)
-
-
-# Callback plotting functions for debugging
-# Need to gather field before, e.g.: Ez = solver.mpi_gather('Ez', x=Nx//2)
-# Need to be plotted in rank 0 only e.g.: if rank == 0: plot1D_field(Ez, 'Ez', n=n, results_folder=img_folder, vmin=-800, vmax=800)
-if False:
-
-    def plot1D_field(
-        field,
-        name="E",
-        y=Ny // 2,
-        n=None,
-        results_folder="img/",
-        vmin=None,
-        vmax=None,
-    ):
-        if vmin is None:
-            vmin = -field.max()
-        if ymax is None:
-            vmax = field.max()
-
-        fig, ax = plt.subplots()
-        ax.plot(field[y, :], c="g")
-        ax.set_title(f"{name} at timestep={n}")
-        ax.set_xlabel("z [m]")
-        ax.set_ylabel("Field amplitude")
-        ax.set_ylim((vmin, vmax))
-
-        # plot vertical lines at subdomain borders
-        for r in range(size):
-            if r == 0:
-                ax.axvline(NZ // size * (r + 1) + grid.n_ghosts, c="red", alpha=0.5)
-                ax.axvline(NZ // size * (r), c="blue", alpha=0.5)
-            elif r == (size - 1):
-                ax.axvline(NZ // size * (r + 1), c="red", alpha=0.5)
-                ax.axvline(NZ // size * (r) - grid.n_ghosts, c="blue", alpha=0.5)
-            else:  # outside subdomains
-                ax.axvline(NZ // size * (r + 1) + grid.n_ghosts, c="red", alpha=0.5)
-                ax.axvline(NZ // size * (r) - grid.n_ghosts, c="blue", alpha=0.5)
-
-        fig.tight_layout()
-        fig.savefig(results_folder + name + "1d_" + str(n).zfill(4) + ".png")
-
-        plt.clf()
-        plt.close(fig)
-
-    def plot2D_field(
-        field,
-        name="E",
-        n=None,
-        results_folder="img/",
-        vmin=None,
-        vmax=None,
-    ):
-        extent = (0, NZ, 0, Ny)
-        if vmin is None:
-            vmin = -field.max()
-        if vmax is None:
-            vmax = field.max()
-
-        fig, ax = plt.subplots()
-        im = ax.imshow(field, cmap="rainbow", extent=extent, vmin=vmin, vmax=vmax)
-        fig.colorbar(
-            im, cax=make_axes_locatable(ax).append_axes("right", size="5%", pad=0.05)
-        )
-        ax.set_title(f"{name} at timestep={n}")
-        ax.set_xlabel("z [id]")
-        ax.set_ylabel("y [id]")
-
-        # plot vertical lines at subdomain borders
-        if True:
-            for r in range(size):
-                if r == 0:
-                    ax.axvline(NZ // size * (r + 1) + grid.n_ghosts, c="red", alpha=0.5)
-                    ax.axvline(NZ // size * (r), c="blue", alpha=0.5)
-                elif r == (size - 1):
-                    ax.axvline(NZ // size * (r + 1), c="red", alpha=0.5)
-                    ax.axvline(NZ // size * (r) - grid.n_ghosts, c="blue", alpha=0.5)
-                else:  # outside subdomains
-                    ax.axvline(NZ // size * (r + 1) + grid.n_ghosts, c="red", alpha=0.5)
-                    ax.axvline(NZ // size * (r) - grid.n_ghosts, c="blue", alpha=0.5)
-
-        # plot fill rectangles for each subdomain
-        if False:
-            for r in range(size):
-                if r == 0:
-                    ax.axvspan(
-                        NZ // size * (r),
-                        NZ // size * (r + 1) + grid.n_ghosts,
-                        color="darkorange",
-                        alpha=0.1,
-                    )
-                elif r == (size - 1):
-                    ax.axvspan(
-                        NZ // size * (r) - grid.n_ghosts,
-                        NZ // size * (r + 1),
-                        color="darkorange",
-                        alpha=0.1,
-                    )
-                else:  # outside subdomains
-                    ax.axvspan(
-                        NZ // size * (r) - grid.n_ghosts,
-                        NZ // size * (r + 1) + grid.n_ghosts,
-                        color="green",
-                        alpha=0.1,
-                    )
-
-        fig.tight_layout(h_pad=0.3)
-        fig.savefig(results_folder + name + "2d_" + str(n).zfill(4) + ".png")
-
-        plt.clf()
-        plt.close(fig)
