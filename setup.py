@@ -57,13 +57,13 @@ setup(
     install_requires=[
         "numpy",
         "scipy",
-        "pyvista[jupyter]",
+        "pyvista",
         "h5py",
         "tqdm",
     ],
     extras_require={
         "gpu": ["cupy"],
-        "all": ["jupyterlab", "ipympl", "bihc", "iddefix"],
+        "all": ["pyvista[jupyter]", "jupyterlab", "ipympl", "bihc", "iddefix"],
         "notebook": notebook_required,
     },
     tests_require=["pytest", "pytest-cov"],

@@ -119,8 +119,8 @@ class Test3Dplotting:
             anti_aliasing="ssaa",
         )
         if flag_offscreen:
-            # pl.screenshot(self.img_folder+'grid_inspect.png')
-            pl.export_html(self.img_folder + "grid_inspect.html")
+            pl.screenshot(self.img_folder+'grid_inspect.png')
+            # pl.export_html(self.img_folder + "grid_inspect.html") # requires trame   
 
     def test_grid_plot_solids(self, flag_offscreen):
         # Plot only imported solids
@@ -160,8 +160,8 @@ class Test3Dplotting:
             add_silhouette=True,
         )
         if flag_offscreen:
-            # pl.screenshot(self.img_folder+'solver_inspect.png')
-            pl.export_html(self.img_folder + "solver_inspect.html")
+            pl.screenshot(self.img_folder+'solver_inspect.png')
+            # pl.export_html(self.img_folder + "solver_inspect.html") # requires trame
 
     def test_plot3D(self, flag_offscreen):
         # Plot Abs Electric field on domain

@@ -963,7 +963,8 @@ class GridFIT3D:
             )
 
         if off_screen:
-            pl.export_html("grid_plot_solids.html")
+            return pl
+            # pl.export_html("grid_plot_solids.html")
         else:
             pl.show()
 
@@ -1205,7 +1206,8 @@ class GridFIT3D:
             )
 
         if off_screen:
-            pl.export_html(f"grid_stl_mask_{stl_solid}.html")
+            return pl
+            # pl.export_html(f"grid_stl_mask_{stl_solid}.html")
         else:
             pl.show()
 
