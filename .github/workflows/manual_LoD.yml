@@ -1,0 +1,53 @@
+name: LoD Badge
+
+on:
+  workflow_dispatch:
+
+jobs:
+  update-lod-badge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: "3.10"
+
+      - name: Install tokei
+        run: conda install -c conda-forge tokei
+
+      - name: Count Markdown LoD in wakis/
+        id: tokei
+        run: |
+          TOkei_OUT=$(tokei Wakis/ --types Markdown --output json)
+          MD_LOC=$(echo "$TOkei_OUT" | python -c "import sys, json; print(json.load(sys.stdin)['Markdown']['code'])")
+          if [ "$MD_LOC" -ge 1000 ]; then
+            MD_LOC_BADGE=$(awk "BEGIN {printf \"%.1fk\", $MD_LOC/1000}")
+          else
+            MD_LOC_BADGE="$MD_LOC"
+          fi
+          echo "MD_LOC_BADGE=$MD_LOC_BADGE" >> $GITHUB_ENV
+
+      - name: Download new badge from shields.io
+        run: |
+          cd Wakis
+          curl -o badge-docs.svg "https://img.shields.io/badge/Lines_of_Docs-${MD_LOC_BADGE}-blue"
+
+      - name: Push badge to gh-pages
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin
+          if git ls-remote --exit-code --heads origin gh-pages; then
+            git checkout gh-pages
+          else
+            git checkout --orphan gh-pages
+            git rm -rf .
+          fi
+          git add -f badge-docs.svg
+          git commit -m "Update LoD badge [skip ci]" || echo "No changes to commit"
+          git push origin gh-pages
+        working-directory: Wakis
