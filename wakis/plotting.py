@@ -223,7 +223,7 @@ class PlotMixin:
                 mask = select["SelectedPoints"] > 0
 
             elif type(show_solids) is list:
-                for solid in show_solids:
+                for i, solid in enumerate(show_solids):
                     surf = self.grid.read_stl(solid)
                     select = self.grid.grid.select_enclosed_points(
                         surf, tolerance=tol
