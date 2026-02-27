@@ -252,7 +252,7 @@ class TestMPILossyCavity:
             Ez = solver.mpi_gather("Ez", x=int(Nx / 2), y=int(Ny / 2))
             if solver.rank == 0:
                 # print(Ez)
-                print(len(Ez))
+                # print(len(Ez))
                 assert len(Ez) == NZ, (
                     "Electric field Ez samples length mismatch"
                 )
@@ -266,7 +266,7 @@ class TestMPILossyCavity:
                 solver.one_step()
 
             Ez = solver.E[int(Nx / 2), int(Ny / 2), np.s_[::5], "z"]
-            print(Ez)
+            # print(Ez)
             assert len(solver.E[int(Nx / 2), int(Ny / 2), :, "z"]) == NZ, (
                 "Electric field Ez samples length mismatch"
             )
