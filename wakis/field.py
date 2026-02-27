@@ -607,8 +607,8 @@ class Field:
             Figure size. Default is [8, 6].
         x, y, z : int, slice, or None, optional
             Custom slice indices. If all are not None, use as custom slice.
-        show : bool, optional
-            If True, display the plot. Default is True.
+        off_screen : bool, optional
+            If True, display the plot off-screen. Default is False.
         handles : bool, optional
             If True, return (fig, axs) instead of showing. Default is False.
         **kwargs
