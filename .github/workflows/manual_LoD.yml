@@ -22,6 +22,7 @@ jobs:
       - name: Count Markdown LoD in wakis/
         id: tokei
         run: |
+          cd wakis
           TOkei_OUT=$(tokei wakis/ --types Markdown --output json)
           MD_LOC=$(echo "$TOkei_OUT" | python -c "import sys, json; print(json.load(sys.stdin)['Markdown']['code'])")
           if [ "$MD_LOC" -ge 1000 ]; then
@@ -33,6 +34,7 @@ jobs:
 
       - name: Download new badge from shields.io
         run: |
+          cd wakis
           curl -o badge-docs.svg "https://img.shields.io/badge/Lines_of_Docs-${MD_LOC_BADGE}-blue"
 
       - name: Push badge to gh-pages

@@ -22,6 +22,7 @@ jobs:
       - name: Count Python LoC in wakis/
         id: tokei
         run: |
+          cd wakis
           TOkei_OUT=$(tokei wakis/ --types Python --output json)
           PY_LOC=$(echo "$TOkei_OUT" | python -c "import sys, json; print(json.load(sys.stdin)['Python']['code'])")
           if [ "$PY_LOC" -ge 1000 ]; then
@@ -33,6 +34,7 @@ jobs:
 
       - name: Download new badge from shields.io
         run: |
+          cd wakis
           curl -o badge.svg "https://img.shields.io/badge/Lines_of_Code-${PY_LOC_BADGE}-blue"
 
       - name: Push badge to gh-pages
