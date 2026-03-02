@@ -2,12 +2,11 @@
 
 > Open-source **Wak**e and **I**mpedance **S**olver
 
-
-[![nightly_tests_CPU_py3.12](https://github.com/ImpedanCEI/Wakis/actions/workflows/nightly_tests_CPU_p3.12.yml/badge.svg)](https://github.com/ImpedanCEI/Wakis/actions/workflows/nightly_tests_CPU_p3.12.yml)
+[![Documentation Status](https://readthedocs.org/projects/wakis/badge/?version=latest)](https://wakis.readthedocs.io/en/latest/?badge=latest)
+![Tests badge](https://github.com/impedanCEI/wakis/actions/workflows/nightly_tests_CPU.yml/badge.svg)
+[![codecov](https://codecov.io/github/elenafuengar/wakis/graph/badge.svg?token=7QPYJC23A0)](https://codecov.io/github/elenafuengar/wakis)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 ![LoC](https://raw.githubusercontent.com/ImpedanCEI/wakis/gh-pages/badge.svg)
-![LoD](https://raw.githubusercontent.com/ImpedanCEI/wakis/gh-pages/badge-docs.svg)
-[![Documentation Status](https://readthedocs.org/projects/wakis/badge/?version=latest)](https://wakis.readthedocs.io/en/latest/?badge=latest)
 
 ![PyPI - Version](https://img.shields.io/pypi/v/wakis?style=flat-square&color=fuchsia)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/wakis)
@@ -24,9 +23,9 @@
 * CAD geometry importer (`STL` & `STEP` format) for definition of embedded boundaries and material regions, based on [`pyvista`](https://github.com/pyvista/pyvista)
 * Boundary conditions: PEC, PMC, Periodic, ABC-FOEXTRAP, Perfect Matched Layers (PML)
 * Different time-domain sources: particle beam, planewave, gaussian wavepacket
-* 100% python, fully exposed API (material tensors, fields $E$, $H$, $J$). Matrix operators based on `numpy` and `scipy.sparse` routines ensure fast calculations.
+* 100% python, fully exposed API (material tensors, fields $E$, $H$, $J$). Matrix operators based on `numpy` and `scipy.sparse` routines ensure multithreaded calculations using Intel's `mkl-service`.
 * 1d, 2d, 3d built-in plotting on-the-fly
-* Optimized memory consumption & GPU acceleration using `cupy/cupyx`
+* Optimized memory consumption & GPU acceleration using `cupy/cupyx` on double and *single* precision: added in[#v0.6.1](https://github.com/ImpedanCEI/wakis/releases/tag/v0.6.1)
 * CUDA-aware MPI parallelization with `mpi4py` and `ipyparallel`: added in[#v0.6.0](https://github.com/ImpedanCEI/wakis/releases/tag/v0.6.0)
 * Snappy Smart mesh added in [#v0.6.2](https://github.com/ImpedanCEI/wakis/releases/tag/v0.6.2)
 
@@ -117,5 +116,6 @@ These effects can be characterized through the beam coupling impedance in the fr
 🔖 Each Wakis release is linked to a [Zenodo](https://zenodo.org/records/15011421) publication under a unique [DOI](https://doi.org/10.5281/zenodo.15011421). If you are using Wakis in your scientific research, please help our scientific visibility by citing this work:
 
 > [1] E. de la Fuente Garcia et. al., “Wakis”. Zenodo, 2025. doi: https://doi.org/10.5281/zenodo.15527405
+
 
 
