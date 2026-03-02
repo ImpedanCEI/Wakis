@@ -1,0 +1,239 @@
+name: Update Release Notes
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+jobs:
+  update-release-notes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for proper changelog generation
+          ref: ${{ github.head_ref || github.ref_name }}
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Generate release notes
+        run: |
+          # Get the version from setup.py
+          VERSION=$(python setup.py --version 2>/dev/null || echo "dev")
+          
+          # Determine the commit range
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="${{ github.event.pull_request.base.sha }}"
+            HEAD_REF="${{ github.event.pull_request.head.sha }}"
+            COMMIT_RANGE="${BASE_REF}..${HEAD_REF}"
+          else
+            # For push events, get the last tag and use commits since then
+            LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+            if [ -n "$LAST_TAG" ]; then
+              COMMIT_RANGE="${LAST_TAG}..HEAD"
+            else
+              # If no tags, use last 50 commits
+              COMMIT_RANGE="HEAD~50..HEAD" 2>/dev/null || COMMIT_RANGE="HEAD"
+            fi
+          fi
+          
+          echo "Processing commits in range: ${COMMIT_RANGE}"
+          
+          # Count total commits in range
+          TOTAL_COMMITS=$(git log ${COMMIT_RANGE} --oneline 2>/dev/null | wc -l || echo 0)
+          
+          if [ ${TOTAL_COMMITS} -eq 0 ]; then
+            echo "No new commits to process"
+            exit 0
+          fi
+          
+          # Create a temporary file for the unreleased section
+          cat > /tmp/unreleased_section.md << 'EOF'
+          # Unreleased
+          
+          This section contains updates that will be included in the next release.
+          
+          ---
+          
+          ## 🚀 New Features
+          
+          EOF
+          
+          # Extract feature commits
+          git log ${COMMIT_RANGE} --date=short --pretty=format:"* %ad %s (%aN)" --grep="^feature:" --grep="^feat:" -i 2>/dev/null > /tmp/features.txt || true
+          if [ -s /tmp/features.txt ]; then
+            cat /tmp/features.txt >> /tmp/unreleased_section.md
+          else
+            echo "* No new features yet" >> /tmp/unreleased_section.md
+          fi
+          
+          echo "" >> /tmp/unreleased_section.md
+          echo "---" >> /tmp/unreleased_section.md
+          echo "" >> /tmp/unreleased_section.md
+          echo "## 💗 Other Tag Highlights" >> /tmp/unreleased_section.md
+          echo "" >> /tmp/unreleased_section.md
+          echo "* 🔁 **Tests**" >> /tmp/unreleased_section.md
+          
+          # Extract test commits
+          git log ${COMMIT_RANGE} --date=short --pretty=format:"  * %ad %s (%aN)" --grep="^test:" -i 2>/dev/null > /tmp/tests.txt || true
+          if [ -s /tmp/tests.txt ]; then
+            cat /tmp/tests.txt >> /tmp/unreleased_section.md
+          else
+            echo "  * No test updates" >> /tmp/unreleased_section.md
+          fi
+          
+          echo "" >> /tmp/unreleased_section.md
+          echo "* 📚 **Documentation**" >> /tmp/unreleased_section.md
+          
+          # Extract doc commits
+          git log ${COMMIT_RANGE} --date=short --pretty=format:"  * %ad %s (%aN)" --grep="^docs:" -i 2>/dev/null > /tmp/docs.txt || true
+          if [ -s /tmp/docs.txt ]; then
+            cat /tmp/docs.txt >> /tmp/unreleased_section.md
+          else
+            echo "  * No documentation updates" >> /tmp/unreleased_section.md
+          fi
+          
+          echo "" >> /tmp/unreleased_section.md
+          echo "* ⚙️ **Build & Compatibility**" >> /tmp/unreleased_section.md
+          
+          # Extract build commits
+          git log ${COMMIT_RANGE} --date=short --pretty=format:"  * %ad %s (%aN)" --grep="^build:" --grep="^ci:" -i 2>/dev/null > /tmp/build.txt || true
+          if [ -s /tmp/build.txt ]; then
+            cat /tmp/build.txt >> /tmp/unreleased_section.md
+          else
+            echo "  * No build updates" >> /tmp/unreleased_section.md
+          fi
+          
+          echo "" >> /tmp/unreleased_section.md
+          echo "---" >> /tmp/unreleased_section.md
+          echo "" >> /tmp/unreleased_section.md
+          echo "## 🐛 **Bugfixes**" >> /tmp/unreleased_section.md
+          echo "" >> /tmp/unreleased_section.md
+          
+          # Extract bugfix commits
+          git log ${COMMIT_RANGE} --date=short --pretty=format:"* %ad %s (%aN)" --grep="^fix:" --grep="^bugfix:" -i 2>/dev/null > /tmp/fixes.txt || true
+          if [ -s /tmp/fixes.txt ]; then
+            cat /tmp/fixes.txt >> /tmp/unreleased_section.md
+          else
+            echo "* No bugfixes yet" >> /tmp/unreleased_section.md
+          fi
+          
+          echo "" >> /tmp/unreleased_section.md
+          echo "---" >> /tmp/unreleased_section.md
+          echo "" >> /tmp/unreleased_section.md
+          echo "## 📝 **Full changelog**" >> /tmp/unreleased_section.md
+          echo "" >> /tmp/unreleased_section.md
+          
+          # Count commits by category
+          FEAT_COUNT=$(git log ${COMMIT_RANGE} --oneline --grep="^feature:" --grep="^feat:" -i 2>/dev/null | wc -l || echo 0)
+          TEST_COUNT=$(git log ${COMMIT_RANGE} --oneline --grep="^test:" -i 2>/dev/null | wc -l || echo 0)
+          DOCS_COUNT=$(git log ${COMMIT_RANGE} --oneline --grep="^docs:" -i 2>/dev/null | wc -l || echo 0)
+          FIX_COUNT=$(git log ${COMMIT_RANGE} --oneline --grep="^fix:" --grep="^bugfix:" -i 2>/dev/null | wc -l || echo 0)
+          STYLE_COUNT=$(git log ${COMMIT_RANGE} --oneline --grep="^style:" -i 2>/dev/null | wc -l || echo 0)
+          
+          if [ ${TOTAL_COMMITS} -gt 0 ]; then
+            FEAT_PCT=$(awk "BEGIN {printf \"%.1f\", (${FEAT_COUNT}/${TOTAL_COMMITS})*100}")
+            TEST_PCT=$(awk "BEGIN {printf \"%.1f\", (${TEST_COUNT}/${TOTAL_COMMITS})*100}")
+            DOCS_PCT=$(awk "BEGIN {printf \"%.1f\", (${DOCS_COUNT}/${TOTAL_COMMITS})*100}")
+            FIX_PCT=$(awk "BEGIN {printf \"%.1f\", (${FIX_COUNT}/${TOTAL_COMMITS})*100}")
+            STYLE_PCT=$(awk "BEGIN {printf \"%.1f\", (${STYLE_COUNT}/${TOTAL_COMMITS})*100}")
+            OTHER_COUNT=$((TOTAL_COMMITS - FEAT_COUNT - TEST_COUNT - DOCS_COUNT - FIX_COUNT - STYLE_COUNT))
+            OTHER_PCT=$(awk "BEGIN {printf \"%.1f\", (${OTHER_COUNT}/${TOTAL_COMMITS})*100}")
+          else
+            FEAT_PCT=0
+            TEST_PCT=0
+            DOCS_PCT=0
+            FIX_PCT=0
+            STYLE_PCT=0
+            OTHER_PCT=0
+          fi
+          
+          cat >> /tmp/unreleased_section.md << EOF
+          | **${TOTAL_COMMITS} commits** | 📚 Docs | 🧪 Tests | 🐛 Fixes | 🎨 Style | ✨ Features | Other |
+          |-----------------|---------|----------|-----------|------------|--------------|-------|
+          | % of Commits    | ${DOCS_PCT}%   | ${TEST_PCT}%    | ${FIX_PCT}%      | ${STYLE_PCT}%       | ${FEAT_PCT}%        | ${OTHER_PCT}%  |
+          
+          EOF
+          
+          echo "" >> /tmp/unreleased_section.md
+          echo '`git log --date=short --pretty=format:"* %ad %s (%aN)"`' >> /tmp/unreleased_section.md
+          echo "" >> /tmp/unreleased_section.md
+          echo "" >> /tmp/unreleased_section.md
+          
+          # Add all commits
+          git log ${COMMIT_RANGE} --date=short --pretty=format:"* %ad %s (%aN)" 2>/dev/null >> /tmp/unreleased_section.md || true
+          
+          echo "" >> /tmp/unreleased_section.md
+          echo "" >> /tmp/unreleased_section.md
+          
+          # Update release.md
+          if [ -f release.md ]; then
+            # Check if there's already an Unreleased section and remove it
+            if grep -q "^# Unreleased" release.md; then
+              # Find the line number of the first released version (starts with # v)
+              FIRST_VERSION_LINE=$(grep -n "^# v[0-9]" release.md | head -1 | cut -d: -f1)
+              if [ -n "$FIRST_VERSION_LINE" ]; then
+                # Keep everything from the first version onwards
+                tail -n +${FIRST_VERSION_LINE} release.md > /tmp/existing_releases.md
+                # Prepend new unreleased section
+                cat /tmp/unreleased_section.md > release.md
+                echo "---" >> release.md
+                echo "" >> release.md
+                cat /tmp/existing_releases.md >> release.md
+              else
+                # No versioned releases found, just replace with unreleased
+                mv /tmp/unreleased_section.md release.md
+              fi
+            else
+              # No unreleased section exists, prepend to existing content
+              cat /tmp/unreleased_section.md > /tmp/updated_release.md
+              echo "---" >> /tmp/updated_release.md
+              echo "" >> /tmp/updated_release.md
+              cat release.md >> /tmp/updated_release.md
+              mv /tmp/updated_release.md release.md
+            fi
+          else
+            # No release.md exists, create it
+            mv /tmp/unreleased_section.md release.md
+          fi
+      
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if git diff --quiet release.md; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "No changes to release.md"
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "Changes detected in release.md"
+          fi
+      
+      - name: Commit and push changes
+        if: steps.check_changes.outputs.has_changes == 'true' && github.event_name == 'push'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add release.md
+          git commit -m "chore: auto-update release.md [skip ci]"
+          git push
+      
+      - name: Commit changes to PR
+        if: steps.check_changes.outputs.has_changes == 'true' && github.event_name == 'pull_request'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add release.md
+          git commit -m "chore: auto-update release.md for PR #${{ github.event.pull_request.number }}"
+          git push origin HEAD:${{ github.head_ref }}
