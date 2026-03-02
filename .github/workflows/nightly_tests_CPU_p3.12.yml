@@ -6,6 +6,7 @@ name: nightly_tests_CPU_py3.12
 on:
   schedule:
     - cron: "0 0 * * *"
+  workflow_dispatch:
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:

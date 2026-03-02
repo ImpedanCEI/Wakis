@@ -1,5 +1,5 @@
 # This workflow runs on pull requests and nightly
-name: pull_request_CPU_python
+name: pull_request_CPU_p3.11
 
 on:
   # Run tests for every pull request targeting main
