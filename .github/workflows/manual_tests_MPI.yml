@@ -29,16 +29,16 @@ jobs:
       run: |
         conda install -c conda-forge openmpi
         conda install -c conda-forge mpi4py
-    - name: pip install
-      run:  |
-        pip install wakis['all']
-
     - name: Print versions
       run: conda list
     - name: Checkout wakis
       uses: actions/checkout@v4
       with:
         path: wakis
+    - name: pip install
+      run:  |
+        cd wakis
+        pip install .['all']
     - name: Run pytest
       run:  |
         cd wakis
