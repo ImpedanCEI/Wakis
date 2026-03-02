@@ -1,6 +1,6 @@
 # This is a basic workflow that is manually triggered
 
-name: manual_tests_CPU_python10
+name: manual_tests_CPU_p3.14
 
 # Controls when the action will run. Workflow runs when manually triggered using the UI
 # or API.
@@ -24,7 +24,7 @@ jobs:
       uses: conda-incubator/setup-miniconda@v2
       with:
         miniforge-version: latest
-        python-version: "3.13"
+        python-version: "3.14"
     - name: Checkout wakis
       uses: actions/checkout@v4
       with:
@@ -34,8 +34,6 @@ jobs:
         cd wakis
         pip install .
         pip install pytest pytest-cov
-        pip uninstall vtk -y
-        pip install --extra-index-url https://wheels.vtk.org vtk-osmesa
 
     - name: Print versions
       run: conda list
