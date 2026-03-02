@@ -1,6 +1,6 @@
 # This is a basic workflow that is manually triggered
 
-name: manual_tests_CPU_p3.14
+name: manual_tests_CPU_py3.14
 
 # Controls when the action will run. Workflow runs when manually triggered using the UI
 # or API.
@@ -40,6 +40,7 @@ jobs:
     - name: Run pytest
       run:  |
         cd wakis
+        export PYVISTA_USE_OSMESA=True
         python -m pytest --cov=wakis --cov-config=tests/.coveragerc --cov-report=term -vs tests
 
 
