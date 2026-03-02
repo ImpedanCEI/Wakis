@@ -1,6 +1,6 @@
 # This is a basic workflow that is nighly triggered
 
-name: nightly_tests_CPU_python3.10
+name: nightly_tests_CPU_py3.10
 
 # Controls when the action will run. CRON schedule runs at mm hh dd mm yy UTC TIME
 on:

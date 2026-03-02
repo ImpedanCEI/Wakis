@@ -1,6 +1,6 @@
 # This is a basic workflow that is manually triggered
 
-name: manual_tests_MPI_python10
+name: manual_tests_MPI_p3.14
 
 # Controls when the action will run. Workflow runs when manually triggered using the UI
 # or API.
@@ -24,14 +24,14 @@ jobs:
       uses: conda-incubator/setup-miniconda@v2
       with:
         miniforge-version: latest
-        python-version: "3.10"
+        python-version: "3.14"
     - name: mpi install
       run: |
         conda install -c conda-forge openmpi
         conda install -c conda-forge mpi4py
     - name: pip install
       run:  |
-        pip install wakis['notebook']
+        pip install wakis['all']
 
     - name: Print versions
       run: conda list
