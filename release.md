@@ -1,3 +1,113 @@
+# v0.7.0
+
+This release introduces major improvements across mesh handling, geometry inspection, field monitoring, simulation logging, PML customization, and build tooling: **smart mesh generation** based on snappy edges, a new **interactive geometry inspector** for `SolverFIT3D`, a **frequency-domain field monitor class** with counter-rotating test charge support, an **automatic logfile** for simulation parameters, **HDF5 grid serialization**, and full **NumPy 2.x / Python 3.13–3.14 compatibility**. It also introduces automated **PyPI wheel publishing** and AMD ROCm/CuPy documentation.
+
+---
+
+## 🚀 New Features
+
+* 🔭 **Field Monitor & Test Charge**
+  * Addition of frequency-domain **field monitor class** to track and post-process field quantities during simulation (#18).
+  * Added possibility to have a **counter-rotating test charge** for more flexible beam configurations (#18).
+
+* 📓 **Logger**
+  * Automatic logger now saves all **simulation parameters in a logfile** at runtime (#31).
+
+* 🌊 **PML**
+  * Customize the **PML to account for beam path in non-vacuum material**, enabling more physical boundary conditions (#34).
+
+* 💾 **Grid I/O**
+  * Allow **saving and loading the 3D grid to and from an HDF5 file** for reproducibility and reuse (#38).
+
+* 🔬 **Geometry Inspection**
+  * Added new `inspect` method to `SolverFIT3D` for **interactive visualization of imported solids and beam path** (#43).
+
+* 🧱 **Smart Mesh**
+  * **Smart mesh based on snappy edges** is now fully operational — automatic grid generation respecting geometry boundaries (#47).
+
+* 🪶 **Geometry & CAD Tools**
+  * Added **units scale function** to extract units from STEP files and automatically scale STL geometry to meters (#27).
+  * Allow using **lists as color inputs** in geometry visualization routines (#28).
+  * Import materials from `.stp` files in **lowercase** for consistency (#20, #26).
+
+* ⚙️ **Build & Distribution**
+  * Added **workflow to publish wheels to PyPI on tag**, streamlining release automation (#63).
+  * Ensured full **NumPy 2.x and Python 3.13/3.14 compatibility** (#60).
+
+---
+
+## 💗 Other Tag Highlights
+
+* 🔁 **Tests & CI**
+  * Fixed **VTK wheels for Python 3.13/3.14** and improved test workflow robustness (#64).
+  * Added coverage configuration file.
+
+* 📚 **Documentation**
+  * Added instructions for setting up **CuPy on ROCm** to run Wakis on AMD GPUs (#51).
+  * Added **multithreading documentation** to the installation guide (#40).
+  * Updated **GPU and HTCondor** documentation (#17).
+  * Major **notebook revisions and updates** (#54).
+  * Updated badges in `README.md`.
+
+* 🎨 **Style & Code Quality**
+  * Applied **Ruff formatting** and code quality improvements (#54, #35).
+  * Improvements to `GridFIT3D.py` using AI code quality findings (#35).
+  * Style and **CodeQL** improvements across core files (#54).
+  * Improved checklist in PR template.
+
+---
+
+## 🐛 **Bugfixes**
+
+* Fixed bugs in **field inspection** and related plotting routines (#50).
+* Resolved **5 code quality findings** in core files (#35).
+* Minor bug-fixes across the codebase (#54, #50).
+
+---
+
+## 👋👩‍💻 **New Contributors**
+
+* [**@elleanor-lamb**](https://github.com/elleanor-lamb) — Added frequency-domain field monitor, counter-rotating test charge support, and updated GPU/HTCondor documentation (#18, #17).
+* [**@Antoniahuber**](https://github.com/Antoniahuber) — Implemented smart mesh, logfile, units scale function, lowercase material import, and color list support (#47, #31, #27, #26, #28, #20).
+* [**@ekatralis**](https://github.com/ekatralis) — Added CuPy on ROCm documentation and PyPI wheel publishing workflow (#51, #63).
+* [**@amorimd**](https://github.com/amorimd) — Implemented PML customization for beam path in non-vacuum material (#34).
+
+---
+
+## 📝 **Full changelog**
+
+| **19 PRs** | 📚 Docs | 🧪 Tests | 🐛 Fixes | 🎨 Style | ✨ Features | Other |
+|------------|---------|----------|-----------|------------|--------------|-------|
+| % of PRs   | 21%     | 5%       | 16%       | 16%        | 37%          | 5%    |
+
+
+`git log v0.6.0...v0.7.0 --date=short --pretty=format:"* %ad %s (%aN)"`
+
+
+* Fix VTK wheels for Python 3.13/3.14 and improve test workflows — [#64](https://github.com/ImpedanCEI/Wakis/pull/64) (@elenafuengar)
+* Add workflow to publish wheels to PyPI on tag — [#63](https://github.com/ImpedanCEI/Wakis/pull/63) (@ekatralis)
+* Numpy 2.x and python 3.13-3.14 compatibility — [#60](https://github.com/ImpedanCEI/Wakis/pull/60) (@elenafuengar)
+* Style and codeQL of core files — [#54](https://github.com/ImpedanCEI/Wakis/pull/54) (@elenafuengar)
+* Smart Mesh — [#47](https://github.com/ImpedanCEI/Wakis/pull/47) (@Antoniahuber)
+* Customize the PML to account for beam path in non vacuum material — [#34](https://github.com/ImpedanCEI/Wakis/pull/34) (@amorimd)
+* Add instructions for setting up CuPy on ROCm — [#51](https://github.com/ImpedanCEI/Wakis/pull/51) (@ekatralis)
+* Fix/field inspect — [#50](https://github.com/ImpedanCEI/Wakis/pull/50) (@elenafuengar)
+* Feature/solver inspect geometry — [#43](https://github.com/ImpedanCEI/Wakis/pull/43) (@elenafuengar)
+* Allow saving and loading the 3D grid to and from an HDF5 file — [#38](https://github.com/ImpedanCEI/Wakis/pull/38) (@elenafuengar)
+* docs: added multithreading documentation to installation guide — [#40](https://github.com/ImpedanCEI/Wakis/pull/40) (@elenafuengar)
+* Logfile — [#31](https://github.com/ImpedanCEI/Wakis/pull/31) (@Antoniahuber)
+* Potential fixes for 5 code quality findings — [#35](https://github.com/ImpedanCEI/Wakis/pull/35) (@elenafuengar)
+* Addition of field monitor class and counter-rotating test charge — [#18](https://github.com/ImpedanCEI/Wakis/pull/18) (@elleanor-lamb)
+* Allow lists as color inputs — [#28](https://github.com/ImpedanCEI/Wakis/pull/28) (@Antoniahuber)
+* Units scale function — [#27](https://github.com/ImpedanCEI/Wakis/pull/27) (@Antoniahuber)
+* Lowercase in materials — [#26](https://github.com/ImpedanCEI/Wakis/pull/26) (@Antoniahuber)
+* Commas in Usersguide and import materials in lowercase — [#20](https://github.com/ImpedanCEI/Wakis/pull/20) (@Antoniahuber)
+* Gpu docs update — [#17](https://github.com/ImpedanCEI/Wakis/pull/17) (@elleanor-lamb)
+
+**Full Changelog**: https://github.com/ImpedanCEI/Wakis/compare/v0.6.0...v0.7.0
+
+---
+
 # v0.6.1
 
 This release introduces major improvements to performance and usability: **running single-precision simulations** allowing x100 speedup on mid-range GPUs, **MKL backend integration** for multithreaded time-stepping (sparse-matrix times vector operations), **adaptive mesh refinement** (first steps, WIP), **STEP geometry unit extraction and scaling** and more robust parsing, added **IDDEFIX wrapper** for streamlined simulation extrapolation, and updated **interactive 3D visualization tools** of imported solids with widgets.
