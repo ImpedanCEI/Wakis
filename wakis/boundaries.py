@@ -208,7 +208,7 @@ class BCsMixin:
             self.activate_pml = True
             self.use_conductivity = True
 
-    def _fill_pml_sigmas(self):
+    def _initialize_PML(self):
         """
         Compute and apply PML sigma profiles to the solver conductivity tensor.
 
@@ -220,6 +220,10 @@ class BCsMixin:
         # Initialize
         sx, sy, sz = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
         # pml_exp = 2
+        self.pml_lo = 5.0e-3
+        self.pml_hi = 10.0
+        self.pml_func = np.geomspace
+        self.pml_eps_r = 1.0
 
         # Fill
         if self.bc_low[0].lower() == "pml":
