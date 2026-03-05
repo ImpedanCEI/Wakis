@@ -10,7 +10,7 @@ from scipy.sparse import diags
 from .field import Field
 
 
-class RoutinesMixin:
+class BCsMixin:
     def _apply_bc_to_C(self):
         """
         Apply boundary conditions by modifying curl and metric matrices.
