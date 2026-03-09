@@ -594,8 +594,8 @@ class WakeSolver:
         WPy = np.zeros_like(self.s)
         int_WP = np.zeros_like(self.WP_3d)
         
-        dxf = diff(self.xf)
-        dyf = diff(self.yf)
+        dxf = np.diff(self.xf)
+        dyf = np.diff(self.yf)
 
         print("Calculating transverse wake potential WPx, WPy...")
         # Obtain the transverse wake potential
