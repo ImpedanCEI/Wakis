@@ -593,6 +593,9 @@ class WakeSolver:
         WPx = np.zeros_like(self.s)
         WPy = np.zeros_like(self.s)
         int_WP = np.zeros_like(self.WP_3d)
+        
+        dxf = diff(self.xf)
+        dyf = diff(self.yf)
 
         print("Calculating transverse wake potential WPx, WPy...")
         # Obtain the transverse wake potential
@@ -608,10 +611,10 @@ class WakeSolver:
 
                 # Perform the gradient (second order scheme)
                 WPx[n] = -0.5*(int_WP[i0 + 1, j0, n] - int_WP[i0 - 1, j0, n]) / (
-                    self.dx[i0 - 1] + self.dx[i0+1]
+                    dxf[i0 - 1] + dxf[i0]
                 )
                 WPy[n] = -0.5*(int_WP[i0, j0 + 1, n] - int_WP[i0, j0 - 1, n]) / (
-                    self.dy[j0 - 1] + self.dy[j0+1]
+                    dyf[j0 - 1] + dyf[j0]
                 )
 
         self.WPx = WPx
