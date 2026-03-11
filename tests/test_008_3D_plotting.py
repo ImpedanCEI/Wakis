@@ -1,29 +1,24 @@
 import os
 import sys
-import pyvista as pv
+
 import numpy as np
+import pyvista as pv
 
 sys.path.append("../wakis")
 
-from tqdm import tqdm
-from scipy.constants import c
-
-from wakis import SolverFIT3D
-from wakis import GridFIT3D
-from wakis.sources import Beam
-from wakis import WakeSolver
-
 import pytest
+from scipy.constants import c
+from tqdm import tqdm
 
-# Turn False when running local
-flag_offscreen = True
+from wakis import GridFIT3D, SolverFIT3D, WakeSolver
+from wakis.sources import Beam
 
 
 @pytest.mark.slow
 class Test3Dplotting:
     img_folder = "tests/008_img/"
 
-    def test_simulation(self):
+    def test_simulation(self, use_gpu, flag_offscreen):
         # ---------- Domain setup ---------
 
         # Geometry & Materials
@@ -77,9 +72,13 @@ class Test3Dplotting:
         ys = 1e-2  # y source position [m]
         ti = 3 * sigmaz / c  # injection time [s]
 
-        beam = Beam(q=q, sigmaz=sigmaz, beta=beta, xsource=xs, ysource=ys, ti=ti)
+        beam = Beam(
+            q=q, sigmaz=sigmaz, beta=beta, xsource=xs, ysource=ys, ti=ti
+        )
 
-        wake = WakeSolver(q=q, sigmaz=sigmaz, beta=beta, xsource=xs, ysource=ys, ti=ti)
+        wake = WakeSolver(
+            q=q, sigmaz=sigmaz, beta=beta, xsource=xs, ysource=ys, ti=ti
+        )
 
         # ----------- Solver & Simulation ----------
         # boundary conditions
@@ -97,6 +96,7 @@ class Test3Dplotting:
             use_mpi=False,  # Activate MPI
             bg="pec",  # Background material
             dtype=np.float32,
+            use_gpu=use_gpu,
         )
 
         # -------------- Output folder ---------------------
@@ -109,7 +109,7 @@ class Test3Dplotting:
             beam.update(solver, n * solver.dt)
             solver.one_step()
 
-    def test_grid_inspect(self):
+    def test_grid_inspect(self, flag_offscreen):
         # Plot grid and imported solids
         global solver
         pl = solver.grid.inspect(
@@ -119,10 +119,10 @@ class Test3Dplotting:
             anti_aliasing="ssaa",
         )
         if flag_offscreen:
-            # pl.screenshot(self.img_folder+'grid_inspect.png')
-            pl.export_html(self.img_folder + "grid_inspect.html")
+            pl.screenshot(self.img_folder+'grid_inspect.png')
+            # pl.export_html(self.img_folder + "grid_inspect.html") # requires trame   
 
-    def test_grid_plot_solids(self):
+    def test_grid_plot_solids(self, flag_offscreen):
         # Plot only imported solids
         global solver
         solver.grid.plot_solids(
@@ -134,7 +134,7 @@ class Test3Dplotting:
             off_screen=flag_offscreen,
         )
 
-    def test_grid_stl_mask(self):
+    def test_grid_stl_mask(self, flag_offscreen):
         # Plot STL solid masks in the grid
         global solver
         solver.grid.plot_stl_mask(
@@ -148,7 +148,7 @@ class Test3Dplotting:
             off_screen=flag_offscreen,
         )
 
-    def test_solver_inspect(self):
+    def test_solver_inspect(self, flag_offscreen):
         # Plot imported solids and beam source and integraiton path
         global solver
         pl = solver.inspect(
@@ -160,10 +160,10 @@ class Test3Dplotting:
             add_silhouette=True,
         )
         if flag_offscreen:
-            # pl.screenshot(self.img_folder+'solver_inspect.png')
-            pl.export_html(self.img_folder + "solver_inspect.html")
+            pl.screenshot(self.img_folder+'solver_inspect.png')
+            # pl.export_html(self.img_folder + "solver_inspect.html") # requires trame
 
-    def test_plot3D(self):
+    def test_plot3D(self, flag_offscreen):
         # Plot Abs Electric field on domain
         global solver
         solver.plot3D(
@@ -179,7 +179,7 @@ class Test3Dplotting:
             off_screen=flag_offscreen,
         )
 
-    def test_plot3DonSTL(self):
+    def test_plot3DonSTL(self, flag_offscreen):
         # Plot Abs Electric field on STL solid `cavity`
         global solver
         solver.plot3DonSTL(

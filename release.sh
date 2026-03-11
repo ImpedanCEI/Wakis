@@ -10,11 +10,3 @@ echo "========================================================================"
 
 git tag -a v$VER
 git push origin v$VER
-
-echo "========================================================================"
-echo "Releasing $NAME v$VER on PyPI"
-echo "========================================================================"
-
-python setup.py sdist
-twine upload dist/*
-rm -r dist/ *.egg-info

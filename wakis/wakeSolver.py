@@ -3,14 +3,15 @@
 # Copyright (c) CERN, 2024.                   #
 # ########################################### #
 
-import time
-import os
 import glob
+import os
 import shutil
+import time
+
 import h5py
 import numpy as np
-from tqdm import tqdm
 from scipy.constants import c as c_light
+from tqdm import tqdm
 
 from .logger import Logger
 
@@ -284,9 +285,13 @@ class WakeSolver:
 
             if i0.size:
                 self.WP += np.bincount(
-                    i0, weights=Ez_m * (1.0 - frac) * self.dz, minlength=len(self.s)
+                    i0,
+                    weights=Ez_m * (1.0 - frac) * self.dz,
+                    minlength=len(self.s),
                 ) + np.bincount(
-                    i0 + 1, weights=Ez_m * frac * self.dz, minlength=len(self.s)
+                    i0 + 1,
+                    weights=Ez_m * frac * self.dz,
+                    minlength=len(self.s),
                 )
 
         if it == self.Nt - 1:
@@ -352,17 +357,19 @@ class WakeSolver:
 
         s = np.arange(-self.ti * self.v, wakelength, dt * self.v)
 
-        self.log("Max simulated time = " + str(round(self.t[-1] * 1.0e9, 4)) + " ns")
+        self.log(
+            "Max simulated time = " + str(round(self.t[-1] * 1.0e9, 4)) + " ns"
+        )
         self.log("Wakelength = " + str(round(wakelength, 3)) + "m")
 
         # Initialize
         WP = np.zeros_like(s)
-        keys = list(self.Ez_hf.keys())
-
-        # check for rounding errors
-        if nt > len(keys) - 4:
-            nt = len(keys) - 4
-            self.log("*** rounding error in number of timesteps")
+        keys = sorted(
+            k
+            for k in self.Ez_hf.keys()
+            if isinstance(k, str) and k.startswith("#")
+        )
+        nt = min(nt, len(keys))
 
         # Assembly Ez field
         self.log("Assembling Ez field...")
@@ -384,10 +391,14 @@ class WakeSolver:
         with tqdm(total=len(s) * len(z)) as pbar:
             for n in range(len(s)):
                 for k in range(nz):
-                    ts = (z[k] + s[n]) / self.v - zmin / self.v - self.t[0] + ti
+                    ts = (
+                        (z[k] + s[n]) / self.v - zmin / self.v - self.t[0] + ti
+                    )
                     it = int(ts / dt)  # find index for t
                     if it < nt:
-                        WP[n] = WP[n] + (Ezt[k, it]) * self.dz[k]  # compute integral
+                        WP[n] = (
+                            WP[n] + (Ezt[k, it]) * self.dz[k]
+                        )  # compute integral
                     pbar.update(1)
 
         WP = WP / (self.q * 1e12)  # [V/pC]
@@ -441,7 +452,7 @@ class WakeSolver:
         dt = self.t[2] - self.t[1]
         ti = self.ti
 
-        # longitudinal varianles
+        # longitudinal variables
         if self.zf is None:
             self.zf = self.z
         zmax = np.max(self.zf)
@@ -471,12 +482,12 @@ class WakeSolver:
         WP = np.zeros_like(s)
         WP_3d = np.zeros((i0 * 2 + 1, j0 * 2 + 1, len(s)))
         Ezt = np.zeros((nz, nt))
-        keys = list(self.Ez_hf.keys())
-
-        # check for rounding errors
-        if nt > len(keys) - 4:
-            nt = len(keys) - 4
-            self.log("*** rounding error in number of timesteps")
+        keys = sorted(
+            k
+            for k in self.Ez_hf.keys()
+            if isinstance(k, str) and k.startswith("#")
+        )
+        nt = min(nt, len(keys))
 
         print("Calculating longitudinal wake potential WP(s)")
         with tqdm(total=len(s) * (i0 * 2 + 1) * (j0 * 2 + 1)) as pbar:
@@ -485,7 +496,9 @@ class WakeSolver:
                     # Assembly Ez field
                     for n in range(nt):
                         Ez = self.Ez_hf[keys[n]]
-                        Ezt[:, n] = Ez[Ez.shape[0] // 2 + i, Ez.shape[1] // 2 + j, zz]
+                        Ezt[:, n] = Ez[
+                            Ez.shape[0] // 2 + i, Ez.shape[1] // 2 + j, zz
+                        ]
 
                     # integral of (Ez(xtest, ytest, z, t=(s+z)/c))dz
                     if self.counter_moving:
@@ -998,7 +1011,9 @@ class WakeSolver:
                     freq_data = self.fy
                     impedance_data = self.Zy
                 else:
-                    raise ValueError('Invalid dimension. Use dim = "x" or "y".')
+                    raise ValueError(
+                        'Invalid dimension. Use dim = "x" or "y".'
+                    )
             else:
                 raise ValueError(
                     "Invalid plane or dimension. Use plane = 'longitudinal' or "
@@ -1020,7 +1035,9 @@ class WakeSolver:
             parameterBounds = bounds.parameterBounds
 
         # Build the differential evolution model
-        self.log("\nExtrapolating wake potential using Differential Evolution...")
+        self.log(
+            "\nExtrapolating wake potential using Differential Evolution..."
+        )
 
         objectiveFunction = iddefix.ObjectiveFunctions.sumOfSquaredErrorReal
         DE_model = iddefix.EvolutionaryAlgorithm(
@@ -1062,7 +1079,9 @@ class WakeSolver:
 
         return DE_model
 
-    def get_extrapolated_wake(self, wakelength, sigma=None, use_minimization=True):
+    def get_extrapolated_wake(
+        self, wakelength, sigma=None, use_minimization=True
+    ):
         """
         Get the extrapolated wake potential [V/pC] from the DE model.
 
@@ -1083,7 +1102,9 @@ class WakeSolver:
             Extrapolated wake potential [V/pC].
         """
         if self.DE_model is None:
-            raise AttributeError("Run get_DEmodel() first to obtain the DE model")
+            raise AttributeError(
+                "Run get_DEmodel() first to obtain the DE model"
+            )
 
         if sigma is None:
             sigma = self.sigmaz / c_light
@@ -1091,7 +1112,9 @@ class WakeSolver:
         # Get the extrapolated wake potential
         # TODO: add beta
         t = np.arange(
-            self.s[0] / c_light, wakelength / c_light, (self.s[2] - self.s[1]) / c_light
+            self.s[0] / c_light,
+            wakelength / c_light,
+            (self.s[2] - self.s[1]) / c_light,
         )
         wake_potential = self.DE_model.get_wake_potential(
             t, sigma=sigma, use_minimization=use_minimization
@@ -1100,7 +1123,9 @@ class WakeSolver:
         s = t * c_light  # Convert time to distance [m]
         return s, -wake_potential * 1e-12  # in [V/pC] + CST convention
 
-    def get_extrapolated_wake_function(self, wakelength, use_minimization=True):
+    def get_extrapolated_wake_function(
+        self, wakelength, use_minimization=True
+    ):
         """
         Get the extrapolated wake function (Green function) from the DE model.
 
@@ -1119,12 +1144,18 @@ class WakeSolver:
             Extrapolated wake function.
         """
         if self.DE_model is None:
-            raise AttributeError("Run get_DEmodel() first to obtain the DE model")
+            raise AttributeError(
+                "Run get_DEmodel() first to obtain the DE model"
+            )
 
         t = np.arange(
-            self.s[0] / c_light, wakelength / c_light, (self.s[2] - self.s[1]) / c_light
+            self.s[0] / c_light,
+            wakelength / c_light,
+            (self.s[2] - self.s[1]) / c_light,
         )
-        wake_function = self.DE_model.get_wake(t, use_minimization=use_minimization)
+        wake_function = self.DE_model.get_wake(
+            t, use_minimization=use_minimization
+        )
         return t, wake_function
 
     def get_extrapolated_impedance(
@@ -1150,13 +1181,17 @@ class WakeSolver:
             Extrapolated impedance [Ohm].
         """
         if self.DE_model is None:
-            raise AttributeError("Run get_DEmodel() first to obtain the DE model")
+            raise AttributeError(
+                "Run get_DEmodel() first to obtain the DE model"
+            )
 
         if f is None:
             f = self.DE_model.frequency_data
 
         impedance = self.DE_model.get_impedance(
-            frequency_data=f, use_minimization=use_minimization, wakelength=wakelength
+            frequency_data=f,
+            use_minimization=use_minimization,
+            wakelength=wakelength,
         )
         return f, impedance
 
@@ -1263,7 +1298,9 @@ class WakeSolver:
             f = impedance[0]
             Z = impedance[1]
         elif f is None:
-            raise AttributeError('Provide frequency data through parameter "f"')
+            raise AttributeError(
+                'Provide frequency data through parameter "f"'
+            )
         else:
             Z = impedance
         df = np.mean(f[1:] - f[:-1])
@@ -1514,7 +1551,9 @@ class WakeSolver:
         if self.verbose:
             print("\x1b[2;37m" + txt + "\x1b[0m")
 
-    def read_cst_3d(self, path=None, folder="3d", filename="Ez.h5", units=1e-3):
+    def read_cst_3d(
+        self, path=None, folder="3d", filename="Ez.h5", units=1e-3
+    ):
         """
         Read CST 3D exports folder and store the Ez field information into a matrix
         Ez(x,y,z) for every timestep into a single `.h5` file compatible with wakis.
@@ -1603,7 +1642,9 @@ class WakeSolver:
         hf = h5py.File(path + filename, "w")
 
         # Initialize variables
-        Ez = np.zeros((n_transverse_cells, n_transverse_cells, n_longitudinal_cells))
+        Ez = np.zeros(
+            (n_transverse_cells, n_transverse_cells, n_longitudinal_cells)
+        )
         x = np.zeros((n_transverse_cells))
         y = np.zeros((n_transverse_cells))
         z = np.zeros((n_longitudinal_cells))
@@ -1634,9 +1675,13 @@ class WakeSolver:
 
                     if rows >= 0 and len(columns) > 1:
                         k = int(rows / n_transverse_cells**2)
-                        j = int(rows / n_transverse_cells - n_transverse_cells * k)
+                        j = int(
+                            rows / n_transverse_cells - n_transverse_cells * k
+                        )
                         i = int(
-                            rows - j * n_transverse_cells - k * n_transverse_cells**2
+                            rows
+                            - j * n_transverse_cells
+                            - k * n_transverse_cells**2
                         )
 
                         if k >= n_longitudinal_cells:

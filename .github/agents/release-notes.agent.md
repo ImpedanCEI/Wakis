@@ -35,14 +35,14 @@ Before publishing a new release
 ## Example
 
 ```markdown
-# vX.Y.Z
+# Wakis vX.Y.Z
 
 This release introduces major improvements to performance and usability: [short summary of highlights].
 
 ## 🚀 New Features
 
 * 🧩 **Component/Module**
-  * [Feature description]
+  * [Feature description including PR-number]
   * [Feature description]
 
 * 🧩 **Another component/module**
@@ -67,7 +67,7 @@ This release introduces major improvements to performance and usability: [short 
 * [Bugfix description]
 
 ## 👩‍💻 Contributors
-* [**@username**](https://github.com/username) — [Contribution summary]
+* [**@username**](https://github.com/username) — [Contribution summary] (#PR-number)
 
 
 ## 📝 **Full changelog**

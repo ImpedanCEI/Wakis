@@ -3,8 +3,9 @@
 # Copyright (c) CERN, 2024.                   #
 # ########################################### #
 
-from setuptools import setup, find_packages
 from pathlib import Path
+
+from setuptools import find_packages, setup
 
 # read version
 version_file = Path(__file__).parent / "wakis/_version.py"
@@ -14,7 +15,9 @@ with open(version_file.absolute(), "r") as fp:
 __version__ = dd["__version__"]
 
 # read long_description
-long_description = (Path(__file__).parent / "README.md").read_text(encoding="utf-8")
+long_description = (Path(__file__).parent / "README.md").read_text(
+    encoding="utf-8"
+)
 
 # read requirements.txt for extras_require
 with open("requirements.txt") as f:
@@ -41,17 +44,18 @@ setup(
     classifiers=[
         "Development Status :: 4 - Beta",
         "Programming Language :: Python",
-        "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
+        "Programming Language :: Python :: 3.14",
         "Operating System :: OS Independent",
         "Intended Audience :: Science/Research",
         "Topic :: Scientific/Engineering :: Physics",
     ],
     install_requires=[
-        "numpy<2.0",
+        "numpy",
         "scipy",
         "pyvista",
         "h5py",
@@ -59,7 +63,8 @@ setup(
     ],
     extras_require={
         "gpu": ["cupy"],
+        "all": ["pyvista[jupyter]", "jupyterlab", "ipympl", "bihc", "iddefix"],
         "notebook": notebook_required,
     },
-    tests_require=["pytest"],
+    tests_require=["pytest", "pytest-cov"],
 )

@@ -1,6 +1,6 @@
 # This is a basic workflow that is manually triggered
 
-name: pull_request_tests_MPI_python10
+name: pull_request_tests_MPI_p3.11
 
 # Controls when the action will run. Workflow runs when manually triggered using the UI
 # or API.
@@ -40,7 +40,8 @@ jobs:
     - name: pip install
       run:  |
         cd wakis
-        pip install .['notebook']
+        pip install .
+        pip install pytest
     - name: Print versions
       run: conda list
     - name: Run pytest

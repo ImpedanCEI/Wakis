@@ -4,12 +4,11 @@
 # ########################################### #
 
 import os
+
 import numpy as np
 import pyvista as pv
 
-from wakis import SolverFIT3D
-from wakis import GridFIT3D
-from wakis import WakeSolver
+from wakis import GridFIT3D, SolverFIT3D, WakeSolver
 from wakis.field_monitors import FieldMonitor
 
 # ---------- Domain setup ---------
@@ -127,7 +126,9 @@ np.savez(
     Ez=freq_field["Ez"],
 )
 
-Ez = freq_field["Ez"][0]  # Z field at the first frequency (only frequency in our case)
+Ez = freq_field["Ez"][
+    0
+]  # Z field at the first frequency (only frequency in our case)
 Ez_flat = np.reshape(Ez, solver.N)  #
 
 
