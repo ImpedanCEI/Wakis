@@ -13,14 +13,14 @@ Create a bug report to help us improve Wakis robustness🦾💖
 A clear and concise description of what the bug is. What did you expect to happen, and what happened instead?
 
 
-#### 🔁 To Reproduce  
+#### 🔁 To Reproduce
 Steps to reproduce the behavior or paste your Python code here:
 
 ```python
 # Your code
 ```
 
-#### 🖥️ System Info  
+#### 🖥️ System Info
 If possible complete the following:
 
 - 🧭 **OS**: [e.g. Ubuntu 22.04, macOS Ventura, Windows 11]

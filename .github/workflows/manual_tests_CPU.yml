@@ -22,7 +22,7 @@ jobs:
     steps:
     - name: Setup Miniforge
       uses: conda-incubator/setup-miniconda@v2
-      
+
       with:
         miniforge-version: latest
         python-version: "3.14"
@@ -45,5 +45,3 @@ jobs:
       run:  |
         cd wakis
         python -m pytest --cov=wakis --cov-config=tests/.coveragerc --cov-report=term -vs tests
-
-

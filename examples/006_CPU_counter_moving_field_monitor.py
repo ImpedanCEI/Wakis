@@ -38,21 +38,15 @@ rp_outer = rp + shell_thickness
 shell_cavity = trimesh.creation.cylinder(
     radius=rc_outer, height=L + shell_thickness * 2, sections=128
 )
-shell_cavity = trimesh.boolean.difference(
-    [shell_cavity, cavity], engine="manifold"
-)
+shell_cavity = trimesh.boolean.difference([shell_cavity, cavity], engine="manifold")
 shell_hole = trimesh.creation.cylinder(
     radius=rp_outer, height=L + shell_thickness * 2, sections=128
 )
-shell_cavity = trimesh.boolean.difference(
-    [shell_cavity, shell_hole], engine="manifold"
-)
+shell_cavity = trimesh.boolean.difference([shell_cavity, shell_hole], engine="manifold")
 
 
 # Hollow beam pipes (outer shell - inner hole)
-outer_pipe_left = trimesh.creation.cylinder(
-    radius=rp_outer, height=l, sections=128
-)
+outer_pipe_left = trimesh.creation.cylinder(radius=rp_outer, height=l, sections=128)
 inner_pipe_left = trimesh.creation.cylinder(
     radius=rp, height=l + extra_shell, sections=128
 )
@@ -62,9 +56,7 @@ hollow_pipe_left = trimesh.boolean.difference(
 )
 hollow_pipe_left.apply_translation([0, 0, -L / 2 - l / 2])
 
-outer_pipe_right = trimesh.creation.cylinder(
-    radius=rp_outer, height=l, sections=128
-)
+outer_pipe_right = trimesh.creation.cylinder(radius=rp_outer, height=l, sections=128)
 inner_pipe_right = trimesh.creation.cylinder(
     radius=rp, height=l + extra_shell, sections=128
 )
@@ -202,9 +194,7 @@ np.savez(
     Ez=freq_field["Ez"],
 )
 
-Ez = freq_field["Ez"][
-    0
-]  # Z field at the first frequency (only frequency in our case)
+Ez = freq_field["Ez"][0]  # Z field at the first frequency (only frequency in our case)
 Ez_flat = np.reshape(Ez, solver.N)
 
 solver.grid.grid.cell_data["Ez_mag"] = np.real(Ez_flat)
@@ -215,9 +205,7 @@ pl.add_mesh_clip_plane(
 )
 pl.show()
 
-Ez = freq_field["Ez"][
-    1
-]  # Z field at the first frequency (only frequency in our case)
+Ez = freq_field["Ez"][1]  # Z field at the first frequency (only frequency in our case)
 Ez_flat = np.reshape(Ez, solver.N)
 
 solver.grid.grid.cell_data["Ez_mag"] = np.real(Ez_flat)
@@ -228,9 +216,7 @@ pl.add_mesh_clip_plane(
 )
 pl.show()
 
-Ez = freq_field["Ez"][
-    2
-]  # Z field at the first frequency (only frequency in our case)
+Ez = freq_field["Ez"][2]  # Z field at the first frequency (only frequency in our case)
 Ez_flat = np.reshape(Ez, solver.N)
 
 solver.grid.grid.cell_data["Ez_mag"] = np.real(Ez_flat)
@@ -241,9 +227,7 @@ pl.add_mesh_clip_plane(
 )
 pl.show()
 
-Ez = freq_field["Ez"][
-    3
-]  # Z field at the first frequency (only frequency in our case)
+Ez = freq_field["Ez"][3]  # Z field at the first frequency (only frequency in our case)
 Ez_flat = np.reshape(Ez, solver.N)
 
 solver.grid.grid.cell_data["Ez_mag"] = np.real(Ez_flat)
@@ -254,9 +238,7 @@ pl.add_mesh_clip_plane(
 )
 pl.show()
 
-Ez = freq_field["Ez"][
-    4
-]  # Z field at the first frequency (only frequency in our case)
+Ez = freq_field["Ez"][4]  # Z field at the first frequency (only frequency in our case)
 Ez_flat = np.reshape(Ez, solver.N)
 
 solver.grid.grid.cell_data["Ez_mag"] = np.real(Ez_flat)

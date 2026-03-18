@@ -18,17 +18,19 @@ os.environ["OMP_NUM_THREADS"] = str(cores)  # Number of OpenMP threads
 os.environ["KMP_AFFINITY"] = "balanced,granularity=fine"
 
 
-from mpi4py import MPI
 import numpy as np
-from scipy.sparse import csc_matrix as sparse_mat, diags, vstack, hstack
+from mpi4py import MPI
+from scipy.sparse import csc_matrix as sparse_mat
+from scipy.sparse import diags, hstack, vstack
 
 try:
     from sparse_dot_mkl import csr_matrix, dot_product_mkl
 except Exception as e:
     print("sparse_dot_mkl not available:", e)
 
-from threadpoolctl import threadpool_info
 import timeit
+
+from threadpoolctl import threadpool_info
 
 comm = MPI.COMM_WORLD
 my_rank = comm.Get_rank()

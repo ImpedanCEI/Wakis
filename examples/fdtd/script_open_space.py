@@ -1,13 +1,15 @@
+import os
+
 import numpy as np
-from scipy.constants import epsilon_0 as eps_0, mu_0 as mu_0
+from conductors3d import ConductorsAssembly, InSphere
+from grid3D import Grid3D
 
 # matplotlib.use('Agg')
 from matplotlib import pyplot as plt
-import os
-from tqdm import tqdm
+from scipy.constants import epsilon_0 as eps_0
+from scipy.constants import mu_0 as mu_0
 from solver3D import EMSolver3D
-from grid3D import Grid3D
-from conductors3d import ConductorsAssembly, InSphere
+from tqdm import tqdm
 
 Z0 = np.sqrt(mu_0 / eps_0)
 

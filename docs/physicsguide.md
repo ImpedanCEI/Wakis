@@ -8,7 +8,7 @@ Boundary conditions (PEC, PMC, periodic, PML) are discussed along with the treat
 
 Finally, we cover the implementation aspects, including GPU acceleration with CuPy and parallelization with mpi4py, enabling high-resolution 3D simulations across multiple devices.
 
-```{contents} 
+```{contents}
 :depth: 3
 ```
 
@@ -33,13 +33,13 @@ Accurate computation of the impedance and wake function is essential for:
 - Predicting **collective beam dynamics**, such as instabilities and bunch deformation
 - Estimating **power deposition** and guiding the **mechanical design** of beamline components
 
-```{seealso} 
+```{seealso}
 * **🎯 Beam dynamic simulations**
 
 To simulate collective beam dynamics and stability using impedance models, you can use the CERN-developed Python package [**Xsuite**](https://github.com/xsuite/xsuite), an open-source macroparticle tracking simulation code suite.
 ```
 
-```{seealso} 
+```{seealso}
 * **💡 Beam Induced Heating**
 
 The **dissipated power** due to beam-induced heating can be estimated using [BIHC](https://github.com/ImpedanCEI/BIHC), a tool within the Wakis ecosystem. It takes as input the impedance profile of a device and the beam spectrum, returning power loss predictions that are critical for **vacuum design**, **cooling**, and **material compliance**.
@@ -52,13 +52,13 @@ The **dissipated power** due to beam-induced heating can be estimated using [BIH
 
 Analytical methods offer elegant and accurate solutions for the beam-coupling impedance of **simplified geometries**. These are invaluable for physical insight and quick estimates in idealized cases such as:
 
-- **Resistive wall pipes**  
+- **Resistive wall pipes**
   Analytical expressions exist for round and elliptical beam pipes, characterizing impedance due to finite wall conductivity [Yokoya, 1993](https://cds.cern.ch/record/248630), [Migliorati et al., 2019](https://cds.cern.ch/record/2705426).
 
-- **RF cavities**  
+- **RF cavities**
   Resonant mode impedance and wake contributions can be calculated using modal expansion or equivalent circuits [Hofmann & Zotter, 1990](https://cds.cern.ch/record/196446), [Jensen, 2014](https://cds.cern.ch/record/1982429).
 
-- **Tapers and step transitions**  
+- **Tapers and step transitions**
   Important for matching sections and bellows, these can be described with slowly varying cross-section approximations [Yokoya, 1990](https://cds.cern.ch/record/210347), [Stupakov, 2007](https://link.aps.org/doi/10.1103/PhysRevSTAB.10.094401), [Palumbo et al., 1994](https://arxiv.org/abs/physics/0309023).
 
 
@@ -68,7 +68,7 @@ However, real-world accelerator components like:
 - RF-shielded bellows
 - Complex collimators or cavities
 
-...often have **no analytical solution**. These must be addressed through **full 3D numerical simulations** of Maxwell’s equations [Maxwell, 1865](https://royalsocietypublishing.org/doi/10.1098/rstl.1865.0008), using finite differences, finite elements, or finite integration. 
+...often have **no analytical solution**. These must be addressed through **full 3D numerical simulations** of Maxwell’s equations [Maxwell, 1865](https://royalsocietypublishing.org/doi/10.1098/rstl.1865.0008), using finite differences, finite elements, or finite integration.
 
 ```{tip}
 * **🧑‍🏫 Why Use Time-Domain Solvers?**
@@ -98,8 +98,8 @@ $$
 \oint_{\partial A} \mathbf{H}\cdot \mathrm{d}\mathbf{s} &= \iint_{A}\left(\frac{\partial \mathbf{D}}{\partial t} + \mathbf{J}\right)\cdot \mathrm{d}\mathbf{A} \tag{1b}\\[6pt]
 \oiint_{\partial V} \mathbf{B}\cdot \mathrm{d}\mathbf{A} &= 0 \tag{1c}\\[6pt]
 \oiint_{\partial V} \mathbf{D}\cdot \mathrm{d}\mathbf{A} &= \iiint_{V}\rho\, \mathrm{d}V \tag{1d}\\[6pt]
-\mathbf{D} = \varepsilon \mathbf{E},\quad 
-\mathbf{B} &= \mu \mathbf{H},\quad 
+\mathbf{D} = \varepsilon \mathbf{E},\quad
+\mathbf{B} &= \mu \mathbf{H},\quad
 \mathbf{J} = \sigma \mathbf{E} + \rho\mathbf{v} \tag{1e}
 \end{align}
 $$
@@ -115,7 +115,7 @@ In these equations, $\varepsilon$, $\mu$, $\sigma$ can be considered tensors and
 
 ### 🧱 Discretization with the Finite Integration Technique (FIT)
 
-Wakis discretizes the integral form of Maxwell's equations using the **Finite Integration Technique (FIT)** on a structured three-dimensional Cartesian grid. 
+Wakis discretizes the integral form of Maxwell's equations using the **Finite Integration Technique (FIT)** on a structured three-dimensional Cartesian grid.
 
 $$
 N_\text{cells} = N_x \times N_y \times N_z
@@ -132,7 +132,7 @@ The resulting discretization yields the **Maxwell Grid Equations (MGE)**, which 
 - $\vec{D}$ and $\vec{B}$ components are defined on **faces**
 - Scalar quantities such as charge density reside at **cell centers**
 
-This structure ensures that discrete curl, divergence, and gradient operators obey their continuous counterparts' conservation properties, which is critical for numerical stability and accuracy. By adopting the **Yee staggered grid** formulation and initially charge-free conditions, the divergence equations (1c–1d) are **satisfied implicitly** by construction. 
+This structure ensures that discrete curl, divergence, and gradient operators obey their continuous counterparts' conservation properties, which is critical for numerical stability and accuracy. By adopting the **Yee staggered grid** formulation and initially charge-free conditions, the divergence equations (1c–1d) are **satisfied implicitly** by construction.
 
 
 #### Maxwell Grid Equations (MGE)
@@ -153,15 +153,15 @@ Where:
 - The electromagnetic fields $\mathbf{e}, \mathbf{h}, \mathbf{j}$ are stored in memory as **1D vectors** of length $\{3N_\text{cells}\}$ stored in **lexicographic order**, encapsulated in the `Field` class.
 
 
-The numerical method is implemented in `SolverFIT3D` class. The curl matrices are $\{3N_{cells}\times3N_{cells}\}$  sparse matrices with bands of +1 and -1. They are implemented efficiently in Wakis using `scipy.sparse` CSR format. The diagonal matrices also benefit from the `scipy.sparse.diags` object for optimized storage. 
+The numerical method is implemented in `SolverFIT3D` class. The curl matrices are $\{3N_{cells}\times3N_{cells}\}$  sparse matrices with bands of +1 and -1. They are implemented efficiently in Wakis using `scipy.sparse` CSR format. The diagonal matrices also benefit from the `scipy.sparse.diags` object for optimized storage.
 
 The electromagnetic fields are stored in a `numpy`-based `Field` object in Wakis:
 - Supports `.toarray()` and `.fromarray()` for optimized modification during the time-stepping
 - `.from_matrix()`, `.to_matrix()` to go from 1d to 3d matrix,automatically reshaped to the simulation grid dimensions.
 - Interoperates with CuPy and MPI through magic methods and flags.
-- `.inspect()` and other handy plotting methods 
+- `.inspect()` and other handy plotting methods
 - Custom magic methods for multiplication, addition, division: `__div__`, `__add__`, `__mul__`
-- `__getitem__`, `__setitem__` Getters and setters to access the 3D coordinates on-the-fly: apply intial conditions, sources, save states... 
+- `__getitem__`, `__setitem__` Getters and setters to access the 3D coordinates on-the-fly: apply intial conditions, sources, save states...
 
 ```{tip}
 Thank's to the `Field` class, fields are stored in memory-continuous arrays for optimized performance, but can be accessed as a 3D matrix.
@@ -170,10 +170,10 @@ Thank's to the `Field` class, fields are stored in memory-continuous arrays for 
 Some examples on how to access and operate `Field`s:
 ```python
 # modify field slice in z-direction
-solver.E[100, 20:30, :, 'z'] = 0. 
+solver.E[100, 20:30, :, 'z'] = 0.
 
 # access cell value of the 123456th cell in lexico-graphic order
-solver.H[123456] 
+solver.H[123456]
 
 # sum or multiply two field objects, keeping the Field
 E_tot = solver_1.E + solver_2.E
@@ -211,8 +211,8 @@ Wakis uses the **Leapfrog scheme**, a second-order accurate and explicit time in
 $$
 \begin{align}
 \mathbf{h}^{n+1} &= \mathbf{h}^n - \Delta t \, \widetilde{\mathbf{D}}_s \, \mathbf{M}_\mu^{-1} \, \mathbf{D}_A^{-1} \, \mathbf{C} \, \mathbf{e}^{n+0.5} \tag{3a} \\[6pt]
-\mathbf{e}^{n+1.5} &= \mathbf{e}^{n+0.5} + \Delta t \, \mathbf{D}_s \, \widetilde{\mathbf{M}}_\varepsilon^{-1} \, \widetilde{\mathbf{D}}_A^{-1} \, \widetilde{\mathbf{C}} \, \mathbf{h}^n 
-- \widetilde{\mathbf{M}}_\varepsilon^{-1} \, \mathbf{j}_{\text{src}}^n 
+\mathbf{e}^{n+1.5} &= \mathbf{e}^{n+0.5} + \Delta t \, \mathbf{D}_s \, \widetilde{\mathbf{M}}_\varepsilon^{-1} \, \widetilde{\mathbf{D}}_A^{-1} \, \widetilde{\mathbf{C}} \, \mathbf{h}^n
+- \widetilde{\mathbf{M}}_\varepsilon^{-1} \, \mathbf{j}_{\text{src}}^n
 - \widetilde{\mathbf{M}}_\varepsilon^{-1} \, \widetilde{\mathbf{M}}_\sigma \, \mathbf{e}^{n+0.5} \tag{3b}
 \end{align}
 $$
@@ -247,8 +247,8 @@ A source callback can be easily created as:
 A rigid Gaussian bunch current is modeled as a line distribution:
 
 $$
-\mathbf{J}_z(x_{\text{src}}, y_{\text{src}}, \vec{z}) = 
-\frac{q \beta c}{\sqrt{2\pi} \sigma_z} \, 
+\mathbf{J}_z(x_{\text{src}}, y_{\text{src}}, \vec{z}) =
+\frac{q \beta c}{\sqrt{2\pi} \sigma_z} \,
 \exp\left( -\frac{(\vec{s} - s_0)^2}{2\sigma_z^2} \right)
 $$
 
@@ -293,7 +293,7 @@ Wakis supports heterogeneous architecture computing thanks to open-source packag
 - Efficient longitudinal domain decomposition with ghost-cell synchronization
 - Seamless integration with **multi-GPU** setups using both `cupy` and `mpi4py` memory passing protocols
 
-```{note} 
+```{note}
 #### 👩‍💻 Developer Notes about Wakis
 - Fully open-source and available on [GitHub](https://github.com/ImpedanCEI/wakis)
 - Packaged on [PyPI](https://pypi.org/project/wakis/)
@@ -310,8 +310,8 @@ Wakis computes beam coupling impedance from time-domain electromagnetic field si
 The longitudinal **wake function** $w(\vec{r_s}, \vec{r_t}, s)$ of an accelerator component can be defined as a Green function in the time domain (i.e., the component electromagnetic response to a pulse excitation):
 
 $$
-w(\vec{r_s}, \vec{r_t}, s) = \frac{1}{q_s q_t} \int_{-\infty}^{\infty} \vec{F}_{\text{Lorentz}} \ d\vec{z} = \frac{1}{q_s q_t} \int_{-\infty}^{\infty} E_z(z, t) + \beta c \, \vec{e}_z \times \vec{B}(z, t) \ d\vec{z} 
-$$ 
+w(\vec{r_s}, \vec{r_t}, s) = \frac{1}{q_s q_t} \int_{-\infty}^{\infty} \vec{F}_{\text{Lorentz}} \ d\vec{z} = \frac{1}{q_s q_t} \int_{-\infty}^{\infty} E_z(z, t) + \beta c \, \vec{e}_z \times \vec{B}(z, t) \ d\vec{z}
+$$
 
 With:
 - $\vec{r_s} = (x_s, y_s, z_s)$ be the position of a **source particle** -or pulse excitation.
@@ -356,7 +356,7 @@ $$
 W_{\perp,x}(x, y, s) = W_C(s) + W_D(s) \Delta x_s + W_Q(s) \Delta x_t + \mathcal{O}(x^2)
 $$
 
-- $W_D$: **dipolar wake**, linear in source offset 
+- $W_D$: **dipolar wake**, linear in source offset
 - $W_Q$: **quadrupolar wake**, linear in test offset
 - $W_C$: **coherent term**, for asymmetric geometries
 
@@ -382,7 +382,7 @@ $$
 where $\mathcal{F}$ denotes the Fourier transform. Wakis uses `numpy.fft` with a Hanning window and zero-padding for smooth frequency analysis.
 
 
-```{admonition} Modularity 
+```{admonition} Modularity
 
 #### 🧪 Open-Source Compatibility
 

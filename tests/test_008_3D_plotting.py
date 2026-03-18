@@ -72,13 +72,9 @@ class Test3Dplotting:
         ys = 1e-2  # y source position [m]
         ti = 3 * sigmaz / c  # injection time [s]
 
-        beam = Beam(
-            q=q, sigmaz=sigmaz, beta=beta, xsource=xs, ysource=ys, ti=ti
-        )
+        beam = Beam(q=q, sigmaz=sigmaz, beta=beta, xsource=xs, ysource=ys, ti=ti)
 
-        wake = WakeSolver(
-            q=q, sigmaz=sigmaz, beta=beta, xsource=xs, ysource=ys, ti=ti
-        )
+        wake = WakeSolver(q=q, sigmaz=sigmaz, beta=beta, xsource=xs, ysource=ys, ti=ti)
 
         # ----------- Solver & Simulation ----------
         # boundary conditions
@@ -119,8 +115,8 @@ class Test3Dplotting:
             anti_aliasing="ssaa",
         )
         if flag_offscreen:
-            pl.screenshot(self.img_folder+'grid_inspect.png')
-            # pl.export_html(self.img_folder + "grid_inspect.html") # requires trame   
+            pl.screenshot(self.img_folder + "grid_inspect.png")
+            # pl.export_html(self.img_folder + "grid_inspect.html") # requires trame
 
     def test_grid_plot_solids(self, flag_offscreen):
         # Plot only imported solids
@@ -160,7 +156,7 @@ class Test3Dplotting:
             add_silhouette=True,
         )
         if flag_offscreen:
-            pl.screenshot(self.img_folder+'solver_inspect.png')
+            pl.screenshot(self.img_folder + "solver_inspect.png")
             # pl.export_html(self.img_folder + "solver_inspect.html") # requires trame
 
     def test_plot3D(self, flag_offscreen):

@@ -39,7 +39,7 @@ jobs:
       run:  |
         cd wakis
         pip install .['all']
-        pip install pytest pytest-cov        
+        pip install pytest pytest-cov
     - name: Run pytest
       run:  |
         cd wakis

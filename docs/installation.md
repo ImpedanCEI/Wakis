@@ -1,10 +1,10 @@
 # ⚡ Installation guide
 
-This section covers how to install `wakis` package for developers and users. 
+This section covers how to install `wakis` package for developers and users.
 
 The installation guide is writen for Linux, but `wakis` code and dependencies are 100% python so it can run in other operating systems. For developers using Windows, we recommend checking the [WSL setup guide](https://learn.microsoft.com/en-us/windows/wsl/install) to install and setup the Windows subsystem for linux.
 
-```{contents} 
+```{contents}
 :depth: 3
 ```
 
@@ -15,7 +15,7 @@ The installation guide is writen for Linux, but `wakis` code and dependencies ar
 ```
 pip install wakis
 ```
-You can also upgrade to the latest version frequently by doing `pip install wakis --upgrade`. 
+You can also upgrade to the latest version frequently by doing `pip install wakis --upgrade`.
 
 To use `wakis` in python notebooks, the option `pip install wakis['notebook']` is preferred. See the section on [troubleshooting](#python-notebooks-troubleshooting) if an error pops up when rendering 3D plots.
 
@@ -41,7 +41,7 @@ cd wakis
 pip install -e .
 ```
 
-If you would like to improve and push changes to `wakis`, we encorage to create a [fork](https://github.com/ImpedanCEI/wakis/fork) from wakis' `main` branch: https://github.com/ImpedanCEI/wakis on your personal GitHub. 
+If you would like to improve and push changes to `wakis`, we encorage to create a [fork](https://github.com/ImpedanCEI/wakis/fork) from wakis' `main` branch: https://github.com/ImpedanCEI/wakis on your personal GitHub.
 
 To contribute, first fork the repository, create a new branch, and submit a pull request. Step-by-step:
 
@@ -72,7 +72,7 @@ pip install -r requirements.txt
 
 ## Python installation
 
-If a python installation has not been setup yet, we recommend using [miniforge](https://conda-forge.org/download/) (free of license) or [miniconda](https://docs.anaconda.com/free/miniconda/index.html) [^2]. 
+If a python installation has not been setup yet, we recommend using [miniforge](https://conda-forge.org/download/) (free of license) or [miniconda](https://docs.anaconda.com/free/miniconda/index.html) [^2].
 
 Miniforge executable can be obtained from the website (Windows/Linux) [https://conda-forge.org/download/](https://conda-forge.org/download/), or from the terminal (Linux):
 
@@ -88,7 +88,7 @@ Miniconda can also be installed and activated from the terminal:
 ```
 # get, install and activate miniconda
 wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-bash Miniconda3-latest-Linux-x86_64.sh 
+bash Miniconda3-latest-Linux-x86_64.sh
 source miniconda3/bin/activate
 ```
 
@@ -100,7 +100,7 @@ conda activate wakis-env
 
 # pip install wakis and other useful packages
 pip install wakis                # minimal installation for scripts
-pip install wakis['notebook']    # complete installation for notebook use 
+pip install wakis['notebook']    # complete installation for notebook use
 pip install bihc neffint iddefix # optional satellite packages
 ```
 
@@ -187,9 +187,9 @@ rocminfo | grep Name
 
 This should yield an output resembling the following:
 ```
-Name:                    gfx906    <- This is the desired name                         
-Marketing Name:          AMD Radeon VII                     
-Vendor Name:             AMD                                
+Name:                    gfx906    <- This is the desired name
+Marketing Name:          AMD Radeon VII
+Vendor Name:             AMD
     Name:                    amdgcn-amd-amdhsa--gfx906:sramecc+:xnack-
 ```
 
@@ -252,8 +252,8 @@ export HDF5_USE_FILE_LOCKING=FALSE
 python3.11 -m wakis_simulation.main
 ```
 
-An example python project for simulating on HTCondor, is shown here [BLonD Simulation Template](https://gitlab.cern.ch/blond/blond-simulation-template). 
-The submission files are based on the approach used in this example project [^3], modified for GPU. The project can be modified for the wakis environment, it currently is set up 
+An example python project for simulating on HTCondor, is shown here [BLonD Simulation Template](https://gitlab.cern.ch/blond/blond-simulation-template).
+The submission files are based on the approach used in this example project [^3], modified for GPU. The project can be modified for the wakis environment, it currently is set up
 for simulations with BLonD, the longitudinal beam dynamics code.
 
 ## CPU Multithreading
@@ -322,13 +322,13 @@ pip install ipyparallel
 * `OpenMPI` is built in Linux with multi-GPU compatibility (provided `cupy` is correctly setup):
 ```bash
 # To check CUDA-aware ompi, try:
-ompi_info --parsable | grep mpi_built_with_cuda_support 
-# output should be: 
+ompi_info --parsable | grep mpi_built_with_cuda_support
+# output should be:
 # mca:mpi:base:param:mpi_built_with_cuda_support:value:true
 
 # Alternatively, try:
 ompi_info | grep -i cuda
-# output should contain: 
+# output should contain:
 # MPI extensions: affinity, cuda, pcollreq
 ```
 Before launching an MPI simulation, make sure to set the environment variable `OMPI_MCA_opal_cuda_support` to `true`:
@@ -380,14 +380,14 @@ cupy.cuda.Device(rank).use()
 ## Python Notebooks troubleshooting
 
 ### Matplotlib interactive plots
-Within jupyter notebooks, in order to be able to zoom and interact with matplotlib figures, one needs to use notebook magic commands `%`. 
+Within jupyter notebooks, in order to be able to zoom and interact with matplotlib figures, one needs to use notebook magic commands `%`.
 * The recommended one for Jupyter notebooks on the web is `%matplotlib widget`
 * The recommended one for Jupyter notebooks on VS Code in `%matplotlib ipympl`
 
 The package `ipympl`can be easily installed using `pip install ipympl`
 
 ### PyVista interactive plots
-To be able to render 3D interactive plots in Jupyter notebooks, it is recommended to use the `wakis['notebook']` pip installation. 
+To be able to render 3D interactive plots in Jupyter notebooks, it is recommended to use the `wakis['notebook']` pip installation.
 
 Some driver problems may arise depending on pre-installed versions. One way of solving common errors like `MESA-loader` or `libGL error` is installing a new driver within your conda environment with:
 
@@ -404,7 +404,7 @@ os.environ['PYVISTA_USE_OSMESA'] = 'True'
 
 ----
 
-[PyVista](https://github.com/pyvista/pyvista) a python package for 3D plotting and mesh analysis through a streamlined interface for the Visualization Toolkit (VTK) [^1]. 
+[PyVista](https://github.com/pyvista/pyvista) a python package for 3D plotting and mesh analysis through a streamlined interface for the Visualization Toolkit (VTK) [^1].
 We rely on [PyVista](https://github.com/pyvista/pyvista) to import CAD/STL geometry as embedded boundaries or/and as solids with different materials into the domain. This allows `wakis` to efficiently render 3D plots of the electromagnetic fields and visualize the computational mesh interactively.
 
 

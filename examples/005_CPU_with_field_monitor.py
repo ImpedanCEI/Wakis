@@ -126,9 +126,7 @@ np.savez(
     Ez=freq_field["Ez"],
 )
 
-Ez = freq_field["Ez"][
-    0
-]  # Z field at the first frequency (only frequency in our case)
+Ez = freq_field["Ez"][0]  # Z field at the first frequency (only frequency in our case)
 Ez_flat = np.reshape(Ez, solver.N)  #
 
 

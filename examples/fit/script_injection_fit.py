@@ -1,13 +1,14 @@
-import numpy as np
 import sys
+
 import h5py
-from tqdm import tqdm
+import numpy as np
 from scipy.constants import c as c_light
+from tqdm import tqdm
 
 sys.path.append("../")
 
-from solverFIT3D import SolverFIT3D
 from gridFIT3D import GridFIT3D
+from solverFIT3D import SolverFIT3D
 
 # ---------- Domain setup ---------
 # Number of mesh cells

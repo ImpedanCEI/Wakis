@@ -212,9 +212,7 @@ class TestMPILossyCavity:
         ys = 0.0  # y source position [m]
         ti = 3 * sigmaz / c  # injection time [s]
 
-        beam = Beam(
-            q=q, sigmaz=sigmaz, beta=beta, xsource=xs, ysource=ys, ti=ti
-        )
+        beam = Beam(q=q, sigmaz=sigmaz, beta=beta, xsource=xs, ysource=ys, ti=ti)
 
         # ----------- Solver & Simulation ----------
         # boundary conditions
@@ -253,9 +251,7 @@ class TestMPILossyCavity:
             if solver.rank == 0:
                 # print(Ez)
                 # print(len(Ez))
-                assert len(Ez) == NZ, (
-                    "Electric field Ez samples length mismatch"
-                )
+                assert len(Ez) == NZ, "Electric field Ez samples length mismatch"
                 assert np.allclose(Ez[np.s_[::5]], self.Ez, **self.tol), (
                     "Electric field Ez samples MPI failed"
                 )
@@ -286,9 +282,7 @@ class TestMPILossyCavity:
                     off_screen=flag_offscreen,
                     handles=True,
                 )
-                fig.savefig(
-                    self.img_folder + "Einspect_" + str(3000).zfill(4) + ".png"
-                )
+                fig.savefig(self.img_folder + "Einspect_" + str(3000).zfill(4) + ".png")
                 plt.close(fig)
         else:
             fig, ax = solver.E.inspect(
@@ -297,9 +291,7 @@ class TestMPILossyCavity:
                 off_screen=flag_offscreen,
                 handles=True,
             )
-            fig.savefig(
-                self.img_folder + "Einspect_" + str(3000).zfill(4) + ".png"
-            )
+            fig.savefig(self.img_folder + "Einspect_" + str(3000).zfill(4) + ".png")
             plt.close(fig)
 
     def test_mpi_plot2D(self, flag_offscreen):
@@ -389,9 +381,7 @@ class TestMPILossyCavity:
                     184.43818552913254, 0.1
                 ), "Wake potential cumsum MPI failed"
         else:
-            assert len(wake.WP) == 5195, (
-                "Wake potential samples length mismatch"
-            )
+            assert len(wake.WP) == 5195, "Wake potential samples length mismatch"
             assert np.allclose(wake.WP[::50], self.WP, **self.tol), (
                 "Wake potential samples failed"
             )
@@ -406,30 +396,30 @@ class TestMPILossyCavity:
             if solver.rank == 0:
                 tol = dict(rtol=0.1)
                 assert len(wake.Z) == 998, "Impedance samples length mismatch"
-                assert np.allclose(
-                    np.abs(wake.Z)[::20], np.abs(self.Z), **tol
-                ), "Abs Impedance samples MPI failed"
-                assert np.allclose(
-                    np.real(wake.Z)[::20], np.real(self.Z), **tol
-                ), "Real Impedance samples MPI failed"
-                assert np.allclose(
-                    np.imag(wake.Z)[::20], np.imag(self.Z), **tol
-                ), "Imag Impedance samples MPI failed"
+                assert np.allclose(np.abs(wake.Z)[::20], np.abs(self.Z), **tol), (
+                    "Abs Impedance samples MPI failed"
+                )
+                assert np.allclose(np.real(wake.Z)[::20], np.real(self.Z), **tol), (
+                    "Real Impedance samples MPI failed"
+                )
+                assert np.allclose(np.imag(wake.Z)[::20], np.imag(self.Z), **tol), (
+                    "Imag Impedance samples MPI failed"
+                )
                 assert np.cumsum(np.abs(wake.Z))[-1] == pytest.approx(
                     250910.51090497518, 0.1
                 ), "Abs Impedance cumsum MPI failed"
         else:
             # print(wake.Z[::20])
             assert len(wake.Z) == 998, "Impedance samples length mismatch"
-            assert np.allclose(
-                np.abs(wake.Z)[::20], np.abs(self.Z), **self.tol
-            ), "Abs Impedance samples failed"
-            assert np.allclose(
-                np.real(wake.Z)[::20], np.real(self.Z), **self.tol
-            ), "Real Impedance samples failed"
-            assert np.allclose(
-                np.imag(wake.Z)[::20], np.imag(self.Z), **self.tol
-            ), "Imag Impedance samples failed"
+            assert np.allclose(np.abs(wake.Z)[::20], np.abs(self.Z), **self.tol), (
+                "Abs Impedance samples failed"
+            )
+            assert np.allclose(np.real(wake.Z)[::20], np.real(self.Z), **self.tol), (
+                "Real Impedance samples failed"
+            )
+            assert np.allclose(np.imag(wake.Z)[::20], np.imag(self.Z), **self.tol), (
+                "Imag Impedance samples failed"
+            )
             assert np.cumsum(np.abs(wake.Z))[-1] == pytest.approx(
                 250910.51090497518, 0.1
             ), "Abs Impedance cumsum failed"
@@ -452,22 +442,16 @@ class TestMPILossyCavity:
                 # floats
                 elif isinstance(v1, float) and isinstance(v2, float):
                     if k == "dt":
-                        assert v1 <= v2, (
-                            "Timestep bigger than for uniform grid"
-                        )
+                        assert v1 <= v2, "Timestep bigger than for uniform grid"
                     else:
                         assert np.isclose(v1, v2, rtol=rtol, atol=atol), (
                             f"Float mismatch at {p}: {v1} != {v2}"
                         )
 
                 # np.floats
-                elif isinstance(v1, np.floating) and isinstance(
-                    v2, np.floating
-                ):
+                elif isinstance(v1, np.floating) and isinstance(v2, np.floating):
                     if k == "dt":
-                        assert v1 <= v2, (
-                            "Timestep bigger than for uniform grid"
-                        )
+                        assert v1 <= v2, "Timestep bigger than for uniform grid"
                     else:
                         assert np.isclose(v1, v2, rtol=rtol, atol=atol), (
                             f"Float mismatch at {p}: {v1} != {v2}"
@@ -484,9 +468,7 @@ class TestMPILossyCavity:
                                 f"Float mismatch at {p}[{i}]: {a} != {b}"
                             )
                         else:
-                            assert a == b, (
-                                f"Value mismatch at {p}[{i}]: {a} != {b}"
-                            )
+                            assert a == b, f"Value mismatch at {p}[{i}]: {a} != {b}"
 
                 # list vs single float
                 elif isinstance(v1, (list, tuple, np.ndarray)) and isinstance(
@@ -518,9 +500,7 @@ class TestMPILossyCavity:
         self.solverLogs["use_gpu"] = use_gpu
 
         # Check log file exists
-        logfile = os.path.join(
-            solver.logger.wakeSolver["results_folder"], "wakis.log"
-        )
+        logfile = os.path.join(solver.logger.wakeSolver["results_folder"], "wakis.log")
         assert os.path.exists(logfile), "Log file not created"
 
         # Compare log dict contents
