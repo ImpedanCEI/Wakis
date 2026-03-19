@@ -132,13 +132,21 @@ class RoutinesMixin:
 
             for hf in hfs:
                 hf["x"], hf["y"], hf["z"] = self.x, self.y, self.z
-                hf["dx"], hf["dy"], hf["dz"] = self.grid.dx, self.grid.dy, self.grid.dz
+                hf["dx"], hf["dy"], hf["dz"] = (
+                    self.grid.dx,
+                    self.grid.dy,
+                    self.grid.dz,
+                )
                 hf["t"] = np.arange(0, Nt * self.dt, save_every * self.dt)
 
             if subdomain is not None:
                 xx, yy, zz = subdomain
             else:
-                xx, yy, zz = slice(0, self.Nx), slice(0, self.Ny), slice(0, self.Nz)
+                xx, yy, zz = (
+                    slice(0, self.Nx),
+                    slice(0, self.Ny),
+                    slice(0, self.Nz),
+                )
 
         if plot:
             plotkw = {
@@ -352,7 +360,9 @@ class RoutinesMixin:
             z = self.z
             zz = slice(0, self.Nz)
 
-        tmax = (wakelength + self.ti * self.v + (z.max() - z.min())) / self.v  # [s]
+        tmax = (
+            wakelength + self.ti * self.v + (z.max() - z.min())
+        ) / self.v  # [s]
         Nt = int(tmax / self.dt)
         self.tmax, self.Nt = tmax, Nt
 
@@ -377,13 +387,25 @@ class RoutinesMixin:
 
                 if save_J:
                     hfJ = h5py.File("Jz.h5", "w")
-                    hfJ["x"], hfJ["y"], hfJ["z"] = self.x[xx], self.y[yy], z[zz]
-                    hfJ["dx"], hfJ["dy"], hfJ["dz"] = self.grid.dx, self.grid.dy, dz
+                    hfJ["x"], hfJ["y"], hfJ["z"] = (
+                        self.x[xx],
+                        self.y[yy],
+                        z[zz],
+                    )
+                    hfJ["dx"], hfJ["dy"], hfJ["dz"] = (
+                        self.grid.dx,
+                        self.grid.dy,
+                        dz,
+                    )
                     hfJ["t"] = np.arange(0, Nt * self.dt, self.dt)
         else:
             hf = h5py.File(self.Ez_file, "w")
             hf["x"], hf["y"], hf["z"] = self.x[xx], self.y[yy], z[zz]
-            hf["dx"], hf["dy"], hf["dz"] = self.grid.dx, self.grid.dy, self.grid.dz
+            hf["dx"], hf["dy"], hf["dz"] = (
+                self.grid.dx,
+                self.grid.dy,
+                self.grid.dz,
+            )
             hf["t"] = np.arange(0, Nt * self.dt, self.dt)
 
             if save_J:
@@ -482,7 +504,7 @@ class RoutinesMixin:
                 "title": "plot1D",
             }
 
-        if name == "plot2D":
+        elif name == "plot2D":
             plotkw = {
                 "field": "E",
                 "component": "z",
@@ -527,4 +549,9 @@ class RoutinesMixin:
                 "title": "plot3DonSTL",
             }
 
+        else:
+            raise ValueError(
+                f"Plotting function {name} not recognized. \n"
+                f"Available options are: plot1D, plot2D, plot3D, plot3DonSTL."
+            )
         return plotkw
