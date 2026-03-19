@@ -17,10 +17,10 @@ pip install wakis
 ```
 You can also upgrade to the latest version frequently by doing `pip install wakis --upgrade`.
 
-To use `wakis` in python notebooks, the option `pip install wakis['notebook']` is preferred. See the section on [troubleshooting](#python-notebooks-troubleshooting) if an error pops up when rendering 3D plots.
+To use `wakis` in python notebooks, the option `pip install wakis['all']` is preferred. See the section on [troubleshooting](#python-notebooks-troubleshooting) if an error pops up when rendering 3D plots.
 
 ### For developers
-Wakis development is managed through [Wakis GitHub](https://github.com/ImpedanCEI/wakis). We encourage developers to use Github CLI from Windows/Linux. If you need to download it, refer to the official [Git Downloads](https://git-scm.com/downloads). To start using wakis and access the python scripts that compose the code, you can `git clone` it from the main repository with your [SSH Key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent):
+Wakis development is managed through [Wakis GitHub](https://github.com/ImpedanCEI/Wakis). We encourage developers to use Github CLI from Windows/Linux. If you need to download it, refer to the official [Git Downloads](https://git-scm.com/downloads). To start using wakis and access the python scripts that compose the code, you can `git clone` it from the main repository with your [SSH Key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent):
 
 ```bash
 # Main repo
@@ -32,7 +32,7 @@ git clone git@github.com:yourusername/Wakis.git
 
 To be able to use your modified version of Wakis, it can be installed in editable mode:
 ```bash
-cd wakis
+cd Wakis
 pip install -e . # minimal dependencies
 pip install -e .['all']  # extended dependencies
 ```
@@ -51,17 +51,17 @@ This commands will install the necessary tools (e.g. Ruff) and run all the clean
 
 #### Contributing
 
-If you would like to improve and push changes to `wakis`, we encorage to create a [fork](https://github.com/ImpedanCEI/wakis/fork) from wakis' `main` branch: https://github.com/ImpedanCEI/wakis on your personal GitHub.
+If you would like to improve and push changes to `wakis`, we encorage to create a [fork](https://github.com/ImpedanCEI/Wakis/fork) from wakis' `main` branch: https://github.com/ImpedanCEI/Wakis on your personal GitHub.
 
 To contribute, first fork the repository, create a new branch, and submit a pull request. Step-by-step:
 
-1. Fork the repository: https://github.com/ImpedanCEI/wakis/fork
+1. Fork the repository: https://github.com/ImpedanCEI/Wakis/fork
 2. Create a new branch: `git checkout -b my-feature-branch`
 3. Make your changes and commit them:
     `git add my-changed-script.py`
     `git commit -m 'Explain the changes'`
 4. Push to the branch: git push origin my-feature-branch
-5. Submit a pull request: https://github.com/ImpedanCEI/wakis/pulls
+5. Submit a pull request: https://github.com/ImpedanCEI/Wakis/pulls
 
 ## Dependencies
 
@@ -119,9 +119,9 @@ conda activate wakis-env
 pip install wakis                # minimal installation for scripts
 pip install wakis['all']         # complete installation for notebook use w/ jupyter lab
 ```
-Alternativelly, a frozen environment with version-pinning is provided via `requirements.txt`, working with numpy<2.0 and Python>=3.9 and <=3.12:
+Alternativelly, a *legacy* frozen environment with version-pinning is provided via `requirements.txt`, working with numpy<2.0 and Python>=3.9 and <=3.12:
 ```
-pip install wakis['notebook']
+pip install wakis['notebook'] # uses the content of `requirements.txt`
 ```
 
 ## CPU Multithreading

@@ -2,7 +2,7 @@
 
 This section aims to showcase `wakis`capabilities together with useful recipes to use in the simulation scripts.
 
-Since `wakis` has been developed for computing bea, coupling impedance for particle accelerator components, the example that will serve as a conductive thread for the explanation is a **pillbox cavity with a passing proton beam**.
+Since `wakis` has been developed for computing beam-coupling impedance for particle accelerator components, the example that will serve as a conductive thread for the explanation is a **pillbox cavity with a passing proton beam**.
 
 The guide will go into detailed step-by-step on how to write the simulation script and visualize or access the computed data.
 
