@@ -20,26 +20,36 @@ You can also upgrade to the latest version frequently by doing `pip install waki
 To use `wakis` in python notebooks, the option `pip install wakis['notebook']` is preferred. See the section on [troubleshooting](#python-notebooks-troubleshooting) if an error pops up when rendering 3D plots.
 
 ### For developers
-Wakis development is managed through [Wakis GitHub](https://github.com/ImpedanCEI/wakis). We encourage developers to use Github CLI from Windows/Linux. If you need to download it, refer to the official [Git Downloads](https://git-scm.com/downloads). To start using wakis and access the python scripts that compose the code, you can `git clone` it from the main repository:
-```
-# SSH:
-git clone git@github.com:ImpedanCEI/wakis.git
+Wakis development is managed through [Wakis GitHub](https://github.com/ImpedanCEI/wakis). We encourage developers to use Github CLI from Windows/Linux. If you need to download it, refer to the official [Git Downloads](https://git-scm.com/downloads). To start using wakis and access the python scripts that compose the code, you can `git clone` it from the main repository with your [SSH Key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent):
 
-# or HTTPS:
-git clone https://github.com/ImpedanCEI/wakis.git
-```
+```bash
+# Main repo
+git clone git@github.com:ImpedanCEI/Wakis.git
 
-On a previously created conda environment, one can proceed installing the dependencies. On  `wakis` main directory do:
-```
-pip install -r requirements.txt
+# Or from your repository fork
+git clone git@github.com:yourusername/Wakis.git
 ```
 
-You can also pip install wakis on editable mode [RECOMMENDED]:
-```
-git clone git@github.com:ImpedanCEI/wakis.git
+To be able to use your modified version of Wakis, it can be installed in editable mode:
+```bash
 cd wakis
-pip install -e .
+pip install -e . # minimal dependencies
+pip install -e .['all']  # extended dependencies
 ```
+#### Coding practices
+
+Wakis code follows the [PEP 8 Style Guide](https://peps.python.org/pep-0008/) and uses [Ruff](https://docs.astral.sh/ruff/) for code linting and formatting. In order to automatically enforce good coding practices, developers can make use of [`pre-commit`](https://pre-commit.com/) to install hooks that run prior to committing to the repository. To use it:
+
+```bash
+# install via pip
+pip install pre-commit
+# in the root folder where `.pre-commit-config.yaml` is, do:
+pre-commit install
+```
+
+This commands will install the necessary tools (e.g. Ruff) and run all the clean-code checks described in `.pre-commit-config.yaml` everytime `git commit` is used. If the checks fail, the commit will not be executed. To make sure the checks pass, one can run the pre-commit checks on the working directory by doing `pre-commit run --all-files`.
+
+#### Contributing
 
 If you would like to improve and push changes to `wakis`, we encorage to create a [fork](https://github.com/ImpedanCEI/wakis/fork) from wakis' `main` branch: https://github.com/ImpedanCEI/wakis on your personal GitHub.
 
@@ -64,7 +74,14 @@ To contribute, first fork the repository, create a new branch, and submit a pull
 * `tqdm`: This package is used for displaying progress bars in loops.
 * `pyvista`: For handling and visualizing 3D CAD geometries and vtk-based 3D plotting.
 
-To install only the dependencies in a conda python environment, simply run:
+Extra dependencies include:
+* `cupy` and `cupyx`: to operate arrays and matrices on GPU
+* `mkl`, `mkl-service`, `sparse_dot_mkl`: to enable multithreaded calculations
+* `mpi4py` and `ipyparallel`: to enable multi-processign across different cores
+* `bihc`: satellite package to compute beam-induced heating due to impedance: https://github.com/ImpedanCEI/BIHC
+* `iddefix`: satellite package to extrapolate partially decayed simulations and using the resonator formalism. It provides a useful representation of the fully decayed impedance as a list of resonators described via ${Rs,\ Q, \ fres}$
+
+All the dependencies are A frozen environment with version-pinning is provided for Python 3.9-3.11 via `requirements.txt`:
 
 ```
 pip install -r requirements.txt
@@ -92,17 +109,41 @@ bash Miniconda3-latest-Linux-x86_64.sh
 source miniconda3/bin/activate
 ```
 
-We encourage the users to create a dedicated python environment with python <=3.11, >=3.9
+We encourage the users to create a dedicated python environment with python >=3.9
 ```
 # create dev python environment
-conda create --name wakis-env python=3.11
+conda create --name wakis-env python=3.13
 conda activate wakis-env
 
 # pip install wakis and other useful packages
 pip install wakis                # minimal installation for scripts
-pip install wakis['notebook']    # complete installation for notebook use
-pip install bihc neffint iddefix # optional satellite packages
+pip install wakis['all']         # complete installation for notebook use w/ jupyter lab
 ```
+Alternativelly, a frozen environment with version-pinning is provided via `requirements.txt`, working with numpy<2.0 and Python>=3.9 and <=3.12:
+```
+pip install wakis['notebook']
+```
+
+## CPU Multithreading
+To achieve multithreading for Wakis `sparse matrix x vector` operations, the Intel-MKL backend has been implemented as an alternative to single-threaded `scipy.sparse.dot`. To install it in your conda environment simply do:
+
+```
+conda create --name wakis-env python=3.12 numpy scipy mkl mkl-service
+pip install sparse_dot_mkl
+pip install wakis['all']
+```
+
+Wakis will detect that the package is installed and use it as default backend. To control the number of threads and memory pinning, one can add the following lines to your python script **before** the imports:
+
+```python
+# [!] Set before importing numpy/scipy/mkl modules
+import os
+os.environ["OMP_NUM_THREADS"] = str(os.cpu_count())       # Number of OpenMP threads
+os.environ["KMP_AFFINITY"] = "balanced,granularity=fine"  # Thread pinning
+```
+
+* 🔜 A domain decomposition multithreading is envisioned for future resleases
+
 
 ## GPU setup
 `wakis` uses `cupy` to access GPU acceleration with the supported NVIDIA GPUs (more info in [Cupy's website](https://cupy.dev/)).
@@ -128,7 +169,7 @@ Or go for a `conda-forge` installation of both cupy and the CUDA Toolkit (RECOMM
 conda install -c conda-forge cupy cuda-version=11.8
 ```
 
-The toolkits can be installed using `conda`, `conda-forge`, `mamba` or from the source. Notice the version compatibility between GPU drivers and Toolkit to [choose the adequate version](https://docs.nvidia.com/deeplearning/cudnn/latest/reference/support-matrix.html):
+The toolkits can also be installed separately using `conda`, `conda-forge`, `mamba` or from the source. Notice the version compatibility between GPU drivers and Toolkit to [choose the adequate version](https://docs.nvidia.com/deeplearning/cudnn/latest/reference/support-matrix.html):
 ```
 # Conda alternative [RECOMENDED]
 conda install cudatoolkit cuda-version=11 # for cuda 11.xx
@@ -255,26 +296,6 @@ python3.11 -m wakis_simulation.main
 An example python project for simulating on HTCondor, is shown here [BLonD Simulation Template](https://gitlab.cern.ch/blond/blond-simulation-template).
 The submission files are based on the approach used in this example project [^3], modified for GPU. The project can be modified for the wakis environment, it currently is set up
 for simulations with BLonD, the longitudinal beam dynamics code.
-
-## CPU Multithreading
-To achieve multithreading for Wakis `sparse matrix x vector` operations, the Intel-MKL backend has been implemented as an alternative to single-threaded `scipy.sparse.dot`. To install it in your conda environment simply do:
-
-```
-conda create --name wakis-env python=3.12 numpy scipy mkl mkl-service
-pip install sparse_dot_mkl
-pip install wakis['notebook']
-```
-
-Wakis will detect that the package is installed and use it as default backend. To control the number of threads and memory pinning, one can add the following lines to your python script **before** the imports:
-
-```python
-# [!] Set before importing numpy/scipy/mkl modules
-import os
-os.environ["OMP_NUM_THREADS"] = str(os.cpu_count())       # Number of OpenMP threads
-os.environ["KMP_AFFINITY"] = "balanced,granularity=fine"  # Thread pinning
-```
-
-* 🔜 A domain decomposition multithreading is envisioned for future resleases
 
 ## CPU/GPU MPI setup
 To run multi-node CPU parallelized simulations, Wakis needs the following packages:
