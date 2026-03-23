@@ -38,7 +38,7 @@ pip install -e .['all']  # extended dependencies
 ```
 #### Coding practices
 
-Wakis code follows the [PEP 8 Style Guide](https://peps.python.org/pep-0008/) and uses [Ruff](https://docs.astral.sh/ruff/) for code linting and formatting. In order to automatically enforce good coding practices, developers can make use of [`pre-commit`](https://pre-commit.com/) to install hooks that run prior to committing to the repository. To use it:
+Wakis code aims to follow the [PEP 8 Style Guide](https://peps.python.org/pep-0008/) and the [CERN ABP-computing Guidelines](https://abpcomputing.web.cern.ch/guides/clean_coding/). We also use [Ruff](https://docs.astral.sh/ruff/) for code linting and formatting. In order to automatically enforce good coding practices, developers can make use of [`pre-commit`](https://pre-commit.com/) to install hooks that run prior to committing to the repository. To use it:
 
 ```bash
 # install via pip
