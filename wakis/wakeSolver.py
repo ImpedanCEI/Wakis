@@ -357,17 +357,13 @@ class WakeSolver:
 
         s = np.arange(-self.ti * self.v, wakelength, dt * self.v)
 
-        self.log(
-            "Max simulated time = " + str(round(self.t[-1] * 1.0e9, 4)) + " ns"
-        )
+        self.log("Max simulated time = " + str(round(self.t[-1] * 1.0e9, 4)) + " ns")
         self.log("Wakelength = " + str(round(wakelength, 3)) + "m")
 
         # Initialize
         WP = np.zeros_like(s)
         keys = sorted(
-            k
-            for k in self.Ez_hf.keys()
-            if isinstance(k, str) and k.startswith("#")
+            k for k in self.Ez_hf.keys() if isinstance(k, str) and k.startswith("#")
         )
         nt = min(nt, len(keys))
 
@@ -391,14 +387,10 @@ class WakeSolver:
         with tqdm(total=len(s) * len(z)) as pbar:
             for n in range(len(s)):
                 for k in range(nz):
-                    ts = (
-                        (z[k] + s[n]) / self.v - zmin / self.v - self.t[0] + ti
-                    )
+                    ts = (z[k] + s[n]) / self.v - zmin / self.v - self.t[0] + ti
                     it = int(ts / dt)  # find index for t
                     if it < nt:
-                        WP[n] = (
-                            WP[n] + (Ezt[k, it]) * self.dz[k]
-                        )  # compute integral
+                        WP[n] = WP[n] + (Ezt[k, it]) * self.dz[k]  # compute integral
                     pbar.update(1)
 
         WP = WP / (self.q * 1e12)  # [V/pC]
@@ -483,9 +475,7 @@ class WakeSolver:
         WP_3d = np.zeros((i0 * 2 + 1, j0 * 2 + 1, len(s)))
         Ezt = np.zeros((nz, nt))
         keys = sorted(
-            k
-            for k in self.Ez_hf.keys()
-            if isinstance(k, str) and k.startswith("#")
+            k for k in self.Ez_hf.keys() if isinstance(k, str) and k.startswith("#")
         )
         nt = min(nt, len(keys))
 
@@ -496,9 +486,7 @@ class WakeSolver:
                     # Assembly Ez field
                     for n in range(nt):
                         Ez = self.Ez_hf[keys[n]]
-                        Ezt[:, n] = Ez[
-                            Ez.shape[0] // 2 + i, Ez.shape[1] // 2 + j, zz
-                        ]
+                        Ezt[:, n] = Ez[Ez.shape[0] // 2 + i, Ez.shape[1] // 2 + j, zz]
 
                     # integral of (Ez(xtest, ytest, z, t=(s+z)/c))dz
                     if self.counter_moving:
@@ -593,7 +581,7 @@ class WakeSolver:
         WPx = np.zeros_like(self.s)
         WPy = np.zeros_like(self.s)
         int_WP = np.zeros_like(self.WP_3d)
-        
+
         dxf = np.diff(self.xf)
         dyf = np.diff(self.yf)
 
@@ -1014,9 +1002,7 @@ class WakeSolver:
                     freq_data = self.fy
                     impedance_data = self.Zy
                 else:
-                    raise ValueError(
-                        'Invalid dimension. Use dim = "x" or "y".'
-                    )
+                    raise ValueError('Invalid dimension. Use dim = "x" or "y".')
             else:
                 raise ValueError(
                     "Invalid plane or dimension. Use plane = 'longitudinal' or "
@@ -1038,9 +1024,7 @@ class WakeSolver:
             parameterBounds = bounds.parameterBounds
 
         # Build the differential evolution model
-        self.log(
-            "\nExtrapolating wake potential using Differential Evolution..."
-        )
+        self.log("\nExtrapolating wake potential using Differential Evolution...")
 
         objectiveFunction = iddefix.ObjectiveFunctions.sumOfSquaredErrorReal
         DE_model = iddefix.EvolutionaryAlgorithm(
@@ -1082,9 +1066,7 @@ class WakeSolver:
 
         return DE_model
 
-    def get_extrapolated_wake(
-        self, wakelength, sigma=None, use_minimization=True
-    ):
+    def get_extrapolated_wake(self, wakelength, sigma=None, use_minimization=True):
         """
         Get the extrapolated wake potential [V/pC] from the DE model.
 
@@ -1105,9 +1087,7 @@ class WakeSolver:
             Extrapolated wake potential [V/pC].
         """
         if self.DE_model is None:
-            raise AttributeError(
-                "Run get_DEmodel() first to obtain the DE model"
-            )
+            raise AttributeError("Run get_DEmodel() first to obtain the DE model")
 
         if sigma is None:
             sigma = self.sigmaz / c_light
@@ -1126,9 +1106,7 @@ class WakeSolver:
         s = t * c_light  # Convert time to distance [m]
         return s, -wake_potential * 1e-12  # in [V/pC] + CST convention
 
-    def get_extrapolated_wake_function(
-        self, wakelength, use_minimization=True
-    ):
+    def get_extrapolated_wake_function(self, wakelength, use_minimization=True):
         """
         Get the extrapolated wake function (Green function) from the DE model.
 
@@ -1147,18 +1125,14 @@ class WakeSolver:
             Extrapolated wake function.
         """
         if self.DE_model is None:
-            raise AttributeError(
-                "Run get_DEmodel() first to obtain the DE model"
-            )
+            raise AttributeError("Run get_DEmodel() first to obtain the DE model")
 
         t = np.arange(
             self.s[0] / c_light,
             wakelength / c_light,
             (self.s[2] - self.s[1]) / c_light,
         )
-        wake_function = self.DE_model.get_wake(
-            t, use_minimization=use_minimization
-        )
+        wake_function = self.DE_model.get_wake(t, use_minimization=use_minimization)
         return t, wake_function
 
     def get_extrapolated_impedance(
@@ -1184,9 +1158,7 @@ class WakeSolver:
             Extrapolated impedance [Ohm].
         """
         if self.DE_model is None:
-            raise AttributeError(
-                "Run get_DEmodel() first to obtain the DE model"
-            )
+            raise AttributeError("Run get_DEmodel() first to obtain the DE model")
 
         if f is None:
             f = self.DE_model.frequency_data
@@ -1301,9 +1273,7 @@ class WakeSolver:
             f = impedance[0]
             Z = impedance[1]
         elif f is None:
-            raise AttributeError(
-                'Provide frequency data through parameter "f"'
-            )
+            raise AttributeError('Provide frequency data through parameter "f"')
         else:
             Z = impedance
         df = np.mean(f[1:] - f[:-1])
@@ -1554,9 +1524,7 @@ class WakeSolver:
         if self.verbose:
             print("\x1b[2;37m" + txt + "\x1b[0m")
 
-    def read_cst_3d(
-        self, path=None, folder="3d", filename="Ez.h5", units=1e-3
-    ):
+    def read_cst_3d(self, path=None, folder="3d", filename="Ez.h5", units=1e-3):
         """
         Read CST 3D exports folder and store the Ez field information into a matrix
         Ez(x,y,z) for every timestep into a single `.h5` file compatible with wakis.
@@ -1645,9 +1613,7 @@ class WakeSolver:
         hf = h5py.File(path + filename, "w")
 
         # Initialize variables
-        Ez = np.zeros(
-            (n_transverse_cells, n_transverse_cells, n_longitudinal_cells)
-        )
+        Ez = np.zeros((n_transverse_cells, n_transverse_cells, n_longitudinal_cells))
         x = np.zeros((n_transverse_cells))
         y = np.zeros((n_transverse_cells))
         z = np.zeros((n_longitudinal_cells))
@@ -1678,13 +1644,9 @@ class WakeSolver:
 
                     if rows >= 0 and len(columns) > 1:
                         k = int(rows / n_transverse_cells**2)
-                        j = int(
-                            rows / n_transverse_cells - n_transverse_cells * k
-                        )
+                        j = int(rows / n_transverse_cells - n_transverse_cells * k)
                         i = int(
-                            rows
-                            - j * n_transverse_cells
-                            - k * n_transverse_cells**2
+                            rows - j * n_transverse_cells - k * n_transverse_cells**2
                         )
 
                         if k >= n_longitudinal_cells:

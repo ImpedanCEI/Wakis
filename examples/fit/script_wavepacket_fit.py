@@ -1,13 +1,14 @@
-import numpy as np
 import sys
+
+import numpy as np
+from scipy.constants import c as c_light
+from scipy.constants import mu_0 as mu_0
 from tqdm import tqdm
-from scipy.constants import c as c_light, mu_0 as mu_0
 
 sys.path.append("../")
 
-from solverFIT3D import SolverFIT3D
 from gridFIT3D import GridFIT3D
-
+from solverFIT3D import SolverFIT3D
 
 # ---------- Domain setup ---------
 
@@ -110,12 +111,12 @@ for n in tqdm(range(Nt)):
 
 # Plot 3D built-in
 """
-solver.plot3D(field='H', component='z', clim=None,  hide_solids=None, show_solids=None, 
+solver.plot3D(field='H', component='z', clim=None,  hide_solids=None, show_solids=None,
                add_stl=None, stl_opacity=0.1, stl_colors='white',
                title=None, cmap='rainbow', clip_volume=True, clip_normal='-y',
                clip_box=False, clip_bounds=None, off_screen=False, zoom=2.0, n=n)
 
-solver.plot2D(field='E', component='x', plane='ZY', pos=0.5, norm=None, 
+solver.plot2D(field='E', component='x', plane='ZY', pos=0.5, norm=None,
                vmin=None, vmax=None, figsize=[8,4], cmap='jet', patch_alpha=0.1,
                add_patch=False, title=None, off_screen=True, n=n, interpolation='spline36')
 """

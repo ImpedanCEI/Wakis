@@ -1,8 +1,9 @@
 import numpy as np
-from grid2D import Grid2D
-from grid2D import compute_areas as compute_areas_2D, mark_cells as mark_cells_2D
-from numba import jit
 from field import Field
+from grid2D import Grid2D
+from grid2D import compute_areas as compute_areas_2D
+from grid2D import mark_cells as mark_cells_2D
+from numba import jit
 
 
 def seg_length(x_1, y_1, z_1, x_2, y_2, z_2):
@@ -29,7 +30,18 @@ class Grid3D:
     """
 
     def __init__(
-        self, xmin, xmax, ymin, ymax, zmin, zmax, nx, ny, nz, conductors, sol_type
+        self,
+        xmin,
+        xmax,
+        ymin,
+        ymax,
+        zmin,
+        zmax,
+        nx,
+        ny,
+        nz,
+        conductors,
+        sol_type,
     ):
         self.xmin = xmin
         self.xmax = xmax
@@ -507,7 +519,21 @@ class Grid3D:
         nopython=True,
     )
     def compute_areas(
-        l_x, l_y, l_z, Sxy, Syz, Szx, Sxy_red, Syz_red, Szx_red, nx, ny, nz, dx, dy, dz
+        l_x,
+        l_y,
+        l_z,
+        Sxy,
+        Syz,
+        Szx,
+        Sxy_red,
+        Syz_red,
+        Szx_red,
+        nx,
+        ny,
+        nz,
+        dx,
+        dy,
+        dz,
     ):
         for kk in range(nz + 1):
             compute_areas_2D(
@@ -546,7 +572,7 @@ class Grid3D:
             )
 
     """
-  Function to mark wich cells are interior (int), require extension (unst), 
+  Function to mark which cells are interior (int), require extension (unst),
   are on the boundary(bound), are available for intrusion (avail)
     """
 

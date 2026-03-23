@@ -1,5 +1,6 @@
 import numpy as np
-from scipy.constants import epsilon_0 as eps_0, mu_0 as mu_0
+from scipy.constants import epsilon_0 as eps_0
+from scipy.constants import mu_0 as mu_0
 
 
 class PmlBlock3D:

@@ -1,13 +1,12 @@
 import sys
+
 import pyvista as pv
 from scipy.constants import c
 
 sys.path.append("../wakis")
 
-from wakis import SolverFIT3D
-from wakis import GridFIT3D
+from wakis import GridFIT3D, SolverFIT3D
 from wakis.sources import WavePacket
-
 
 print("\n---------- Initializing simulation ------------------")
 # Number of mesh cells

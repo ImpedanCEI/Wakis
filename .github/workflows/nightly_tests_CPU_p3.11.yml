@@ -44,4 +44,3 @@ jobs:
       run:  |
         cd wakis
         python -m pytest --cov=wakis --cov-config=tests/.coveragerc --cov-report=term -v tests
-
