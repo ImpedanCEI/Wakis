@@ -610,10 +610,10 @@ class WakeSolver:
                         pbar.update(1)
 
                 # Perform the gradient (second order scheme)
-                WPx[n] = -0.5*(int_WP[i0 + 1, j0, n] - int_WP[i0 - 1, j0, n]) / (
+                WPx[n] = -(int_WP[i0 + 1, j0, n] - int_WP[i0 - 1, j0, n]) / (
                     dxf[i0 - 1] + dxf[i0]
                 )
-                WPy[n] = -0.5*(int_WP[i0, j0 + 1, n] - int_WP[i0, j0 - 1, n]) / (
+                WPy[n] = -(int_WP[i0, j0 + 1, n] - int_WP[i0, j0 - 1, n]) / (
                     dyf[j0 - 1] + dyf[j0]
                 )
 
@@ -630,7 +630,7 @@ class WakeSolver:
             )
             np.savetxt(
                 self.folder + "WPy.txt",
-                np.c_[self.s, self.WPx],
+                np.c_[self.s, self.WPy],
                 header="   s [m]" + " " * 20 + "WP [V/pC]" + "\n" + "-" * 48,
             )
 
