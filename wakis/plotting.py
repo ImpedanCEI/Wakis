@@ -194,17 +194,13 @@ class PlotMixin:
             tol = np.min([self.dx, self.dy, self.dz]) * 1e-3
             if type(hide_solids) is str:
                 surf = self.grid.read_stl(hide_solids)
-                select = self.grid.grid.select_enclosed_points(
-                    surf, tolerance=tol
-                )
+                select = self.grid.grid.select_enclosed_points(surf, tolerance=tol)
                 mask = select["SelectedPoints"] > 0
 
             elif type(hide_solids) is list:
                 for i, solid in enumerate(hide_solids):
                     surf = self.grid.read_stl(solid)
-                    select = self.grid.grid.select_enclosed_points(
-                        surf, tolerance=tol
-                    )
+                    select = self.grid.grid.select_enclosed_points(surf, tolerance=tol)
                     if i == 0:
                         mask = select["SelectedPoints"] > 0
                     else:
@@ -217,17 +213,13 @@ class PlotMixin:
             tol = np.min([self.dx, self.dy, self.dz]) * 1e-3
             if type(show_solids) is str:
                 surf = self.grid.read_stl(show_solids)
-                select = self.grid.grid.select_enclosed_points(
-                    surf, tolerance=tol
-                )
+                select = self.grid.grid.select_enclosed_points(surf, tolerance=tol)
                 mask = select["SelectedPoints"] > 0
 
             elif type(show_solids) is list:
                 for i, solid in enumerate(show_solids):
                     surf = self.grid.read_stl(solid)
-                    select = self.grid.grid.select_enclosed_points(
-                        surf, tolerance=tol
-                    )
+                    select = self.grid.grid.select_enclosed_points(surf, tolerance=tol)
                     if i == 0:
                         mask = select["SelectedPoints"] > 0
                     else:
@@ -290,9 +282,7 @@ class PlotMixin:
                 pass
             self.pl = pl
         else:
-            pl.show(
-                full_screen=False, auto_close=False, interactive_update=True
-            )
+            pl.show(full_screen=False, auto_close=False, interactive_update=True)
 
     def plot3DonSTL(
         self,
@@ -539,17 +529,13 @@ class PlotMixin:
                         try:
                             surf = surf.clip_closed_surface(
                                 normal=clip_normal, origin=clip_origin
-                            ).subdivide_adaptive(
-                                max_edge_len=3 * np.min(self.dz)
-                            )
+                            ).subdivide_adaptive(max_edge_len=3 * np.min(self.dz))
                         except Exception as e:
                             surf = surf.clip(
                                 normal=clip_normal,
                                 origin=clip_origin,
                                 invert=False,
-                            ).subdivide_adaptive(
-                                max_edge_len=3 * np.min(self.dz)
-                            )
+                            ).subdivide_adaptive(max_edge_len=3 * np.min(self.dz))
                             if self.verbose > 1:
                                 print(f"[!] '{key}' surface non-manifold: {e}")
 
@@ -628,9 +614,7 @@ class PlotMixin:
             pl.remove_actor(ac1)
             self.pl = pl
         else:
-            pl.show(
-                full_screen=False, auto_close=False, interactive_update=True
-            )
+            pl.show(full_screen=False, auto_close=False, interactive_update=True)
 
     def plot2D(
         self,
@@ -859,9 +843,7 @@ class PlotMixin:
 
             fig.colorbar(
                 im,
-                cax=make_axes_locatable(ax).append_axes(
-                    "right", size="5%", pad=0.05
-                ),
+                cax=make_axes_locatable(ax).append_axes("right", size="5%", pad=0.05),
             )
             ax.set_title(f"Wakis {field}{component}{cut}")
             ax.set_xlabel(xax)
@@ -1039,18 +1021,14 @@ class PlotMixin:
 
                 # x-axis
                 elif type(line[0]) is slice:
-                    cut = (
-                        f"(x,a,b) a={round(self.y[y], 3)}, b={round(_z[z], 3)}"
-                    )
+                    cut = f"(x,a,b) a={round(self.y[y], 3)}, b={round(_z[z], 3)}"
                     xax = "x"
                     xx = self.x[x]
                     xlims = (self.x[x].min(), self.x[x].max())
 
                 # y-axis
                 elif type(line[1]) is slice:
-                    cut = (
-                        f"(a,y,b) a={round(self.x[x], 3)}, b={round(_z[z], 3)}"
-                    )
+                    cut = f"(a,y,b) a={round(self.x[x], 3)}, b={round(_z[z], 3)}"
                     xax = "y"
                     xx = self.y[y]
                     xlims = (self.y[y].min(), self.y[y].max())
@@ -1071,9 +1049,7 @@ class PlotMixin:
 
             elif line.lower() == "z":
                 x, y, z = int(Nx * pos), int(Ny * pos), slice(0, Nz)  # z-axis
-                cut = (
-                    f"(a,b,z) a={round(self.x[x], 3)}, b={round(self.y[y], 3)}"
-                )
+                cut = f"(a,b,z) a={round(self.x[x], 3)}, b={round(self.y[y], 3)}"
                 xax = "z"
                 xx = _z[z]
                 xlims = (zmin, zmax)
@@ -1089,9 +1065,7 @@ class PlotMixin:
                 zorder = i
 
             if self.use_mpi:  # only in rank=0
-                _field = self.mpi_gather(
-                    field, x=x, y=y, z=z, component=component
-                )
+                _field = self.mpi_gather(field, x=x, y=y, z=z, component=component)
 
                 if self.rank == 0:
                     ax.plot(
@@ -1122,9 +1096,7 @@ class PlotMixin:
         if not self.use_mpi:
             yax = f"{field}{component} amplitude"
 
-            ax.set_title(
-                f"Wakis {field}{component}" + (len(pos_arr) == 1) * f"{cut}"
-            )
+            ax.set_title(f"Wakis {field}{component}" + (len(pos_arr) == 1) * f"{cut}")
             ax.set_xlabel(xax)
             ax.set_ylabel(yax, color=colors[0])
             ax.set_xlim(xlims)
@@ -1142,12 +1114,7 @@ class PlotMixin:
 
             if n is not None:
                 fig.suptitle(
-                    "$"
-                    + field
-                    + "_{"
-                    + component
-                    + "}$ field, timestep="
-                    + str(n)
+                    "$" + field + "_{" + component + "}$ field, timestep=" + str(n)
                 )
                 title += "_" + str(n).zfill(6)
 
@@ -1164,9 +1131,7 @@ class PlotMixin:
         elif self.use_mpi and self.rank == 0:
             yax = f"{field}{component} amplitude"
 
-            ax.set_title(
-                f"Wakis {field}{component}" + (len(pos_arr) == 1) * f"{cut}"
-            )
+            ax.set_title(f"Wakis {field}{component}" + (len(pos_arr) == 1) * f"{cut}")
             ax.set_xlabel(xax)
             ax.set_ylabel(yax, color=colors[0])
             ax.set_xlim(xlims)
@@ -1184,12 +1149,7 @@ class PlotMixin:
 
             if n is not None:
                 fig.suptitle(
-                    "$"
-                    + field
-                    + "_{"
-                    + component
-                    + "}$ field, timestep="
-                    + str(n)
+                    "$" + field + "_{" + component + "}$ field, timestep=" + str(n)
                 )
                 title += "_" + str(n).zfill(6)
 
@@ -1315,15 +1275,11 @@ class PlotMixin:
 
         def apply(state):
             if state["highlight"]:
-                state["actor"].GetProperty().SetOpacity(
-                    state["active_opacity"]
-                )
+                state["actor"].GetProperty().SetOpacity(state["active_opacity"])
                 if add_silhouette:
                     state["silhouette"].SetVisibility(True)
             else:
-                state["actor"].GetProperty().SetOpacity(
-                    state["inactive_opacity"]
-                )
+                state["actor"].GetProperty().SetOpacity(state["inactive_opacity"])
                 if add_silhouette:
                     state["silhouette"].SetVisibility(False)
 
@@ -1399,9 +1355,7 @@ class PlotMixin:
                 radius=radius,
             )
 
-            beam_actor = pl.add_mesh(
-                beam, color="orange", name="beam", opacity=1.0
-            )
+            beam_actor = pl.add_mesh(beam, color="orange", name="beam", opacity=1.0)
             beam_actor.SetVisibility(True)
             path_actor = pl.add_mesh(
                 path, color="blue", name="integration_path", opacity=1.0
@@ -1425,9 +1379,7 @@ class PlotMixin:
                 position=(bx, cy + dy),
                 size=box,
             )
-            pl.add_text(
-                "Integration path", position=(bx + to, cy + dy), font_size=font
-            )
+            pl.add_text("Integration path", position=(bx + to, cy + dy), font_size=font)
 
             pl.add_checkbox_button_widget(
                 beam_cb,

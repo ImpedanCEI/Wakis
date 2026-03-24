@@ -1,11 +1,11 @@
 # 📣 Releases
 Release notes of every `Wakis` packaged version in [PyPI](https://pypi.org/project/wakis/), also available in [Zenodo](https://zenodo.org/records/15527405) and [Github Releases](https://github.com/ImpedanCEI/wakis/releases).
 
-```{contents} 
+```{contents}
 :depth: 2
 ```
 
-## Wakis v0.6.0 
+## Wakis v0.6.0
 
 ### 🚀 New Features
 
@@ -22,7 +22,7 @@ Release notes of every `Wakis` packaged version in [PyPI](https://pypi.org/proje
   * New method `mpi_gather_asGrid()` to retrieve the full global grid from distributed subdomains.
   * Full support for multi-GPU domain decomposition through `cupy` (CUDA-aware, Linux only).
   * Improved communication layer for subdomain synchronization via ghost cells.
-  
+
 * ⚡ **SolverFIT3D**
   * MPI-compatible time-stepping routine `mpi_one_step()` using a leapfrog scheme.
   * `mpi_communicate()` to send/receive boundary field values between subdomains.
@@ -31,7 +31,7 @@ Release notes of every `Wakis` packaged version in [PyPI](https://pypi.org/proje
   * Introduced `save_state()` method for checkpointing during MPI runs together with `load_state()`. Added support for MPI save state too.
   * Feature in progress: multiGPU support (`use_GPU=True` when `use_MPI=True`) for distributed simulations (*Linux only!*).
   * Added missing docstrings (Numpy-style)
-  
+
 * 📥 **Sources**
   * **Beam**:
     * Added `plot(t)` to visualize beam current evolution.
@@ -103,16 +103,16 @@ Release notes of every `Wakis` packaged version in [PyPI](https://pypi.org/proje
 ### 🚀 New Features
 * Plotting
   * Allow passing camera position to solver's 3D plots `plot3D` and `plor3DnSTL`
-  
+
 ### 💗 Other Tag highlights
-* 🔁 Nightly tests with GitHub actions: 
+* 🔁 Nightly tests with GitHub actions:
   * 003 -> coverage for grid `inspect` and `plot_solid`
-* 📁 Examples: 
+* 📁 Examples:
   * 003 -> MPI wakefield simulation with `mpi4py`
-* 📁 Notebooks: 
+* 📁 Notebooks:
   * 005 -> MPI example in jupyter notebooks with `ipyparallel`+ `mpi4py`
 
-### 🐛 Bugfixes 
+### 🐛 Bugfixes
 * `__version__` now matches PyPI release and tag
 * `gridFIT3D.plot_solids()` fix typo in the opacity assignment
 * `example/001` fixed stl_solids parameter in grid.inspect() call
@@ -122,7 +122,7 @@ Release notes of every `Wakis` packaged version in [PyPI](https://pypi.org/proje
 
 -----
 
-## Wakis v0.5.0 
+## Wakis v0.5.0
 
 ### 🚀 New Features
 * 🧱 Geometry import:
@@ -135,20 +135,20 @@ Release notes of every `Wakis` packaged version in [PyPI](https://pypi.org/proje
     * Perfect Matching Layers (PML) boundary conditions: First version out!
 
 * 🖼️ Plotting:
-    * `solver.plot3DonSTL` Field on STL solid using `pyvista.sample` interpolation algorithm 
+    * `solver.plot3DonSTL` Field on STL solid using `pyvista.sample` interpolation algorithm
         * Interactive plane clipping on `plot3DonSTL`
         * Field shown on clipping plane
     * `grid.plot_solids()` 3D plot with the imported solids and the position in the simulation bounding box when `bounding_box=True`
 
 * 📥Sources:
-    * Add `plot(t)` method to plot the source over the simulation time `t` 
+    * Add `plot(t)` method to plot the source over the simulation time `t`
     * Custom amplitude as an attribute `self.amplitude`
     * Custom phase as an attribute `self.phase`
     * Custom injection time `self.tinj`
     * For `PlaneWave` allow for truncation at specific number of `self.nodes` injected
 
 * 🌱 Ecosytem:
-    * Wake extrapolation of partially decayed wakes coupling with [`IDDEFIX`]: https://github.com/ImpedanCEI/IDDEFIX: 
+    * Wake extrapolation of partially decayed wakes coupling with [`IDDEFIX`]: https://github.com/ImpedanCEI/IDDEFIX:
         * IDDEFIX is a physics-informed machine learning framework that fits a resonator-based model (parameterized by R, f, Q) to wakefield simulation data using Evolutionary Algorithms. It leverages Differential Evolution to optimize these parameters, enabling efficient classification and extrapolation of electromagnetic wakefield behavior. This allows for reduced simulation time while maintaining long-term accuracy, akin to time-series forecasting in machine learning
 
     * Impedance to wake function conversion using non-equidistant Fourier transform with: [`neffint]: https://github.com/ImpedanCEI/neffint
@@ -162,7 +162,7 @@ Release notes of every `Wakis` packaged version in [PyPI](https://pypi.org/proje
 * 📁  notebooks: containing interactive examples
 * 📁  examples: major cleanup, examples on CPU and GPU
 
-### 🐛 Bugfixes 
+### 🐛 Bugfixes
 * Patch representation when a list is passed in `Plot2D`
 * `ipympl` added as a dependency to `wakis['notebook']` installation
 * Injection time to account for relativistic beta in sources

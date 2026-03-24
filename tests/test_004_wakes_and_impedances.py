@@ -1,7 +1,8 @@
 import sys
-import numpy as np
+
 import matplotlib.pyplot as plt
 from matplotlib.ticker import ScalarFormatter
+import numpy as np
 
 sys.path.append("../wakis")
 from wakis import WakeSolver as wk

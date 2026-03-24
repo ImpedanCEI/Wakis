@@ -126,9 +126,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.use_mpi = use_mpi
         self.activate_abc = False  # Will turn true if abc BCs are chosen
         self.activate_pml = False  # Will turn true if pml BCs are chosen
-        self.use_conductivity = (
-            False  # Will turn true with conductive material or pml
-        )
+        self.use_conductivity = False  # Will turn true with conductive material or pml
         self.imported_mkl = imported_mkl  # Use MKL backend when available
         self.one_step = self._one_step
         if use_stl:
@@ -191,25 +189,15 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         N = self.N
         self.Px = diags([-1, 1], [0, 1], shape=(N, N), dtype=np.int8)
         self.Py = diags([-1, 1], [0, self.Nx], shape=(N, N), dtype=np.int8)
-        self.Pz = diags(
-            [-1, 1], [0, self.Nx * self.Ny], shape=(N, N), dtype=np.int8
-        )
+        self.Pz = diags([-1, 1], [0, self.Nx * self.Ny], shape=(N, N), dtype=np.int8)
 
         # original grid
-        self.Ds = diags(
-            self.L.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
-        )
-        self.iDa = diags(
-            self.iA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
-        )
+        self.Ds = diags(self.L.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+        self.iDa = diags(self.iA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
 
         # tilde grid
-        self.tDs = diags(
-            self.tL.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
-        )
-        self.itDa = diags(
-            self.itA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
-        )
+        self.tDs = diags(self.tL.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+        self.itDa = diags(self.itA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
 
         # Curl matrix
         self.C = vstack(
@@ -299,9 +287,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.ieps.toarray() != 0,
             )  # for PEC eps=inf
 
-            self.tau = (1 / self.ieps.toarray()[mask]) / self.sigma.toarray()[
-                mask
-            ]
+            self.tau = (1 / self.ieps.toarray()[mask]) / self.sigma.toarray()[mask]
 
             if self.dt > self.tau.min():
                 self.dt = self.tau.min()
@@ -309,20 +295,14 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         # Pre-computing
         if verbose:
             print("Pre-computing...")
-        self.iDeps = diags(
-            self.ieps.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
-        )
-        self.iDmu = diags(
-            self.imu.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
-        )
+        self.iDeps = diags(self.ieps.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+        self.iDmu = diags(self.imu.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
         self.Dsigma = diags(
             self.sigma.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
         )
 
         self.tDsiDmuiDaC = self.iDa * self.iDmu * self.C * self.Ds
-        self.itDaiDepsDstC = (
-            self.iDeps * self.itDa * self.C.transpose() * self.tDs
-        )
+        self.itDaiDepsDstC = self.iDeps * self.itDa * self.C.transpose() * self.tDs
 
         if imported_mkl and not self.use_gpu:  # MKL backend for CPU
             if verbose:
@@ -413,9 +393,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         if self.verbose:
             print("Re-Pre-computing ...")
         self.tDsiDmuiDaC = self.iDa * self.iDmu * self.C * self.Ds
-        self.itDaiDepsDstC = (
-            self.iDeps * self.itDa * self.C.transpose() * self.tDs
-        )
+        self.itDaiDepsDstC = self.iDeps * self.itDa * self.C.transpose() * self.tDs
         self.step_0 = False
 
     def _one_step(self):
@@ -600,9 +578,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 field = field[0]
             elif component is None:
                 component = "z"
-                print(
-                    "[!] `component` not specified, using default component='z'"
-                )
+                print("[!] `component` not specified, using default component='z'")
 
             if field == "E":
                 local = self.E[x, y, :, component].ravel()
@@ -613,9 +589,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         else:
             if component is None:
                 component = "z"
-                print(
-                    "[!] `component` not specified, using default component='z'"
-                )
+                print("[!] `component` not specified, using default component='z'")
             local = field[x, y, :, component].ravel()
 
         buffer = self.comm.gather(local, root=0)
@@ -628,13 +602,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 for r in range(self.size):
                     zz = np.s_[r * nz : (r + 1) * nz]
                     if r == 0:
-                        _field[zz] = np.reshape(
-                            buffer[r], (nz + self.grid.n_ghosts)
-                        )[:-1]
+                        _field[zz] = np.reshape(buffer[r], (nz + self.grid.n_ghosts))[
+                            :-1
+                        ]
                     elif r == (self.size - 1):
-                        _field[zz] = np.reshape(
-                            buffer[r], (nz + self.grid.n_ghosts)
-                        )[1:]
+                        _field[zz] = np.reshape(buffer[r], (nz + self.grid.n_ghosts))[
+                            1:
+                        ]
                     else:
                         _field[zz] = np.reshape(
                             buffer[r], (nz + 2 * self.grid.n_ghosts)
@@ -835,9 +809,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.stl_colors = self.grid.stl_colors
 
         for key in self.stl_solids.keys():
-            mask = np.reshape(grid[key], (self.Nx, self.Ny, self.Nz)).astype(
-                int
-            )
+            mask = np.reshape(grid[key], (self.Nx, self.Ny, self.Nz)).astype(int)
 
             if type(self.stl_materials[key]) is str:
                 # Retrieve from material library

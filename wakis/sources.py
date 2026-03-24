@@ -13,9 +13,10 @@ every simulation timestep, e.g.:
     def update(self, t, *args, **kwargs)`
 """
 
-import numpy as np
 import matplotlib.pyplot as plt
-from scipy.constants import mu_0, c as c_light
+import numpy as np
+from scipy.constants import c as c_light
+from scipy.constants import mu_0
 
 
 class Beam:
