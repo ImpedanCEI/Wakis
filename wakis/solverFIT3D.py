@@ -938,14 +938,39 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         Currently performs a simple load from a single-file state. MPI-aware
         redistribution of loaded arrays to worker ranks is TODO.
         """
-        state = h5py.File(filename, "r")
 
-        self.E.fromarray(state["E"][:])
-        self.H.fromarray(state["H"][:])
-        self.J.fromarray(state["J"][:])
+        if self.use_mpi:  # TODO: test
+            if self.rank == 0:
+                with h5py.File(filename, "r") as f:
+                    state = {"E": f["E"][:], "H": f["H"][:], "J": f["J"][:]}
+                zz = np.s_[: self.Nz]
+            elif self.rank == self.size - 1:
+                state = None
+                zz = np.s_[(self.NZ - self.Nz) :]
+            else:
+                state = None
+                zlo = (self.NZ // self.size + 1) + +(self.NZ // self.size + 2) * (
+                    self.rank - 1
+                )
+                zz = np.s_[zlo : zlo + self.Nz]
 
-        # TODO: support MPI loadstate
+            state = self.comm.bcast(state, root=0)
+            for d in [0, 1, 2]:  # x,y,z
+                self.E[:, :, :, d] = state["E"].reshape(
+                    (self.Nx, self.Ny, self.NZ, 3), order="F"
+                )[:, :, zz, d]
+                self.H[:, :, :, d] = state["H"].reshape(
+                    (self.Nx, self.Ny, self.NZ, 3), order="F"
+                )[:, :, zz, d]
+                self.J[:, :, :, d] = state["J"].reshape(
+                    (self.Nx, self.Ny, self.NZ, 3), order="F"
+                )[:, :, zz, d]
 
+        else:  # CPU/GPU loadstate
+            state = h5py.File(filename, "r")
+            self.E.fromarray(state["E"][:])
+            self.H.fromarray(state["H"][:])
+            self.J.fromarray(state["J"][:])
         state.close()
 
     def read_state(self, filename="solver_state.h5"):
