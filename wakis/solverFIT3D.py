@@ -50,7 +50,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         use_gpu=False,
         use_mpi=False,
         use_sibc=True,
-        fmax=None,
+        fmax=1e9,
         dtype=np.float64,
         n_pml=10,
         bg=[1.0, 1.0],
@@ -83,6 +83,12 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         use_conductors : bool, optional
             [LEGACY] will be removed in future releases.
             If True, import conductor geometry from ``conductors.py`` masks.
+        use_sibc : bool, optional
+            Enable surface impedance boundary condition for high-conductivity solids.
+        fmax : float, optional
+            Maximum frequency for SIBC calculations, used to determine the
+            conductivity threshold for applying SIBC instead of explicit conductivity.
+            Default is 1 GHz if not set and a wakeSolver object is not provided.
         use_gpu : bool, optional
             Enable GPU acceleration via ``cupyx`` (if available).
         use_mpi : bool, optional
@@ -128,9 +134,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.use_gpu = use_gpu
         self.use_mpi = use_mpi
         self.use_sibc = use_sibc  # surface impedance boundary condition
-        self.fmax = (
-            fmax  # maximum frequency for SIBC, used to compute surface impedance
-        )
+        self.fmax = fmax  # maximum frequency for SIBC
         self.activate_abc = False  # Will turn true if abc BCs are chosen
         self.activate_pml = False  # Will turn true if pml BCs are chosen
         self.use_conductivity = False  # Will turn true with conductive material or pml
@@ -139,6 +143,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         if wake is not None and fmax is None:
             self.fmax = self.wake.fmax
+
         if verbose > 1:
             print(f"* Maximum frequency set to fmax={self.fmax / 1e9} GHz")
 
