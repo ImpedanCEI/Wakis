@@ -49,6 +49,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         use_conductors=False,
         use_gpu=False,
         use_mpi=False,
+        use_sibc=True,
+        fmax=None,
         dtype=np.float64,
         n_pml=10,
         bg=[1.0, 1.0],
@@ -79,6 +81,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         use_stl : bool, optional
             If True, apply solids and materials provided in the ``grid`` object.
         use_conductors : bool, optional
+            [LEGACY] will be removed in future releases.
             If True, import conductor geometry from ``conductors.py`` masks.
         use_gpu : bool, optional
             Enable GPU acceleration via ``cupyx`` (if available).
@@ -124,11 +127,21 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.use_stl = use_stl
         self.use_gpu = use_gpu
         self.use_mpi = use_mpi
+        self.use_sibc = use_sibc  # surface impedance boundary condition
+        self.fmax = (
+            fmax  # maximum frequency for SIBC, used to compute surface impedance
+        )
         self.activate_abc = False  # Will turn true if abc BCs are chosen
         self.activate_pml = False  # Will turn true if pml BCs are chosen
         self.use_conductivity = False  # Will turn true with conductive material or pml
         self.imported_mkl = imported_mkl  # Use MKL backend when available
         self.one_step = self._one_step
+
+        if wake is not None and fmax is None:
+            self.fmax = self.wake.fmax
+        if verbose > 1:
+            print(f"* Maximum frequency set to fmax={self.fmax / 1e9} GHz")
+
         if use_stl:
             self.use_conductors = False
         self.update_logger(["use_gpu", "use_mpi"])
@@ -809,55 +822,44 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.stl_colors = self.grid.stl_colors
 
         for key in self.stl_solids.keys():
+            # TODO: adapt for subpixel smoothing
+
+            # Retrieve mask and materials from grid
             mask = np.reshape(grid[key], (self.Nx, self.Ny, self.Nz)).astype(int)
+            eps = self.stl_materials[key][0] * eps_0
+            mu = self.stl_materials[key][1] * mu_0
 
-            if type(self.stl_materials[key]) is str:
-                # Retrieve from material library
-                mat_key = self.stl_materials[key].lower()
+            # Conductivity
+            # Max conductivity that can be resolved without SIBC
+            dn = np.sqrt(2) * np.min([self.dx, self.dy, self.dz])
+            sigma_max = 10 / (np.pi * self.fmax * mu * dn**2)
+            if self.verbose > 1:
+                print(f"* Max resolved conductivity without SIBC: {sigma_max} S/m")
 
-                eps = material_lib[mat_key][0] * eps_0
-                mu = material_lib[mat_key][1] * mu_0
+            if len(self.stl_materials[key]) == 3:
+                sigma = self.stl_materials[key][2]
 
-                # Setting to zero
-                self.ieps += self.ieps * (-1.0 * mask)
-                self.imu += self.imu * (-1.0 * mask)
+                # Mark surface cells for SIBC if conductivity is high
+                if self.use_sibc and self.stl_materials[key][2] > sigma_max:
+                    if self.verbose > 1:
+                        print(
+                            f'* Applying SIBC for solid "{key}" with sigma={sigma} S/m'
+                        )
+                    self.grid._mark_cells_in_surface(key)
+                    imp = np.sqrt(np.pi * self.fmax * mu / sigma)
+                    sigma = 1 / imp  # SIBC surface conductivity [S]
+                    eps = 1 / imp
 
-                # Adding new values
-                self.ieps += mask * 1.0 / eps
-                self.imu += mask * 1.0 / mu
+                # Update sigma tensor
+                self.sigma += self.sigma * (-1.0 * mask)
+                self.sigma += mask * sigma
+                self.use_conductivity = True
 
-                # Conductivity
-                if len(material_lib[mat_key]) == 3:
-                    sigma = material_lib[mat_key][2]
-                    self.sigma += self.sigma * (-1.0 * mask)
-                    self.sigma += mask * sigma
-                    self.use_conductivity = True
-
-                elif self.sigma_bg > 0.0:  # assumed sigma = 0
-                    self.sigma += self.sigma * (-1.0 * mask)
-
-            else:
-                # From input
-                eps = self.stl_materials[key][0] * eps_0
-                mu = self.stl_materials[key][1] * mu_0
-
-                # Setting to zero
-                self.ieps += self.ieps * (-1.0 * mask)
-                self.imu += self.imu * (-1.0 * mask)
-
-                # Adding new values
-                self.ieps += mask * 1.0 / eps
-                self.imu += mask * 1.0 / mu
-
-                # Conductivity
-                if len(self.stl_materials[key]) == 3:
-                    sigma = self.stl_materials[key][2]
-                    self.sigma += self.sigma * (-1.0 * mask)
-                    self.sigma += mask * sigma
-                    self.use_conductivity = True
-
-                elif self.sigma_bg > 0.0:  # assumed sigma = 0
-                    self.sigma += self.sigma * (-1.0 * mask)
+            # Update ieps and imu tensors
+            self.ieps += self.ieps * (-1.0 * mask)
+            self.imu += self.imu * (-1.0 * mask)
+            self.ieps += mask * 1.0 / eps
+            self.imu += mask * 1.0 / mu
 
     def _attrcleanup(self):
         # Fields
@@ -896,12 +898,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             H = self.mpi_gather_asField("H")
             E = self.mpi_gather_asField("E")
             J = self.mpi_gather_asField("J")
+            state = None
 
             if self.rank == 0:
                 state = h5py.File(filename, "w")
-                state.create_dataset("H", data=H)
-                state.create_dataset("E", data=E)
-                state.create_dataset("J", data=J)
+                state.create_dataset("H", data=H.toarray())
+                state.create_dataset("E", data=E.toarray())
+                state.create_dataset("J", data=J.toarray())
             # TODO: check for MPI-GPU
 
         elif self.use_gpu:  # GPU savestate
@@ -916,7 +919,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             state.create_dataset("E", data=self.E.toarray())
             state.create_dataset("J", data=self.J.toarray())
 
-        if close:
+        if close and state is not None:
             state.close()
         else:
             return state  # Caller must close this manually
