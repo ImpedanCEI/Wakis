@@ -12,7 +12,7 @@ from scipy.optimize import least_squares
 
 from .field import Field
 from .logger import Logger
-from .materials import material_colors
+from .materials import material_colors, material_lib
 
 try:
     from mpi4py import MPI
@@ -445,6 +445,27 @@ class GridFIT3D:
                         the same length as `stl_solids`."
                     )
 
+        if type(self.stl_materials) is not dict:
+            if type(self.stl_materials) is str:
+                self.stl_materials = {"Solid 1": self.stl_materials}
+            else:
+                raise Exception(
+                    "Attribute `stl_materials` must contain a string or a dictionary"
+                )
+
+        for key in self.stl_solids.keys():
+            # if material keys are str, convert to vals using material library
+            if type(self.stl_materials[key]) is str:
+                mat_key = self.stl_materials[key].lower()
+                eps_r = material_lib[mat_key][0]
+                mu_r = material_lib[mat_key][1]
+
+                self.stl_materials[key] = [eps_r, mu_r]
+
+                if len(material_lib[mat_key]) == 3:
+                    sigma = material_lib[mat_key][2]
+                    self.stl_materials[key].append(sigma)
+
     def _mark_cells_in_stl(self):
         """
         Mark grid cells that are inside each STL solid.
@@ -843,7 +864,7 @@ class GridFIT3D:
             try:
                 pl.add_logo_widget("../docs/img/wakis-logo-pink.png")
             except Exception:
-                if self.verbose > 1:
+                if self.verbose > 2:
                     print(f"[!] Could not add logo widget: {e}")
 
     def plot_solids(
@@ -888,8 +909,10 @@ class GridFIT3D:
         pl.add_mesh(self.grid, opacity=0.0, name="grid", show_scalar_bar=False)
         for key in self.stl_solids:
             color = self.stl_colors[key]
-            if self.stl_materials[key] == "vacuum":
-                _opacity = 0.3
+            if self.stl_materials[key] == [1.0, 1.0, 0.0] or self.stl_materials[
+                key
+            ] == [1.0, 1.0]:
+                _opacity = 0.3  # vacuum
             else:
                 _opacity = opacity
             pl.add_mesh(
@@ -1003,6 +1026,18 @@ class GridFIT3D:
         pl = pv.Plotter()
         vals = {"x": xmax, "y": ymax, "z": zmax}
 
+        # --- Initial slice ---
+        initial_clip = self.grid.clip_box(
+            bounds=(self.xmin, xmax, self.ymin, ymax, self.zmin, zmax),
+            invert=False,
+        )
+        clip_actor = pl.add_mesh(
+            initial_clip,
+            scalars=stl_solid,
+            cmap=cmap,
+            name="clip",
+        )
+
         # --- Update function ---
         def update_clip(val, axis="x"):
             vals[axis] = val
@@ -1014,27 +1049,27 @@ class GridFIT3D:
             else:  # z
                 slice_obj = self.grid.slice(normal="z", origin=(0, 0, val))
 
-            # add clipped volume (scalars)
-            pl.add_mesh(
-                self.grid.clip_box(
-                    bounds=(
-                        self.xmin,
-                        vals["x"],
-                        self.ymin,
-                        vals["y"],
-                        self.zmin,
-                        vals["z"],
-                    ),
-                    invert=False,
+            # compute new clip
+            new_clip = self.grid.clip_box(
+                bounds=(
+                    self.xmin,
+                    vals["x"],
+                    self.ymin,
+                    vals["y"],
+                    self.zmin,
+                    vals["z"],
                 ),
-                scalars=stl_solid,
-                cmap=cmap,
-                name="clip",
+                invert=False,
             )
+
+            # update existing actors in place
+            clip_actor.mapper.SetInputData(new_clip)
 
             # add slice wireframe (grid structure)
             if show_grid:
                 pl.add_mesh(slice_obj, style="wireframe", color="grey", name="slice")
+
+            pl.render()
 
         # Plot stl surface(s)
         if add_stl is not None:
@@ -1143,8 +1178,8 @@ class GridFIT3D:
         pl.set_background("mistyrose", top="white")
         self._add_logo_widget(pl)
         pl.add_axes()
-        pl.enable_3_lights()
-        pl.enable_anti_aliasing(anti_aliasing)
+        # pl.enable_3_lights()
+        # pl.enable_anti_aliasing(anti_aliasing)
 
         if bounding_box:
             pl.add_mesh(
