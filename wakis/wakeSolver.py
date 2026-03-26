@@ -661,7 +661,6 @@ class WakeSolver:
             setattr(self, key, val)
 
         print("Calculating longitudinal impedance Z...")
-        self.log(f"Single sided DFT with number of samples = {samples}")
 
         # setup charge distribution in s
         if self.lambdas is None and self.chargedist is not None:
@@ -683,6 +682,11 @@ class WakeSolver:
         N = int(
             (self.v / ds) // fmax * samples
         )  # to obtain a 1000 sample single-sided DFT
+
+        self.log(
+            f"* Single sided DFT with number of samples = {samples} and fmax = {fmax}"
+        )
+        self.log(f"* Zero-padding to N = {N} points with ds = {ds} m")
 
         # Obtain DFTs - is it v or c?
         lambdafft = np.fft.fft(self.lambdas * self.v, n=N)
@@ -736,6 +740,11 @@ class WakeSolver:
         N = int(
             (self.v / ds) // fmax * samples
         )  # to obtain a 1000 sample single-sided DFT
+
+        self.log(
+            f"* Single sided DFT with number of samples = {samples} and fmax = {fmax}"
+        )
+        self.log(f"* Zero-padding to N = {N} points with ds = {ds} m")
 
         # Obtain DFTs
 
