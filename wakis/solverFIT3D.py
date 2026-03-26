@@ -409,6 +409,66 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.itDaiDepsDstC = self.iDeps * self.itDa * self.C.transpose() * self.tDs
         self.step_0 = False
 
+    def _apply_stl_materials(self):
+        """
+        Mask STL solids in the grid and assign user-defined materials.
+
+        Iterates over STL solids imported in the grid and updates ``ieps``,
+        ``imu`` and ``sigma`` according to the material provided for each
+        solid. Materials may be referenced by a library key (string) or given
+        as explicit tuples (eps_r, mu_r[, sigma]). Inverse permittivity and
+        inverse permeability values are stored in the corresponding Fields.
+
+        Notes
+        -----
+        - STL material values must be relative (eps_r, mu_r).
+        - Supply conductivity explicitly to enable conductive behaviour.
+        """
+        grid = self.grid.grid
+        self.stl_solids = self.grid.stl_solids
+        self.stl_materials = self.grid.stl_materials
+        self.stl_colors = self.grid.stl_colors
+
+        for key in self.stl_solids.keys():
+            # TODO: adapt for subpixel smoothing
+
+            # Retrieve mask and materials from grid
+            mask = np.reshape(grid[key], (self.Nx, self.Ny, self.Nz)).astype(int)
+            eps = self.stl_materials[key][0] * eps_0
+            mu = self.stl_materials[key][1] * mu_0
+
+            # Conductivity
+            # Max conductivity that can be resolved without SIBC
+            dn = np.sqrt(2) * min(self.dx.min(), self.dy.min(), self.dz.min())
+            sigma_max = 10 / (np.pi * self.fmax * mu * dn**2)
+            if self.verbose > 1:
+                print(f"* Max resolved conductivity without SIBC: {sigma_max} S/m")
+
+            if len(self.stl_materials[key]) == 3:
+                sigma = self.stl_materials[key][2]
+
+                # Mark surface cells for SIBC if conductivity is high
+                if self.use_sibc and self.stl_materials[key][2] > sigma_max:
+                    if self.verbose > 1:
+                        print(
+                            f'* Applying SIBC for solid "{key}" with sigma={sigma} S/m'
+                        )
+                    self.grid._mark_cells_in_surface(key)
+                    imp = np.sqrt(np.pi * self.fmax * mu / sigma)
+                    sigma = 1 / imp  # SIBC surface conductivity [S]
+                    eps = 1 / imp
+
+                # Update sigma tensor
+                self.sigma += self.sigma * (-1.0 * mask)
+                self.sigma += mask * sigma
+                self.use_conductivity = True
+
+            # Update ieps and imu tensors
+            self.ieps += self.ieps * (-1.0 * mask)
+            self.imu += self.imu * (-1.0 * mask)
+            self.ieps += mask * 1.0 / eps
+            self.imu += mask * 1.0 / mu
+
     def _one_step(self):
         if self.step_0:
             self._set_ghosts_to_0()
@@ -800,66 +860,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         self.H *= self.flag_cleanup
         self.E *= self.flag_cleanup
-
-    def _apply_stl_materials(self):
-        """
-        Mask STL solids in the grid and assign user-defined materials.
-
-        Iterates over STL solids imported in the grid and updates ``ieps``,
-        ``imu`` and ``sigma`` according to the material provided for each
-        solid. Materials may be referenced by a library key (string) or given
-        as explicit tuples (eps_r, mu_r[, sigma]). Inverse permittivity and
-        inverse permeability values are stored in the corresponding Fields.
-
-        Notes
-        -----
-        - STL material values must be relative (eps_r, mu_r).
-        - Supply conductivity explicitly to enable conductive behaviour.
-        """
-        grid = self.grid.grid
-        self.stl_solids = self.grid.stl_solids
-        self.stl_materials = self.grid.stl_materials
-        self.stl_colors = self.grid.stl_colors
-
-        for key in self.stl_solids.keys():
-            # TODO: adapt for subpixel smoothing
-
-            # Retrieve mask and materials from grid
-            mask = np.reshape(grid[key], (self.Nx, self.Ny, self.Nz)).astype(int)
-            eps = self.stl_materials[key][0] * eps_0
-            mu = self.stl_materials[key][1] * mu_0
-
-            # Conductivity
-            # Max conductivity that can be resolved without SIBC
-            dn = np.sqrt(2) * np.min([self.dx, self.dy, self.dz])
-            sigma_max = 10 / (np.pi * self.fmax * mu * dn**2)
-            if self.verbose > 1:
-                print(f"* Max resolved conductivity without SIBC: {sigma_max} S/m")
-
-            if len(self.stl_materials[key]) == 3:
-                sigma = self.stl_materials[key][2]
-
-                # Mark surface cells for SIBC if conductivity is high
-                if self.use_sibc and self.stl_materials[key][2] > sigma_max:
-                    if self.verbose > 1:
-                        print(
-                            f'* Applying SIBC for solid "{key}" with sigma={sigma} S/m'
-                        )
-                    self.grid._mark_cells_in_surface(key)
-                    imp = np.sqrt(np.pi * self.fmax * mu / sigma)
-                    sigma = 1 / imp  # SIBC surface conductivity [S]
-                    eps = 1 / imp
-
-                # Update sigma tensor
-                self.sigma += self.sigma * (-1.0 * mask)
-                self.sigma += mask * sigma
-                self.use_conductivity = True
-
-            # Update ieps and imu tensors
-            self.ieps += self.ieps * (-1.0 * mask)
-            self.imu += self.imu * (-1.0 * mask)
-            self.ieps += mask * 1.0 / eps
-            self.imu += mask * 1.0 / mu
 
     def _attrcleanup(self):
         # Fields
