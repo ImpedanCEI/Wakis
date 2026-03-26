@@ -35,10 +35,10 @@ class WakeSolver:
         compute_plane="both",
         skip_cells=0,
         add_space=None,
-        Ez_file="Ez.h5",
+        Ez_file=None,
         save=True,
         results_folder="results/",
-        verbose=0,
+        verbose=1,
         counter_moving=False,
     ):
         """
@@ -130,6 +130,10 @@ class WakeSolver:
             This determines de size of the 3d wake potential
         """
 
+        self.verbose = verbose
+        print("Initializing Wakefield parameters...")
+        t0 = time.time()
+
         # beam
         self.q = q
         self.sigmaz = sigmaz
@@ -146,11 +150,17 @@ class WakeSolver:
         self.skip_cells = skip_cells
         self.compute_plane = compute_plane
         self.DE_model = None
+        self.fmax = self.v / self.sigmaz / 3
 
+        self.log(
+            f"* Beam longitudinal sigma sigmaz={self.sigmaz * 1e3} mm, sigmat={self.sigmaz / self.v * 1e9} ns"
+        )
+        self.log(f"* Maximum frequency of interest fmax={self.fmax / 1e9} GHz")
         self.counter_moving = counter_moving
 
         if add_space is not None:  # legacy support for add_space
             self.skip_cells = add_space
+        self.log(f"* Field values skipped from boundaries: {self.skip_cells} cells")
 
         # Injection time
         if ti is not None:
@@ -161,6 +171,7 @@ class WakeSolver:
                 8.548921333333334 * self.sigmaz / (np.sqrt(self.beta) * self.v)
             )  # injection time as in CST for beta <=1
             self.ti = ti
+        self.log(f"* Beam source injection time ti={self.ti} s")
 
         # field
         self.Ez_file = Ez_file
@@ -184,7 +195,6 @@ class WakeSolver:
         self.lambdaf = None
 
         # user
-        self.verbose = verbose
         self.logger = Logger()
         self.save = save
         self.folder = results_folder
@@ -196,6 +206,7 @@ class WakeSolver:
             os.makedirs(self.folder, exist_ok=True)
 
         self.assign_logs()
+        self.log(f"Total solver initialization time: {time.time() - t0} s")
 
     def solve(self, compute_plane=None, **kwargs):
         """
@@ -466,8 +477,9 @@ class WakeSolver:
 
         s = np.arange(-self.ti * self.v, wakelength, dt * self.v)
 
-        self.log(f"* Max simulated time = {np.max(self.t)} s")
-        self.log(f"* Wakelength = {wakelength} m")
+        if self.verbose > 1:
+            self.log(f"* Max simulated time = {np.max(self.t)} s")
+            self.log(f"* Wakelength = {wakelength} m")
 
         # field subvolume in No.cells for x, y
         i0, j0 = self.n_transverse_cells, self.n_transverse_cells
@@ -569,11 +581,6 @@ class WakeSolver:
         for key, val in kwargs.items():
             setattr(self, key, val)
 
-        self.log("\n")
-        self.log("Transverse wake potential")
-        self.log("-" * 24)
-        self.log(f"* No. transverse cells = {self.n_transverse_cells}")
-
         ds = self.s[2] - self.s[1]
         i0, j0 = self.n_transverse_cells, self.n_transverse_cells
 
@@ -650,10 +657,6 @@ class WakeSolver:
         **kwargs
             Additional parameters to set as attributes.
         """
-        self.log("\n")
-        self.log("Longitudinal impedance")
-        self.log("-" * 24)
-
         for key, val in kwargs.items():
             setattr(self, key, val)
 
@@ -667,11 +670,11 @@ class WakeSolver:
             self.calc_lambdas_analytic()
             try:
                 self.log(
-                    "! Using analytic charge distribution λ(s) since no data was provided"
+                    "[!] Using analytic charge distribution λ(s) since no data was provided"
                 )
             except Exception:  # ascii encoder error handling
                 self.log(
-                    "! Using analytic charge distribution since no data was provided"
+                    "[!] Using analytic charge distribution since no data was provided"
                 )
 
         # Set up the DFT computation
@@ -724,10 +727,6 @@ class WakeSolver:
         fmax : float, optional
             Maximum frequency of interest.
         """
-        self.log("\n")
-        self.log("Transverse impedance")
-        self.log("-" * 24)
-
         print("Calculating transverse impedance Zx, Zy...")
         self.log(f"Single sided DFT with number of samples = {samples}")
 
@@ -813,7 +812,7 @@ class WakeSolver:
             elif len(self.zf) == len(self.chargedist):
                 z = self.zf
             else:
-                self.log("Dimension error: check input dimensions")
+                raise ValueError("Dimension error: check input dimensions")
 
         self.lambdas = np.interp(self.s, z, chargedist / self.q)
 
@@ -924,7 +923,7 @@ class WakeSolver:
         self,
         freq_data=None,
         impedance_data=None,
-        plane="longitudinal",
+        plane=None,
         dim="z",
         parameterBounds=None,
         N_resonators=None,
@@ -1005,8 +1004,8 @@ class WakeSolver:
                     raise ValueError('Invalid dimension. Use dim = "x" or "y".')
             else:
                 raise ValueError(
-                    "Invalid plane or dimension. Use plane = 'longitudinal' or "
-                    "'transverse' and choose the dimension dim = 'z', 'x' or 'y'."
+                    "Invalid plane or dimension. Use plane = 'longitudinal' or \
+                    'transverse' and choose the dimension dim = 'x' or 'y'."
                 )
 
         if parameterBounds is None or N_resonators is None:
@@ -1024,7 +1023,7 @@ class WakeSolver:
             parameterBounds = bounds.parameterBounds
 
         # Build the differential evolution model
-        self.log("\nExtrapolating wake potential using Differential Evolution...")
+        print("\nExtrapolating wake potential using Differential Evolution...")
 
         objectiveFunction = iddefix.ObjectiveFunctions.sumOfSquaredErrorReal
         DE_model = iddefix.EvolutionaryAlgorithm(
@@ -1061,9 +1060,6 @@ class WakeSolver:
 
         self.DE_model = DE_model
         self.log(DE_model.warning)
-        if self.verbose:
-            print(DE_model.warning)
-
         return DE_model
 
     def get_extrapolated_wake(self, wakelength, sigma=None, use_minimization=True):
@@ -1323,7 +1319,7 @@ class WakeSolver:
             filename = self.Ez_file
 
         hf = h5py.File(filename, "r")
-        print(f"Reading h5 file {filename}")
+        self.log(f"Reading h5 file {filename}")
         self.log(
             "Size of the h5 file: "
             + str(round((os.path.getsize(filename) / 10**9), 2))
@@ -1377,8 +1373,7 @@ class WakeSolver:
                 txt, skiprows=skiprows, delimiter=delimiter, usecols=usecols
             )
         except Exception:
-            if self.verbose:
-                print(f"[!] Using dtype=np.complex128 to read {txt}")
+            self.log(f"[!] Using dtype=np.complex128 to read {txt}")
             load = np.loadtxt(
                 txt,
                 skiprows=skiprows,
@@ -1401,7 +1396,7 @@ class WakeSolver:
                 d[header[i] + "]"] = load[:, i]
 
         except Exception:  # keys == int 0, 1, ...
-            print("[!] Using integer keys since no header was found")
+            self.log("[!] Using integer keys since no header was found")
             d = {}
             for i in range(len(load[0, :])):
                 d[i] = load[:, i]
@@ -1431,7 +1426,7 @@ class WakeSolver:
         -----
         - The data is saved in a two-column format where `x_data` and `y_data`
         are combined column-wise.
-        - If `x_data` or `y_data` is missing, the function prints a warning and does not save a file.
+        - If `x_data` or `y_data` is missing, the function self.logs a warning and does not save a file.
 
         Examples
         --------
@@ -1461,7 +1456,7 @@ class WakeSolver:
                 header="   " + x_name + " " * 20 + y_name + "\n" + "-" * 48,
             )
         else:
-            print("txt not saved, please provide x_data and y_data")
+            self.log("[!] txt not saved, please provide x_data and y_data")
 
     def load_results(self, folder=None):
         """
@@ -1512,7 +1507,7 @@ class WakeSolver:
         obj.__dict__.update(self.__dict__)
         return obj
 
-    def log(self, txt):
+    def log(self, txt, level=0):
         """
         Print a log message if verbose is enabled.
 
@@ -1521,7 +1516,9 @@ class WakeSolver:
         txt : str
             Message to print.
         """
-        if self.verbose:
+        if self.verbose and level == 0:
+            print(txt)
+        elif self.verbose and level == 1:
             print("\x1b[2;37m" + txt + "\x1b[0m")
 
     def read_cst_3d(self, path=None, folder="3d", filename="Ez.h5", units=1e-3):
