@@ -106,7 +106,7 @@ class TestMPILossyCavity:
             "cavity": "tests/stl/007_vacuum_cavity.stl",
             "shell": "tests/stl/007_lossymetal_shell.stl",
         },
-        "stl_materials": {"cavity": "vacuum", "shell": [30, 1.0, 30]},
+        "stl_materials": {"cavity": [1.0, 1.0], "shell": [30, 1.0, 30]},
         "gridInitializationTime": 0,
     }
 
