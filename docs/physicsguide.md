@@ -282,7 +282,77 @@ Wakis integrates with [**PyVista**](https://docs.pyvista.org/) to import CAD geo
 - `pyvista`'s surface collision algorithm, based on VTK optimized ray-tracing, allows to detect where the input geometry intersects the primal and dual grids.
 - Assignment of material properties ($\varepsilon_r$, $\mu_r$, $\sigma$) in $x$, $y$, and $z$ to the intersected cells using a first-order subpixel smoothing, inspired by the open-source solver MEEP (MIT).
 
+| STL geometry | Imported material mask |
+| ----- | ---- |
+|  ![](img/STL_solid.png)     |  ![](img/STL_mask.png)    |
+
 Future versions aim to include a more advanced meshing algorithm for improved fidelity near corners and edges.
+
+### Surface impedance boundary condition (SIBC)
+
+When the metal walls are very good conductors and the skin depth is much smaller than the grid spacing, it becomes inefficient (and inaccurate) to resolve the fields inside the conductor volume. Instead of using a volumetric conductivity, Wakis can model such metals with a **Leontovich surface impedance boundary condition (SIBC)** applied only on the surface cells. This can be disabled in the solver by turning `use_sibc=False`
+
+**🔍 Algorithm explanation**
+
+Starting from the imported solid mask of the full volume, our algorithm tags the **surface of solid regions** by computing the gradient magnitude of a scalar field (e.g. material mask) and converting it to a boolean mask. It uses [PyVista's Gradient filter](https://docs.pyvista.org/api/core/_autosummary/pyvista.datasetfilters.compute_derivative):
+
+The surface is identified where the gradient of the scalar field is non-zero:
+
+$\|\nabla \phi\| = \sqrt{ (\partial_x \phi)^2 + (\partial_y \phi)^2 + (\partial_z \phi)^2 }$
+
+Cells where $\|\nabla \phi\| > 0$ are marked as surface.
+
+| SIBC  float  | SIBC bool                                                                             | No SIBC                                                                             |
+| --- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+|   ![](img/sibc_float.png)  | ![](img/sibc_bool.png) | ![](img/no_sibc.png) |
+
+**See also:**
+<details>
+<summary> Maximum conductivity resolvable w/o a Leontovich boundary</summary>
+
+To accurately model a conducting material volumetrically in FIT/FDTD, the **skin depth**
+
+$$\delta = \sqrt{\frac{2}{2\pi f_{\max}\,\mu_0\,\sigma}}$$
+
+must be resolved by the grid. A common requirement is at least **3 cells per skin depth**, i.e.
+
+$$\delta \gtrsim 3\Delta_n$$
+
+where $(\Delta_n)$ is the grid spacing normal to the wall, considered as $\sqrt{2}\cdot \text{min}(\Delta x, \Delta y, \Delta z)$. Substituting the skin-depth expression and solving for $\(\sigma\)$ gives the maximum conductivity that can be volumetrically resolved at a target frequency $\(f_{\max}\)$:
+
+$$\sigma_{\max} = \frac{1}{9\pi f_{\max}\,\mu_0\Delta_n^2}$$
+
+Materials with $\(\sigma > \sigma_{\max}\)$ have a skin depth too small to be captured by the mesh and should be modeled using a **Leontovich (surface impedance) boundary condition** instead of volumetric conductivity.
+</details>
+
+
+<details>
+<summary> Surface parameters for the Leontovich (SIBC) boundary</summary>
+
+For a good conductor, the Leontovich surface impedance has the form
+
+$$Z_s = (1+j)\sqrt{\dfrac{\omega\mu}{2\sigma}}$$
+
+meaning that the resistive and reactive parts are equal (a $45^\circ$ phase).
+In the SIBC implementation, we approximate $Z_s$ by its magnitude-based form
+
+$$Z_s \approx \sqrt{\pi f_{\max}\mu / \sigma}$$
+
+and define an equivalent **surface admittance**
+
+$$Y_s = 1/Z_s$$
+
+To embed this into the time-domain FIT update, we convert $Y_s$ into effective
+surface parameters:
+- **surface conductivity:** $\sigma_s = 1/Z_s$
+- **surface permittivity term:** $\varepsilon_s = 1/Z_s$
+
+Both appear with the same magnitude because the $45^\circ$ impedance angle implies
+equal real and imaginary parts in the admittance. These values are applied only to
+boundary edges or cells marked as SIBC, replacing the volumetric response of the metal.
+
+</details>
+
 
 ### 🚀 GPU and MPI Parallelization
 
