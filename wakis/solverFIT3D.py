@@ -141,9 +141,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.imported_mkl = imported_mkl  # Use MKL backend when available
         self.one_step = self._one_step
 
-        if wake is not None and fmax is None:
-            self.fmax = self.wake.fmax
-
         if verbose > 1:
             print(f"* Maximum frequency set to fmax={self.fmax / 1e9} GHz")
 
@@ -177,6 +174,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.wake = wake
         if self.wake is not None:
             self.logger.wakeSolver = self.wake.logger.wakeSolver
+        if wake is not None and fmax == 1e9:
+            self.fmax = self.wake.fmax
 
         # Fields
         self.dtype = dtype
@@ -459,6 +458,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                             f'* Applying SIBC for solid "{key}" with sigma={sigma} S/m'
                         )
                     self.grid._mark_cells_in_surface(key)
+                    mask = np.reshape(grid[key], (self.Nx, self.Ny, self.Nz)).astype(
+                        int
+                    )
                     imp = np.sqrt(np.pi * self.fmax * mu / sigma)
                     sigma = 1 / imp  # SIBC surface conductivity [S]
                     eps = 1 / imp
@@ -467,6 +469,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.sigma += self.sigma * (-1.0 * mask)
                 self.sigma += mask * sigma
                 self.use_conductivity = True
+
+            elif self.sigma_bg > 0.0:  # assumed sigma=0
+                self.sigma += self.sigma * (-1.0 * mask)
 
             # Update ieps and imu tensors
             self.ieps += self.ieps * (-1.0 * mask)
@@ -972,11 +977,10 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 )[:, :, zz, d]
 
         else:  # CPU/GPU loadstate
-            state = h5py.File(filename, "r")
-            self.E.fromarray(state["E"][:])
-            self.H.fromarray(state["H"][:])
-            self.J.fromarray(state["J"][:])
-        state.close()
+            with h5py.File(filename, "r") as state:
+                self.E.fromarray(state["E"][:])
+                self.H.fromarray(state["H"][:])
+                self.J.fromarray(state["J"][:])
 
     def read_state(self, filename="solver_state.h5"):
         """
