@@ -150,7 +150,6 @@ class WakeSolver:
         self.skip_cells = skip_cells
         self.compute_plane = compute_plane
         self.DE_model = None
-        self.fmax = self.v / self.sigmaz / 3
 
         self.log(
             f"* Beam longitudinal sigma sigmaz={self.sigmaz * 1e3} mm, sigmat={self.sigmaz / self.v * 1e9} ns"
@@ -932,7 +931,7 @@ class WakeSolver:
         self,
         freq_data=None,
         impedance_data=None,
-        plane=None,
+        plane="longitudinal",  # TODO: make non-optional
         dim="z",
         parameterBounds=None,
         N_resonators=None,
@@ -960,7 +959,7 @@ class WakeSolver:
             Frequency data.
         impedance_data : ndarray, optional
             Impedance data.
-        plane : str, optional
+        plane : str
             'longitudinal' or 'transverse'.
         dim : str, optional
             'z', 'x', or 'y'.
@@ -998,6 +997,9 @@ class WakeSolver:
         """
         import iddefix
 
+        if plane is None:
+            raise ValueError("Specify `plane=` 'longitudinal' or 'transverse'")
+
         if freq_data is None or impedance_data is None:
             if plane == "longitudinal" and dim == "z":
                 freq_data = self.f
@@ -1013,8 +1015,9 @@ class WakeSolver:
                     raise ValueError('Invalid dimension. Use dim = "x" or "y".')
             else:
                 raise ValueError(
-                    "Invalid plane or dimension. Use plane = 'longitudinal' or \
-                    'transverse' and choose the dimension dim = 'x' or 'y'."
+                    'Invalid plane or dimension. \
+                    Use plane = "longitudinal" with dim="z" or \
+                    "transverse" and choose the dimension dim = "x" or "y".'
                 )
 
         if parameterBounds is None or N_resonators is None:
