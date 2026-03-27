@@ -320,7 +320,7 @@ $$\delta \gtrsim 3\Delta_n$$
 
 where $(\Delta_n)$ is the grid spacing normal to the wall, considered as $\sqrt{2}\cdot \text{min}(\Delta x, \Delta y, \Delta z)$. Substituting the skin-depth expression and solving for $\(\sigma\)$ gives the maximum conductivity that can be volumetrically resolved at a target frequency $\(f_{\max}\)$:
 
-$$\sigma_{\max} = \frac{1}{9\pi f_{\max}\,\mu_0\Delta_n^2}$$
+$$\sigma_{\max} = \frac{10}{\pi f_{\max}\,\mu \Delta_n^2}$$
 
 Materials with $\(\sigma > \sigma_{\max}\)$ have a skin depth too small to be captured by the mesh and should be modeled using a **Leontovich (surface impedance) boundary condition** instead of volumetric conductivity.
 </details>
