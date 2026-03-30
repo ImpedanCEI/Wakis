@@ -959,9 +959,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 zz = np.s_[(self.NZ - self.Nz) :]
             else:
                 state = None
-                zlo = (self.NZ // self.size + 1) + +(self.NZ // self.size + 2) * (
-                    self.rank - 1
-                )
+                zlo = self.rank * self.Nz
                 zz = np.s_[zlo : zlo + self.Nz]
 
             state = self.comm.bcast(state, root=0)

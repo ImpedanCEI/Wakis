@@ -270,6 +270,32 @@ class TestMPILossyCavity:
                 "Electric field Ez samples failed"
             )
 
+    def test_mpi_save_state(self, tmp_path):
+        """Save current solver state to disk on CPU and MPI."""
+        global solver
+        filename = tmp_path / "solver_state_007.h5"
+
+        solver.save_state(str(filename))
+
+        if not use_mpi or solver.rank == 0:
+            assert os.path.exists(filename)
+
+    def test_mpi_load_state(self, tmp_path):
+        """Reload a previously saved solver state and check fields are restored."""
+        global solver
+        filename = tmp_path / "solver_state_007_roundtrip.h5"
+
+        # Save current (non-zero) state
+        solver.save_state(str(filename))
+
+        # Overwrite fields and load back
+        solver.reset_fields()
+        solver.load_state(str(filename))
+
+        if not use_mpi or solver.rank == 0:
+            Ez_restored = np.asarray(solver.E.toarray())
+            assert np.any(Ez_restored != 0.0)
+
     def test_mpi_gather_asField(self, flag_offscreen):
         # Plot inspect after mpi gather
         global solver
