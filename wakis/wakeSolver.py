@@ -1015,9 +1015,9 @@ class WakeSolver:
                     raise ValueError('Invalid dimension. Use dim = "x" or "y".')
             else:
                 raise ValueError(
-                    'Invalid plane or dimension. \
-                    Use plane = "longitudinal" with dim="z" or \
-                    "transverse" and choose the dimension dim = "x" or "y".'
+                    "Invalid plane or dimension."
+                    ' Use plane = "longitudinal" with dim="z" or '
+                    '"transverse" and choose the dimension dim = "x" or "y".'
                 )
 
         if parameterBounds is None or N_resonators is None:
@@ -1438,7 +1438,7 @@ class WakeSolver:
         -----
         - The data is saved in a two-column format where `x_data` and `y_data`
         are combined column-wise.
-        - If `x_data` or `y_data` is missing, the function self.logs a warning and does not save a file.
+        - If `x_data` or `y_data` is missing, the function prints a warning and does not save a file.
 
         Examples
         --------
