@@ -4,7 +4,6 @@
 # ########################################### #
 
 import time
-
 import h5py
 import numpy as np
 import pyvista as pv
@@ -56,6 +55,7 @@ class GridFIT3D:
         stl_scale=1.0,
         stl_colors=None,
         stl_tol=1e-3,
+        stl_method='enclosed_points',
         load_from_h5=None,
         verbose=1,
     ):
@@ -245,8 +245,11 @@ class GridFIT3D:
         if verbose:
             print("Importing STL solids...")
         self.stl_tol = stl_tol
+
+        # algorithm used to mark STL cells 
+        self.stl_method = stl_method
         if stl_solids is not None:
-            self._mark_cells_in_stl()
+            self._mark_cells_in_stl(method=self.stl_method)
 
         if verbose:
             print(f"Total grid initialization time: {time.time() - t0} s")
@@ -445,12 +448,15 @@ class GridFIT3D:
                         the same length as `stl_solids`."
                     )
 
-    def _mark_cells_in_stl(self):
+       
+    def _mark_cells_in_stl(self,method):
         """
         Mark grid cells that are inside each STL solid.
 
-        Uses PyVista's select_enclosed_points to create boolean masks for each solid.
-        """
+        Uses PyVista's select_interior_points as default (equivalent to the deprecated select_enclosedpoints), 
+        and otherwise input method either compute_implicit_distance or voxelize_rectilinear, 
+        to create boolean masks for each solid.
+        """  
         # Obtain masks with grid cells inside each stl solid
         stl_tolerance = (
             np.min([np.min(self.dx), np.min(self.dy), np.min(self.dz)]) * self.stl_tol
@@ -458,41 +464,54 @@ class GridFIT3D:
         progress_bar = False
         if self.Nx * self.Ny * self.Nz > 5e6 and self.verbose:
             progress_bar = True
+
+     
         for key in self.stl_solids.keys():
             surf = self.read_stl(key)
 
             # mark cells in stl [True == in stl, False == out stl]
-            try:
-                select = self.grid.select_enclosed_points(
-                    surf, tolerance=stl_tolerance, progress_bar=progress_bar
-                )
-            except Exception:
-                select = self.grid.select_enclosed_points(
-                    surf,
-                    tolerance=stl_tolerance,
-                    check_surface=False,
-                    progress_bar=progress_bar,
-                )
-                if self.verbose > 1:
-                    print(
-                        f"[!] Warning: stl solid {key} may have issues with closed surfaces. \
-                        Consider checking the STL file."
-                    )
+            if method=='enclosed_points' or method=='interior_points':
+                try:
+                    select = self.grid.select_interior_points(surf, method='cell_locator', locator_tolerance=stl_tolerance)
+                    self.grid[key] = select.point_data_to_cell_data()['selected_points'] > 0.5
+                except Exception:
+                    select = self.grid.select_interior_points(surf, method='cell_locator',locator_tolerance=stl_tolerance,
+                                                            check_surface=False)
+                    self.grid[key] = select.point_data_to_cell_data()['selected_points'] > 0.5
+                    if self.verbose > 1:
+                        print(f'[!] Warning: stl solid {key} may have issues with closed surfaces. Consider checking the STL file.')
 
-            self.grid[key] = (
-                select.point_data_to_cell_data()["SelectedPoints"] > stl_tolerance
-            )
+
+            elif method=='implicit_distance':
+                # negative distance is inside, positive is outside
+                try:
+                    select = self.grid.compute_implicit_distance(surf)
+                    self.grid[key] = select.point_data_to_cell_data()['implicit_distance'] <= 0.5*np.mean([np.mean(self.dx),np.mean(self.dy),np.mean(self.dz)]) 
+                except Exception:
+                    print(f'[!] Warning: Implicit distance computation for stl solid {key} failed.')
+
+
+            elif method=='voxelize_rectilinear':
+                dx, dy, dz = (self.xmax - self.xmin) / (self.Nx), (self.ymax - self.ymin) / (self.Ny), (self.zmax - self.zmin) / (self.Nz)
+                reference_vol = pv.ImageData(dimensions=(self.Nx, self.Ny, self.Nz),
+                origin=(self.xmin+dx/2, self.ymin+dy/2, self.zmin+dz/2),
+                spacing=(dx, dy, dz),
+                )
+
+                try:
+                    vox = surf.voxelize_rectilinear(reference_volume=reference_vol)
+                    mask = np.reshape(vox['mask'], (self.Nx, self.Ny, self.Nz), order='F').astype(bool)
+                    self.grid[key] = np.reshape(mask, (self.Nx*self.Ny*self.Nz), order='C')  
+                except Exception:
+                    print(f'[!] Warning: voxelization for stl solid {key} failed. Consider checking if the grid is uniform or using a different method.')
+                
 
             if self.verbose and np.sum(self.grid[key]) == 0:
-                print(
-                    f"[!] Warning: no cells were marked inside stl solid {key}. \
-                    Consider increasing the tolerance factor (currently {self.stl_tol})."
-                )
+                print(f'[!] Warning: no cells were marked inside stl solid {key}. Consider increasing the tolerance factor (currently {self.stl_tol}).')
 
             if self.verbose > 1:
-                print(
-                    f" * STL solid {key}: {np.sum(self.grid[key])} cells marked inside the solid."
-                )
+                print(f' * STL solid {key}: {np.sum(self.grid[key])} cells marked inside the solid.')
+
 
     def read_stl(self, key):
         """
@@ -596,13 +615,15 @@ class GridFIT3D:
                 model = model + solid
 
         edges = model.extract_feature_edges(boundary_edges=True, manifold_edges=False)
+        center_x,center_y,center_z=solid.center   
+
 
         # Extract points lying in the X-Z plane (Y ≈ 0)
-        xz_plane_points = edges.points[np.abs(edges.points[:, 1]) < snap_tol]
+        xz_plane_points = edges.points[np.abs(edges.points[:, 1] - center_y ) < snap_tol]  
         # Extract points lying in the Y-Z plane (X ≈ 0)
-        yz_plane_points = edges.points[np.abs(edges.points[:, 0]) < snap_tol]
+        yz_plane_points = edges.points[np.abs(edges.points[:, 0] - center_x ) < snap_tol]
         # Extract points lying in the X-Y plane (Z ≈ 0)
-        xy_plane_points = edges.points[np.abs(edges.points[:, 2]) < snap_tol]
+        xy_plane_points = edges.points[np.abs(edges.points[:, 2] - center_z) < snap_tol]
 
         xz_cloud = pv.PolyData(xz_plane_points)
         yz_cloud = pv.PolyData(yz_plane_points)
@@ -930,6 +951,148 @@ class GridFIT3D:
             pl.show()
 
     def plot_stl_mask(
+    self,
+    stl_solid,
+    normal="x",
+    value=None,
+    cmap="viridis",
+    add_stl="all",
+    stl_opacity=0.3,
+    stl_colors=None,
+    show_grid=True,
+    anti_aliasing="ssaa",
+    off_screen=False,
+    ):
+        """
+        Static 3D visualization of a single grid slice and STL geometries.
+        """
+        if stl_colors is None:
+            stl_colors = self.stl_colors
+            
+        # Default to center of domain if value is not provided
+        if value is None:
+            centers = {"x": (self.xmin + self.xmax)/2, 
+                    "y": (self.ymin + self.ymax)/2, 
+                    "z": (self.zmin + self.zmax)/2}
+            value = centers[normal.lower()]
+
+        pv.global_theme.allow_empty_mesh = True
+        pl = pv.Plotter(off_screen=off_screen)
+
+        # define bounds dynamically
+        if stl_solid in self.stl_solids.keys():
+            solid = self.read_stl(stl_solid)
+            origin = list(solid.center) #.center returns a tuple
+        else:
+            origin = [0,0,0]
+            print(f'The input stl_solid={stl_solid} is not a key in the class input stl_solids={self.stl_solids}. Solid centering failed, and is set to default: {origin}.')
+
+        
+        print('origin is:', origin)
+        idx = {"x": 0, "y": 1, "z": 2}[normal.lower()]
+        origin[idx] = value
+        
+        slice_obj = self.grid.slice(normal=normal, origin=origin)
+
+        # add clipped volume (scalars)
+        # Note: In static slice mode, we plot the slice itself with the scalar field
+        pl.add_mesh(
+            slice_obj,
+            scalars=stl_solid,
+            cmap=cmap,
+            name="slice_scalar"
+        )
+
+        # add slice wireframe (grid structure)
+        if show_grid:
+            pl.add_mesh(slice_obj, style="wireframe", color="grey", name="slice_wire")
+
+        # Plot stl surface(s)
+        if add_stl is not None:
+            if type(add_stl) is str:  # add all stl solids
+                if add_stl.lower() == "all":
+                    for i, key in enumerate(self.stl_solids):
+                        surf = self.read_stl(key)
+                        if type(stl_colors) is dict:
+                            pl.add_mesh(
+                                surf,
+                                color=stl_colors[key],
+                                opacity=stl_opacity,
+                                silhouette=dict(color=stl_colors[key]),
+                                name=key,
+                            )
+                        elif type(stl_colors) is list:
+                            pl.add_mesh(
+                                surf,
+                                color=stl_colors[i],
+                                opacity=stl_opacity,
+                                silhouette=dict(color=stl_colors[i]),
+                                name=key,
+                            )
+                        else:
+                            pl.add_mesh(
+                                surf,
+                                color="white",
+                                opacity=stl_opacity,
+                                silhouette=True,
+                                name=key,
+                            )
+                else:  # add 1 selected stl solid
+                    key = add_stl
+                    surf = self.read_stl(key)
+                    pl.add_mesh(
+                        surf,
+                        color=stl_colors[key],
+                        opacity=stl_opacity,
+                        silhouette=dict(color=stl_colors[key]),
+                        name=key,
+                    )
+
+            elif type(add_stl) is list:  # add selected list of stl solids
+                for i, key in enumerate(add_stl):
+                    surf = self.read_stl(key)
+                    if type(stl_colors) is dict:
+                        pl.add_mesh(
+                            surf,
+                            color=stl_colors[key],
+                            opacity=stl_opacity,
+                            silhouette=dict(color=stl_colors[key]),
+                            name=key,
+                        )
+                    elif type(stl_colors) is list:
+                        pl.add_mesh(
+                            surf,
+                            color=stl_colors[i],
+                            opacity=stl_opacity,
+                            silhouette=dict(color=stl_colors[i]),
+                            name=key,
+                        )
+                    else:
+                        pl.add_mesh(
+                            surf,
+                            color="white",
+                            opacity=stl_opacity,
+                            silhouette=True,
+                            name=key,
+                        )
+
+        # Camera orientation
+        pl.camera_position = "zx"
+        pl.camera.azimuth += 30
+        pl.camera.elevation += 30
+        pl.set_background("mistyrose", top="white")
+        self._add_logo_widget(pl)
+        pl.add_axes()
+        pl.enable_3_lights()
+        pl.enable_anti_aliasing(anti_aliasing)
+
+        if off_screen:
+            return pl
+        else:
+            pl.show()
+            
+
+    def plot_stl_mask_widget(
         self,
         stl_solid,
         cmap="viridis",
