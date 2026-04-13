@@ -891,18 +891,15 @@ class Field:
                     grid.zmax,
                 )
                 grid = grid.grid
-                if field == "x":
+                if field in ("x", "y", "z"):
                     scalars = "Field " + field
-                    grid[scalars] = xp.reshape(self.to_matrix(field), self.N)
-                elif field == "y":
-                    scalars = "Field " + field
-                    grid[scalars] = xp.reshape(self.to_matrix(field), self.N)
-                elif field == "z":
-                    scalars = "Field " + field
-                    grid[scalars] = xp.reshape(self.to_matrix(field), self.N)
+                    _arr = self.to_matrix(field)
+                    grid[scalars] = (_arr.get() if self.on_gpu else _arr).reshape(
+                        self.N
+                    )
                 else:  # for all or abs
-                    scalars = "Field " + "Abs"
-                    grid[scalars] = xp.reshape(self.get_abs(), self.N)
+                    scalars = "Field Abs"
+                    grid[scalars] = self.get_abs().reshape(self.N)
 
                 if xmax is None:
                     xmax = xhi
@@ -935,18 +932,15 @@ class Field:
                 X, Y, Z = xp.meshgrid(x, y, z, indexing="ij")
                 grid = pv.StructuredGrid(X.transpose(), Y.transpose(), Z.transpose())
 
-                if field == "x":
+                if field in ("x", "y", "z"):
                     scalars = "Field " + field
-                    grid[scalars] = xp.reshape(self.to_matrix(field), self.N)
-                elif field == "y":
-                    scalars = "Field " + field
-                    grid[scalars] = xp.reshape(self.to_matrix(field), self.N)
-                elif field == "z":
-                    scalars = "Field " + field
-                    grid[scalars] = xp.reshape(self.to_matrix(field), self.N)
+                    _arr = self.to_matrix(field)
+                    grid[scalars] = (_arr.get() if self.on_gpu else _arr).reshape(
+                        self.N
+                    )
                 else:  # for all or abs
-                    scalars = "Field " + "Abs"
-                    grid[scalars] = xp.reshape(self.get_abs(), self.N)
+                    scalars = "Field Abs"
+                    grid[scalars] = self.get_abs().reshape(self.N)
 
             pv.global_theme.allow_empty_mesh = True
             pl = pv.Plotter()
@@ -1022,7 +1016,7 @@ class Field:
             )
 
             # Camera orientation
-            pl.camera_position = "zx"
+            pl.camera_position = "zy"
             pl.camera.azimuth += 30
             pl.camera.elevation += 30
             pl.set_background("mistyrose", top="white")
