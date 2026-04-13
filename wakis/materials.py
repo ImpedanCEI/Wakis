@@ -36,6 +36,8 @@ material_lib = {
     'copper' : [5.8e+07, 1.0, 5.8e+07],
 
     'berillium' : [2.5e+07, 1.0, 2.5e+07],
+
+    'stainless steel' : [1.4e+06, 1.0, 1.4e+06],
 }
 
 material_colors = {
