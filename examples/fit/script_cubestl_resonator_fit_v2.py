@@ -9,8 +9,9 @@ from tqdm import tqdm
 
 sys.path.append("../")
 
-from clara_gridFIT3D_pre_PR import GridFIT3D
 from solverFIT3D import SolverFIT3D
+
+from clara_gridFIT3D_pre_PR import GridFIT3D
 
 # ----- Funtions -----#
 m = 1
