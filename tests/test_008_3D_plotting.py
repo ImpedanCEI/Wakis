@@ -144,6 +144,20 @@ class Test3Dplotting:
             off_screen=flag_offscreen,
         )
 
+    def test_grid_stl_mask_slice(self, flag_offscreen):
+        # Plot STL solid masks in the grid
+        global solver
+        solver.grid.plot_stl_mask_slice(
+            stl_solid="cavity",
+            plane="ZX",
+            position=None,
+            cmap="bwr",
+            bounding_box=False,
+            show_grid=True,
+            add_stl=False,
+            off_screen=flag_offscreen,
+        )
+
     def test_solver_inspect(self, flag_offscreen):
         # Plot imported solids and beam source and integraiton path
         global solver
@@ -158,6 +172,21 @@ class Test3Dplotting:
         if flag_offscreen:
             pl.screenshot(self.img_folder + "solver_inspect.png")
             # pl.export_html(self.img_folder + "solver_inspect.html") # requires trame
+
+    def test_field_inspect3d(self, flag_offscreen):
+        global solver
+        pl = solver.sigma.inspect3D(
+            field="x",
+            backend="pyvista",  # matplotlib not covered
+            grid=solver.grid,
+            ymax=0.0,
+            show_grid=False,
+            off_screen=flag_offscreen,
+        )
+
+        if flag_offscreen:
+            pl.screenshot(self.img_folder + "sigma_inspect3d_x.png")
+        pl.close()
 
     def test_plot3D(self, flag_offscreen):
         # Plot Abs Electric field on domain

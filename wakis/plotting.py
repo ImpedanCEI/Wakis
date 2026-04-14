@@ -8,8 +8,8 @@ import numpy as np
 import pyvista as pv
 
 
-class PlotMixin:
-    """Plotting mixin providing 1D/2D/3D visualization helpers."""
+class PlotMixinSolver:
+    """Plotting mixin providing 1D/2D/3D visualization helpers for SolverFIT3D."""
 
     def plot3D(
         self,
@@ -1422,3 +1422,874 @@ class PlotMixin:
             except Exception:
                 if self.verbose > 1:
                     print(f"[!] Could not add logo widget: {e}")
+
+
+class PlotMixinGrid:
+    """Plotting mixin providing 1D/2D/3D visualization helpers for GridFIT3D."""
+
+    def _add_logo_widget(self, pl):
+        """
+        Add packaged logo to a PyVista plotter via importlib.resources.
+
+        Attempts to load a packaged logo image from the installed package
+        resources. Falls back to a local development path when resources are
+        not available (typical in editable/dev installs).
+        """
+        try:
+            from importlib import resources
+
+            # resource inside the installed package (use current package)
+            logo_res = resources.files(__package__).joinpath(
+                "static", "img", "wakis-logo-pink.png"
+            )
+            with resources.as_file(logo_res) as logo_path:
+                pl.add_logo_widget(str(logo_path))
+                return
+        except Exception as e:
+            # fallback to the legacy relative path for dev installs
+            try:
+                pl.add_logo_widget("../docs/img/wakis-logo-pink.png")
+            except Exception:
+                if self.verbose > 2:
+                    print(f"[!] Could not add logo widget: {e}")
+
+    def plot_solids(
+        self,
+        bounding_box=False,
+        show_grid=False,
+        anti_aliasing=None,
+        opacity=1.0,
+        specular=0.5,
+        smooth_shading=False,
+        off_screen=False,
+        **kwargs,
+    ):
+        """
+        Generate a 3D visualization of imported STL geometries using PyVista.
+
+        Parameters
+        ----------
+        bounding_box : bool, optional
+            If True, adds a bounding box around the plotted geometry (default False).
+        show_grid : bool, optional
+            If True, overlays the grid wireframe on the scene (default False).
+        anti_aliasing : str or None, optional
+            Anti-aliasing mode passed to PyVista (default: None).
+        opacity : float, optional
+            Opacity for solids (1.0 opaque, 0.0 transparent). Default 1.0.
+        specular : float, optional
+            Specular lighting strength, higher is shinier (default 0.5).
+        smooth_shading : bool, optional
+            Enable smooth shading for surface rendering (default False).
+        off_screen : bool, optional
+            If True, export to HTML instead of opening an interactive window.
+        **kwargs : dict
+            Additional keyword args forwarded to ``pyvista.add_mesh``.
+
+        Notes
+        -----
+        - Colors come from ``self.stl_colors`` when available.
+        - Solids labeled 'vacuum' are rendered with reduced opacity by default.
+        """
+        pl = pv.Plotter()
+        pl.add_mesh(self.grid, opacity=0.0, name="grid", show_scalar_bar=False)
+        for key in self.stl_solids:
+            color = self.stl_colors[key]
+            if self.stl_materials[key] == [1.0, 1.0, 0.0] or self.stl_materials[
+                key
+            ] == [1.0, 1.0]:
+                _opacity = 0.3  # vacuum
+            else:
+                _opacity = opacity
+            pl.add_mesh(
+                self.read_stl(key),
+                color=color,
+                opacity=_opacity,
+                specular=specular,
+                smooth_shading=smooth_shading,
+                **kwargs,
+            )
+
+        pl.set_background("mistyrose", top="white")
+        self._add_logo_widget(pl)
+        pl.camera_position = "zx"
+        pl.camera.azimuth += 30
+        pl.camera.elevation += 30
+        pl.add_axes()
+
+        if anti_aliasing is not None:
+            pl.enable_anti_aliasing(anti_aliasing)
+
+        if bounding_box:
+            pl.add_bounding_box()
+
+        if show_grid:
+            pl.add_mesh(
+                self.grid,
+                style="wireframe",
+                color="grey",
+                opacity=0.3,
+                name="grid",
+            )
+
+        if off_screen:
+            return pl
+            # pl.export_html("grid_plot_solids.html")
+        else:
+            pl.show()
+
+    def plot_stl_mask(
+        self,
+        stl_solid,
+        cmap="viridis",
+        bounding_box=True,
+        show_grid=False,
+        add_stl=True,
+        stl_opacity=0.1,
+        stl_colors=None,
+        xmax=None,
+        ymax=None,
+        zmax=None,
+        anti_aliasing="ssaa",
+        smooth_shading=False,
+        off_screen=False,
+    ):
+        """
+        Interactive 3D visualization of the structured grid mask and imported STL
+        geometries.
+
+        This routine uses PyVista to display the grid scalar field corresponding to a
+        chosen STL mask. It provides interactive slider widgets to clip the domain
+        along the X, Y, and Z directions. At each slider position, the clipped
+        scalar field is shown with a colormap while the grid structure is shown
+        as a 2D slice in wireframe. Optionally, one or more STL geometries can
+        be added to the scene, along with a bounding box of the simulation domain.
+
+        Parameters
+        ----------
+        stl_solid : str
+            Key name of the `stl_solids` dictionary to retrieve the mask for
+            visualization (used as the scalar field).
+        cmap : str, optional
+            Colormap used to visualize the clipped scalar values. Default 'viridis'.
+        bounding_box : bool, optional
+            If True, add a static wireframe bounding box of the simulation domain.
+        show_grid : bool, optional
+            If True, adds the computational grid overlay on the clipped slice.
+        add_stl : {True, 'all', str, list[str]}, optional
+            STL geometries to add. Default True adds the STL solid corresponding to the mask.
+             If 'all', add all STL solids. If a string, add the STL solid with that key.
+             If a list of strings, add the STL solids with those keys.
+             False or None will not add any STL solids.
+        stl_opacity : float, optional
+            Opacity of the STL surfaces (0 = fully transparent, 1 = fully opaque).
+        stl_colors : str, list[str], dict, or None, optional
+            Color(s) of the STL surfaces.
+        xmax, ymax, zmax : float, optional
+            Initial clipping positions along each axis. If None, use the maximum domain
+            extent.
+        anti_aliasing : {'ssaa', 'fxaa', None}, optional
+            Anti-aliasing mode passed to `pl.enable_anti_aliasing`.
+        smooth_shading : bool, optional
+            Enable smooth shading for STL surfaces. Default False.
+        off_screen : bool, optional
+            If True, render off-screen and export the scene to HTML.
+
+        Notes
+        -----
+        - Three sliders (X, Y, Z) control clipping of the scalar field by a box.
+        - STL solids can be visualized in transparent mode.
+        - A static domain bounding box can be added for reference.
+        """
+        if stl_colors is None:
+            stl_colors = self.stl_colors
+
+        if xmax is None:
+            xmax = self.xmax
+        if ymax is None:
+            ymax = self.ymax
+        if zmax is None:
+            zmax = self.zmax
+
+        pv.global_theme.allow_empty_mesh = True
+        pl = pv.Plotter()
+        vals = {"x": xmax, "y": ymax, "z": zmax}
+
+        # --- Initial slice ---
+        initial_clip = self.grid.clip_box(
+            bounds=(self.xmin, xmax, self.ymin, ymax, self.zmin, zmax),
+            invert=False,
+        )
+        clip_actor = pl.add_mesh(
+            initial_clip,
+            scalars=stl_solid,
+            cmap=cmap,
+            name="clip",
+        )
+
+        # --- Update function ---
+        def update_clip(val, axis="x"):
+            vals[axis] = val
+            # define bounds dynamically
+            if axis == "x":
+                slice_obj = self.grid.slice(normal="x", origin=(val, 0, 0))
+            elif axis == "y":
+                slice_obj = self.grid.slice(normal="y", origin=(0, val, 0))
+            else:  # z
+                slice_obj = self.grid.slice(normal="z", origin=(0, 0, val))
+
+            # compute new clip
+            new_clip = self.grid.clip_box(
+                bounds=(
+                    self.xmin,
+                    vals["x"],
+                    self.ymin,
+                    vals["y"],
+                    self.zmin,
+                    vals["z"],
+                ),
+                invert=False,
+            )
+
+            # update existing actors in place
+            clip_actor.mapper.SetInputData(new_clip)
+
+            # add slice wireframe (grid structure)
+            if show_grid:
+                pl.add_mesh(slice_obj, style="wireframe", color="grey", name="slice")
+
+            pl.render()
+
+        # Plot stl surface(s)
+        if add_stl is not None:
+            if add_stl:  # Default, add the stl solid corresponding to the mask
+                key = stl_solid
+                surf = self.read_stl(key)
+                pl.add_mesh(
+                    surf,
+                    color=stl_colors[key],
+                    opacity=stl_opacity,
+                    silhouette=dict(color=stl_colors[key]),
+                    name=key,
+                )
+
+            elif type(add_stl) is str:  # add all stl solids
+                if add_stl.lower() == "all":
+                    for i, key in enumerate(self.stl_solids):
+                        surf = self.read_stl(key)
+                        if type(stl_colors) is dict:
+                            pl.add_mesh(
+                                surf,
+                                color=stl_colors[key],
+                                opacity=stl_opacity,
+                                silhouette=dict(color=stl_colors[key]),
+                                name=key,
+                            )
+                        elif type(stl_colors) is list:
+                            pl.add_mesh(
+                                surf,
+                                color=stl_colors[i],
+                                opacity=stl_opacity,
+                                silhouette=dict(color=stl_colors[i]),
+                                name=key,
+                            )
+                        else:
+                            pl.add_mesh(
+                                surf,
+                                color="white",
+                                opacity=stl_opacity,
+                                silhouette=True,
+                                name=key,
+                            )
+                else:  # add 1 selected stl solid
+                    key = add_stl
+                    surf = self.read_stl(key)
+                    pl.add_mesh(
+                        surf,
+                        color=stl_colors[key],
+                        opacity=stl_opacity,
+                        silhouette=dict(color=stl_colors[key]),
+                        name=key,
+                    )
+
+            elif type(add_stl) is list:  # add selected list of stl solids
+                for i, key in enumerate(add_stl):
+                    surf = self.read_stl(key)
+                    if type(stl_colors[key]) is dict:
+                        pl.add_mesh(
+                            surf,
+                            color=stl_colors[key],
+                            opacity=stl_opacity,
+                            silhouette=dict(color=stl_colors[key]),
+                            name=key,
+                        )
+                    elif type(stl_colors) is list:
+                        pl.add_mesh(
+                            surf,
+                            color=stl_colors[i],
+                            opacity=stl_opacity,
+                            silhouette=dict(color=stl_colors[i]),
+                            name=key,
+                        )
+                    else:
+                        pl.add_mesh(
+                            surf,
+                            color="white",
+                            opacity=stl_opacity,
+                            silhouette=True,
+                            name=key,
+                        )
+
+        # --- Sliders (placed side-by-side vertically) ---
+        pl.add_slider_widget(
+            lambda val: update_clip(val, "x"),
+            [self.xmin, self.xmax],
+            value=xmax,
+            title="X Clip",
+            pointa=(0.8, 0.8),
+            pointb=(0.95, 0.8),  # top-right
+            style="modern",
+        )
+
+        pl.add_slider_widget(
+            lambda val: update_clip(val, "y"),
+            [self.ymin, self.ymax],
+            value=ymax,
+            title="Y Clip",
+            pointa=(0.8, 0.6),
+            pointb=(0.95, 0.6),  # middle-right
+            style="modern",
+        )
+
+        pl.add_slider_widget(
+            lambda val: update_clip(val, "z"),
+            [self.zmin, self.zmax],
+            value=zmax,
+            title="Z Clip",
+            pointa=(0.8, 0.4),
+            pointb=(0.95, 0.4),  # lower-right
+            style="modern",
+        )
+
+        # Camera orientation
+        pl.camera_position = "zx"
+        pl.camera.azimuth += 30
+        pl.camera.elevation += 30
+        pl.set_background("mistyrose", top="white")
+        self._add_logo_widget(pl)
+        pl.add_axes()
+        # pl.enable_3_lights()
+        # pl.enable_anti_aliasing(anti_aliasing)
+
+        if bounding_box:
+            pl.add_mesh(
+                pv.Box(
+                    bounds=(
+                        self.xmin,
+                        self.xmax,
+                        self.ymin,
+                        self.ymax,
+                        self.zmin,
+                        self.zmax,
+                    )
+                ),
+                style="wireframe",
+                color="black",
+                line_width=2,
+                name="domain_box",
+            )
+
+        if off_screen:
+            return pl
+            # pl.export_html(f"grid_stl_mask_{stl_solid}.html")
+        else:
+            pl.show()
+
+    def plot_stl_mask_slice(
+        self,
+        stl_solid,
+        plane="ZX",
+        position=None,
+        cmap="viridis",
+        bounding_box=False,
+        show_grid=True,
+        add_stl=False,
+        stl_opacity=0.1,
+        stl_colors=None,
+        smooth_shading=False,
+        off_screen=False,
+    ):
+        """
+        Interactive 2D slice visualization of the structured grid STL mask.
+
+        Lighter alternative to :meth:`plot_stl_mask` for heavy grids (>10M cells).
+        Instead of clipping the full 3D domain, only a single 2D slice is rendered
+        at a time. A slider widget controls the slice position along the axis normal
+        to the chosen plane.
+
+        Parameters
+        ----------
+        stl_solid : str
+            Key name of the `stl_solids` dictionary to retrieve the mask for
+            visualization (used as the scalar field).
+        plane : {'XY', 'ZY', 'ZX'}, optional
+            Plane of the slice. Default 'ZX'.
+
+            - 'XY' → normal along Z, slider controls Z position.
+            - 'ZY' → normal along X, slider controls X position.
+            - 'ZX' → normal along Y, slider controls Y position.
+        position : float or None, optional
+            Initial position of the slice along the normal axis. If None, uses
+            the center of the domain along that axis.
+        cmap : str, optional
+            Colormap used to visualize the scalar values. Default 'viridis'.
+        bounding_box : bool, optional
+            If True, add a static wireframe bounding box of the simulation domain.
+        add_stl : {True, 'all', str, list[str]}, optional
+            STL geometries to add. Default True adds the STL solid corresponding to the mask.
+             If 'all', add all STL solids. If a string, add the STL solid with that key.
+             If a list of strings, add the STL solids with those keys.
+             False or None will not add any STL solids.
+        stl_opacity : float, optional
+            Opacity of the STL surfaces (0 = fully transparent, 1 = fully opaque).
+        stl_colors : str, list[str], dict, or None, optional
+            Color(s) of the STL surfaces.
+        smooth_shading : bool, optional
+            Enable smooth shading for STL surfaces. Default False.
+        off_screen : bool, optional
+            If True, render off-screen and return the plotter object.
+
+        Notes
+        -----
+        - Only a single 2D slice of the domain is rendered at a time, making this
+          much lighter than :meth:`plot_stl_mask` for large grids.
+        - The slider controls the slice position along the normal to the chosen plane.
+                - The selected ``stl_solid`` intersection with the plane is overlaid as a
+                    contour line for easier visual alignment.
+        """
+        if stl_colors is None:
+            stl_colors = self.stl_colors
+
+        plane = plane.upper()
+        plane_to_normal = {"XY": "z", "ZY": "x", "ZX": "y"}
+        if plane not in plane_to_normal:
+            raise ValueError(f"plane must be one of 'XY', 'ZY', 'ZX', got '{plane}'")
+
+        normal = plane_to_normal[plane]
+        if normal == "x":
+            axis_min, axis_max = self.xmin, self.xmax
+            slider_title = "X Position"
+            center = ((self.ymin + self.ymax) / 2, (self.zmin + self.zmax) / 2)
+
+            def origin_fn(v):
+                return (v, center[0], center[1])
+
+        elif normal == "y":
+            axis_min, axis_max = self.ymin, self.ymax
+            slider_title = "Y Position"
+            center = ((self.xmin + self.xmax) / 2, (self.zmin + self.zmax) / 2)
+
+            def origin_fn(v):
+                return (center[0], v, center[1])
+
+        else:  # z
+            axis_min, axis_max = self.zmin, self.zmax
+            slider_title = "Z Position"
+            center = ((self.xmin + self.xmax) / 2, (self.ymin + self.ymax) / 2)
+
+            def origin_fn(v):
+                return (center[0], center[1], v)
+
+        if position is None:
+            position = (axis_min + axis_max) / 2
+
+        pv.global_theme.allow_empty_mesh = True
+        pl = pv.Plotter()
+
+        # Surface used to draw the selected STL/plane intersection contour
+        outline_surf = self.read_stl(stl_solid)
+        outline_color = stl_colors.get(stl_solid, "white")
+
+        # --- Initial slice ---
+        initial_slice = self.grid.slice(normal=normal, origin=origin_fn(position))
+        slice_actor = pl.add_mesh(
+            initial_slice,
+            scalars=stl_solid,
+            cmap=cmap,
+            name="slice",
+        )
+
+        outline_actor = None
+        if outline_surf is not None:
+            initial_outline = outline_surf.slice(
+                normal=normal, origin=origin_fn(position)
+            )
+            outline_actor = pl.add_mesh(
+                initial_outline,
+                color=outline_color,
+                # line_width=3,
+                name="stl_outline",
+            )
+
+        # --- Update function ---
+        def update_slice(val):
+            new_slice = self.grid.slice(normal=normal, origin=origin_fn(val))
+            slice_actor.mapper.SetInputData(new_slice)
+            if outline_actor is not None:
+                new_outline = outline_surf.slice(normal=normal, origin=origin_fn(val))
+                outline_actor.mapper.SetInputData(new_outline)
+
+            # add slice wireframe (grid structure)
+            if show_grid:
+                pl.add_mesh(
+                    new_slice, style="wireframe", color="grey", opacity=0.3, name="grid"
+                )
+
+            pl.camera_position = plane.lower()  # 'xy', 'zy', 'zx' views
+            pl.render()
+
+        # --- Slider ---
+        pl.add_slider_widget(
+            update_slice,
+            [axis_min, axis_max],
+            value=position,
+            title=slider_title,
+            pointa=(0.8, 0.6),
+            pointb=(0.95, 0.6),
+            style="modern",
+        )
+
+        # Plot stl surface(s)
+        if add_stl is not None:
+            if add_stl:  # Default, add the stl solid corresponding to the mask
+                key = stl_solid
+                surf = self.read_stl(key)
+                pl.add_mesh(
+                    surf,
+                    color=stl_colors[key],
+                    opacity=stl_opacity,
+                    silhouette=dict(color=stl_colors[key]),
+                    smooth_shading=smooth_shading,
+                    name=key,
+                )
+            if type(add_stl) is str:
+                if add_stl.lower() == "all":
+                    for i, key in enumerate(self.stl_solids):
+                        surf = self.read_stl(key)
+                        if type(stl_colors) is dict:
+                            pl.add_mesh(
+                                surf,
+                                color=stl_colors[key],
+                                opacity=stl_opacity,
+                                silhouette=dict(color=stl_colors[key]),
+                                smooth_shading=smooth_shading,
+                                name=key,
+                            )
+                        elif type(stl_colors) is list:
+                            pl.add_mesh(
+                                surf,
+                                color=stl_colors[i],
+                                opacity=stl_opacity,
+                                silhouette=dict(color=stl_colors[i]),
+                                smooth_shading=smooth_shading,
+                                name=key,
+                            )
+                        else:
+                            pl.add_mesh(
+                                surf,
+                                color="white",
+                                opacity=stl_opacity,
+                                silhouette=True,
+                                smooth_shading=smooth_shading,
+                                name=key,
+                            )
+                else:  # add 1 selected stl solid
+                    key = add_stl
+                    surf = self.read_stl(key)
+                    pl.add_mesh(
+                        surf,
+                        color=stl_colors[key],
+                        opacity=stl_opacity,
+                        silhouette=dict(color=stl_colors[key]),
+                        smooth_shading=smooth_shading,
+                        name=key,
+                    )
+
+            elif type(add_stl) is list:
+                for i, key in enumerate(add_stl):
+                    surf = self.read_stl(key)
+                    if type(stl_colors) is dict:
+                        pl.add_mesh(
+                            surf,
+                            color=stl_colors[key],
+                            opacity=stl_opacity,
+                            silhouette=dict(color=stl_colors[key]),
+                            smooth_shading=smooth_shading,
+                            name=key,
+                        )
+                    elif type(stl_colors) is list:
+                        pl.add_mesh(
+                            surf,
+                            color=stl_colors[i],
+                            opacity=stl_opacity,
+                            silhouette=dict(color=stl_colors[i]),
+                            smooth_shading=smooth_shading,
+                            name=key,
+                        )
+                    else:
+                        pl.add_mesh(
+                            surf,
+                            color="white",
+                            opacity=stl_opacity,
+                            silhouette=True,
+                            smooth_shading=smooth_shading,
+                            name=key,
+                        )
+
+        # Camera orientation
+        pl.set_background("mistyrose", top="white")
+        self._add_logo_widget(pl)
+        pl.add_axes()
+        pl.camera_position = plane.lower()  # 'xy', 'zy', 'zx' views
+
+        if bounding_box:
+            pl.add_mesh(
+                pv.Box(
+                    bounds=(
+                        self.xmin,
+                        self.xmax,
+                        self.ymin,
+                        self.ymax,
+                        self.zmin,
+                        self.zmax,
+                    )
+                ),
+                style="wireframe",
+                color="black",
+                line_width=2,
+                name="domain_box",
+            )
+
+        if off_screen:
+            return pl
+        else:
+            pl.show()
+
+    def plot_snap_points(self, snap_solids=None, snap_tol=1e-8):
+        """
+        Plot snap points extracted from STL feature edges for mesh refinement.
+
+        Parameters
+        ----------
+        snap_solids : list or None, optional
+            STL solids to use for snap point extraction. Default is all.
+        snap_tol : float, optional
+            Tolerance for snap point detection.
+        """
+        # Support for user-defined stl_keys as list
+        if snap_solids is None:
+            snap_solids = self.stl_solids.keys()
+
+        # Union of all the surfaces
+        model = None
+        for key in snap_solids:
+            solid = self.read_stl(key)
+            if model is None:
+                model = solid
+            else:
+                model = model + solid
+
+        edges = model.extract_feature_edges(boundary_edges=True, manifold_edges=False)
+
+        # Extract points lying in the X-Z plane (Y ≈ 0)
+        xz_plane_points = edges.points[np.abs(edges.points[:, 1]) < snap_tol]
+        # Extract points lying in the Y-Z plane (X ≈ 0)
+        yz_plane_points = edges.points[np.abs(edges.points[:, 0]) < snap_tol]
+        # Extract points lying in the X-Y plane (Z ≈ 0)
+        xy_plane_points = edges.points[np.abs(edges.points[:, 2]) < snap_tol]
+
+        xz_cloud = pv.PolyData(xz_plane_points)
+        yz_cloud = pv.PolyData(yz_plane_points)
+        xy_cloud = pv.PolyData(xy_plane_points)
+
+        pv.global_theme.allow_empty_mesh = True
+        pl = pv.Plotter()
+        pl.add_mesh(model, color="white", opacity=0.5, label="base STL")
+        pl.add_mesh(
+            edges,
+            color="black",
+            line_width=5,
+            opacity=0.8,
+        )
+        pl.add_mesh(
+            xz_cloud,
+            color="green",
+            point_size=20,
+            render_points_as_spheres=True,
+            label="XZ plane points",
+        )
+        pl.add_mesh(
+            yz_cloud,
+            color="orange",
+            point_size=20,
+            render_points_as_spheres=True,
+            label="YZ plane points",
+        )
+        pl.add_mesh(
+            xy_cloud,
+            color="magenta",
+            point_size=20,
+            render_points_as_spheres=True,
+            label="XY plane points",
+        )
+        pl.add_legend()
+        pl.show()
+
+    def inspect(
+        self,
+        add_stl=None,
+        stl_opacity=0.5,
+        stl_colors=None,
+        anti_aliasing="ssaa",
+        smooth_shading=True,
+        off_screen=False,
+    ):
+        """
+        Interactive 3D inspector showing grid and STL geometries.
+
+        Parameters
+        ----------
+        add_stl : str or list, optional
+            Key or list of keys of STL solids to include. If None, all solids are shown.
+        stl_opacity : float, optional
+            Opacity for STL surfaces (0 transparent, 1 opaque). Default 0.5.
+        stl_colors : str, list, or dict, optional
+            Color specification for STL surfaces; defaults to ``self.stl_colors``.
+        anti_aliasing : str or None, optional
+            Anti-aliasing mode to enable in the plotter (default 'ssaa').
+        smooth_shading : bool, optional
+            Enable smooth shading for surfaces (default True).
+        off_screen : bool, optional
+            If True, return the off-screen plotter object instead of showing an
+            interactive window.
+
+        Returns
+        -------
+        pl : pyvista.Plotter or None
+            The plotter object if off_screen is True, otherwise None.
+        """
+        if stl_colors is None:
+            stl_colors = self.stl_colors
+
+        pv.global_theme.allow_empty_mesh = True
+        pl = pv.Plotter()
+        pl.add_mesh(self.grid, show_edges=True, cmap=["white", "white"], name="grid")
+
+        def clip(widget):
+            # Plot structured grid
+            b = widget.bounds
+            x = self.x[np.logical_and(self.x >= b[0], self.x <= b[1])]
+            y = self.y[np.logical_and(self.y >= b[2], self.y <= b[3])]
+            z = self.z[np.logical_and(self.z >= b[4], self.z <= b[5])]
+            X, Y, Z = np.meshgrid(x, y, z, indexing="ij")
+            grid = pv.StructuredGrid(X.transpose(), Y.transpose(), Z.transpose())
+
+            pl.add_mesh(grid, show_edges=True, cmap=["white", "white"], name="grid")
+            # Plot stl surface(s)
+            if add_stl is not None:  # add 1 selected stl solid
+                if type(add_stl) is str:
+                    key = add_stl
+                    surf = self.read_stl(key)
+                    surf = surf.clip_box(widget.bounds, invert=False)
+                    pl.add_mesh(
+                        surf,
+                        color=stl_colors[key],
+                        opacity=stl_opacity,
+                        silhouette=True,
+                        smooth_shading=smooth_shading,
+                        name=key,
+                    )
+
+                elif type(add_stl) is list:  # add selected list of stl solids
+                    for i, key in enumerate(add_stl):
+                        surf = self.read_stl(key)
+                        surf = surf.clip_box(widget.bounds, invert=False)
+                        if type(stl_colors) is dict:
+                            pl.add_mesh(
+                                surf,
+                                color=stl_colors[key],
+                                opacity=stl_opacity,
+                                silhouette=True,
+                                smooth_shading=smooth_shading,
+                                name=key,
+                            )
+                        elif type(stl_colors) is list:
+                            pl.add_mesh(
+                                surf,
+                                color=stl_colors[i],
+                                opacity=stl_opacity,
+                                silhouette=True,
+                                smooth_shading=smooth_shading,
+                                name=key,
+                            )
+                        else:
+                            pl.add_mesh(
+                                surf,
+                                color="white",
+                                opacity=stl_opacity,
+                                silhouette=True,
+                                smooth_shading=smooth_shading,
+                                name=key,
+                            )
+
+            else:  # add all stl solids
+                for i, key in enumerate(self.stl_solids):
+                    surf = self.read_stl(key)
+                    surf = surf.clip_box(widget.bounds, invert=False)
+                    if type(stl_colors) is dict:
+                        pl.add_mesh(
+                            surf,
+                            color=stl_colors[key],
+                            opacity=stl_opacity,
+                            silhouette=True,
+                            smooth_shading=smooth_shading,
+                            name=key,
+                        )
+                    elif type(stl_colors) is list:
+                        pl.add_mesh(
+                            surf,
+                            color=stl_colors[i],
+                            opacity=stl_opacity,
+                            silhouette=True,
+                            smooth_shading=smooth_shading,
+                            name=key,
+                        )
+                    else:
+                        pl.add_mesh(
+                            surf,
+                            color="white",
+                            opacity=stl_opacity,
+                            silhouette=True,
+                            smooth_shading=smooth_shading,
+                            name=key,
+                        )
+
+        _ = pl.add_box_widget(callback=clip, rotation_enabled=False)
+
+        # Camera orientation
+        pl.camera_position = "zx"
+        pl.camera.azimuth += 30
+        pl.camera.elevation += 30
+        pl.set_background("mistyrose", top="white")
+        self._add_logo_widget(pl)
+        pl.add_axes()
+        pl.enable_3_lights()
+        pl.enable_anti_aliasing(anti_aliasing)
+
+        if off_screen:
+            pl.off_screen = True
+            return pl
+            # pl.export_html('grid_inspect.html')
+        else:
+            pl.show()
+            return None

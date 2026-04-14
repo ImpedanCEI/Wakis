@@ -17,7 +17,7 @@ from .boundaries import BCsMixin
 from .field import Field
 from .logger import Logger
 from .materials import material_lib
-from .plotting import PlotMixin
+from .plotting import PlotMixinSolver as PlotMixin
 from .routines import RoutinesMixin
 
 try:

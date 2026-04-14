@@ -9,7 +9,7 @@ import h5py
 import numpy as np
 from tqdm import tqdm
 
-from wakis.plotting import PlotMixin
+from wakis.plotting import PlotMixinSolver as PlotMixin
 from wakis.sources import Beam
 
 
