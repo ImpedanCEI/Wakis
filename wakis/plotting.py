@@ -1601,6 +1601,8 @@ class PlotMixinGrid:
         - STL solids can be visualized in transparent mode.
         - A static domain bounding box can be added for reference.
         """
+        self.grid.set_active_scalars(stl_solid)
+
         if stl_colors is None:
             stl_colors = self.stl_colors
 
@@ -1622,7 +1624,6 @@ class PlotMixinGrid:
         )
         clip_actor = pl.add_mesh(
             initial_clip,
-            scalars=stl_solid,
             cmap=cmap,
             name="clip",
         )
@@ -1867,6 +1868,8 @@ class PlotMixinGrid:
                 - The selected ``stl_solid`` intersection with the plane is overlaid as a
                     contour line for easier visual alignment.
         """
+        self.grid.set_active_scalars(stl_solid)
+
         if stl_colors is None:
             stl_colors = self.stl_colors
 
@@ -1914,7 +1917,6 @@ class PlotMixinGrid:
         initial_slice = self.grid.slice(normal=normal, origin=origin_fn(position))
         slice_actor = pl.add_mesh(
             initial_slice,
-            scalars=stl_solid,
             cmap=cmap,
             name="slice",
         )
