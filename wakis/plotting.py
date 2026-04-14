@@ -1512,7 +1512,7 @@ class PlotMixinGrid:
 
         pl.set_background("mistyrose", top="white")
         self._add_logo_widget(pl)
-        pl.camera_position = "zy"
+        pl.camera_position = "zx"
         pl.camera.azimuth += 30
         pl.camera.elevation += 30
         pl.add_axes()
@@ -1772,7 +1772,7 @@ class PlotMixinGrid:
         )
 
         # Camera orientation
-        pl.camera_position = "zy"
+        pl.camera_position = "zx"
         pl.camera.azimuth += 30
         pl.camera.elevation += 30
         pl.set_background("mistyrose", top="white")
@@ -1808,7 +1808,7 @@ class PlotMixinGrid:
     def plot_stl_mask_slice(
         self,
         stl_solid,
-        plane="ZY",
+        plane="ZX",
         position=None,
         cmap="viridis",
         bounding_box=False,
@@ -2277,7 +2277,7 @@ class PlotMixinGrid:
         _ = pl.add_box_widget(callback=clip, rotation_enabled=False)
 
         # Camera orientation
-        pl.camera_position = "zy"
+        pl.camera_position = "zx"
         pl.camera.azimuth += 30
         pl.camera.elevation += 30
         pl.set_background("mistyrose", top="white")
