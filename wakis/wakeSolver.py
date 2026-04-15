@@ -11,6 +11,7 @@ import time
 import h5py
 import numpy as np
 from scipy.constants import c as c_light
+from scipy.fft import ihfft
 from tqdm import tqdm
 
 from .logger import Logger
@@ -1180,10 +1181,10 @@ class WakeSolver:
 
     @staticmethod
     def calc_impedance_from_wake(
-        wake, s=None, t=None, fmax=None, samples=None, verbose=True
+        wake, s=None, t=None, fmax=None, gamma=None, samples=None, plane="longitudinal", verbose=True
     ):
         """
-        Calculate impedance from wake function using FFT.
+        Calculate impedance from point-charge wake function using FFT.
 
         Parameters
         ----------
@@ -1194,66 +1195,96 @@ class WakeSolver:
         t : ndarray, optional
             Time array [s].
         fmax : float, optional
-            Maximum frequency.
-        samples : int, optional
-            Number of FFT samples.
+            Maximum frequency [Hz].
+        gamma : float, optional
+            Relativistic gamma (Lorentz factor). If not provided, relativistic beta = 1 will be used.
+        samples : integer, optional
+            Number of samples
+        plane : longitudinal or transverse
+            Default is longitudinal
         verbose : bool, optional
             If True, print information.
 
         Returns
         -------
         f : ndarray
-            Frequency array.
+            Frequency array [Hz].
         Z : ndarray
-            Impedance array.
+            Longitudinal impedance array [Ohm] or transverse impedance array [Ohm/m].
         """
-        if type(wake) is list:
-            t = wake[0]
-            wake = wake[1]
+        
+        # Parse inputs
+        if isinstance(wake, list):
+            t = np.asarray(wake[0])
+            wake = np.asarray(wake[1])
+        
+        # Relativistic factor
+        if gamma is None:
+            beta = 1.0
+        else:
+            if gamma <= 1.0:
+                raise ValueError("gamma must be > 1")
+            beta = np.sqrt(1.0 - 1.0 / gamma**2)
+
+        # conversion
         if s is not None:
-            t = s / c_light
+            t = s / (beta * c_light)
         elif s is None and t is None:
             raise AttributeError(
-                'Provide time data through parameter "t" [s] or "s" [m]'
+                'Provide time or distance data through parameter "t" [s] or "s" [m]'
             )
-        dt = np.mean(t[1:] - t[:-1])
 
-        # Maximum frequency: fmax = 1/dt
+        t = np.asarray(t)
+        wake = np.asarray(wake)
+
+        dt = np.mean(np.diff(t))
+
         if fmax is not None:
             aux = np.arange(t.min(), t.max(), 1 / fmax / 2)
             wake = np.interp(aux, t, wake)
-            dt = np.mean(aux[1:] - aux[:-1])
+            dt = np.mean(np.diff(aux))
             del aux
         else:
             fmax = 1 / dt
-        # Time resolution: fres=(1/len(wake)/dt/2)
-
+        
         # Obtain DFTs
         if samples is not None:
-            Wfft = np.fft.fft(wake, n=2 * samples)
+            Nf = 2 * samples
+            Wfft = np.fft.fft(wake, n=Nf) * dt
         else:
-            Wfft = np.fft.fft(wake)
+            Nt = len(t)
+            Nf = 4 * ((Nt + 1) // 2 - 1)
+            Wfft = np.fft.fft(wake, n=Nf) * dt
+        
+        # Plane handling
+        if plane.lower() == "longitudinal":
+            pass
+        elif plane.lower() == "transverse":
+            Wfft = 1j * Wfft
+        else:
+            raise ValueError("plane must be 'longitudinal' or 'transverse'")
 
-        ffft = np.fft.fftfreq(len(Wfft), dt)
+        ffft = np.fft.fftfreq(Nf, dt)
 
         # Mask invalid frequencies
-        mask = np.logical_and(ffft >= 0, ffft < fmax)
-        Z = Wfft[mask] / len(wake) * 2
-        f = ffft[mask]  # Positive frequencies
+        mask = np.logical_and(ffft >= 0 , ffft < fmax)
+        Z = Wfft[mask]
+        f = ffft[mask]
 
         if verbose:
             print(f"* Number of samples = {len(f)}")
             print(f"* Maximum frequency = {f.max()} Hz")
-            print(f"* Maximum resolution = {np.mean(f[1:] - f[:-1])} Hz")
+            print(f"* Frequency resolution = {np.mean(np.diff(f))} Hz")
+            print(f"* Relativistic beta = {beta}")
 
         return [f, Z]
 
     @staticmethod
     def calc_wake_from_impedance(
-        impedance, f=None, tmax=None, samples=None, pad=0, verbose=True
+        impedance, f=None, gamma=None, plane="longitudinal", verbose=True
     ):
         """
-        Calculate wake function from impedance using inverse FFT.
+        Calculate point-charge wake function from impedance using ihfft.
 
         Parameters
         ----------
@@ -1261,12 +1292,8 @@ class WakeSolver:
             Impedance or [f, Z] list.
         f : ndarray, optional
             Frequency array.
-        tmax : float, optional
-            Maximum time.
-        samples : int, optional
-            Number of FFT samples.
-        pad : int, optional
-            Padding for FFT.
+        gamma : float, optional
+            Relativistic gamma (Lorentz factor). If not provided, relativistic beta = 1 will be used.
         verbose : bool, optional
             If True, print information.
 
@@ -1275,38 +1302,65 @@ class WakeSolver:
         t : ndarray
             Time array [s].
         wake : ndarray
-            Wake function.
+            Wake function [V/C].
         """
-        if len(impedance) == 2:
-            f = impedance[0]
-            Z = impedance[1]
+
+        # Parse inputs
+        if isinstance(impedance, list):
+            f = np.asarray(impedance[0])
+            Z = np.asarray(impedance[1])
         elif f is None:
             raise AttributeError('Provide frequency data through parameter "f"')
         else:
-            Z = impedance
-        df = np.mean(f[1:] - f[:-1])
+            Z = np.asarray(impedance)
+            f = np.asarray(f)
 
-        # Maximum time: tmax = 1/(f[2]-f[1])
-        if tmax is not None:
-            aux = np.arange(f.min(), f.max(), 1 / tmax)
-            Z = np.interp(aux, f, Z)
-            # df = np.mean(aux[1:] - aux[:-1])
-            del aux
+        # Relativistic factor
+        if gamma is None:
+            beta = 1.0
         else:
-            tmax = 1 / df
+            if gamma <= 1.0:
+                raise ValueError("gamma must be > 1")
+            beta = np.sqrt(1.0 - 1.0 / gamma**2)
 
-        # Time resolution: tres=(1/len(Z)/(f[2]-f[1]))
-        # pad = int(1/df/tres - len(Z))
-        # wake = np.real(np.fft.ifft(np.pad(Z, pad)))
-        wake = np.real(-1 * np.fft.fft(Z, n=samples))
-        wake = np.roll(wake, -1)
-        # Inverse fourier transform of impedance
-        t = np.linspace(0, tmax, len(wake))
+        # Frequency grid ---
+        df = np.mean(np.diff(f))
+        fmax = np.max(f)
+
+        # Time grid
+        Nf = len(f)
+        Nt = Nf // 2 + 1
+        dt = 1.0 / (beta * fmax)
+        t = np.arange(Nt) * dt
+
+        # Plane handling
+        if plane.lower() == "longitudinal":
+            # Since the wake function is real, the longitudinal impedance satisfies
+            # Hermitian symmetry, Z*(f) = Z(-f).
+            # As a consequence, the inverse Fourier transform can be reduced
+            # to a cosine transform involving only the real part of the impedance.
+            # This Hermitian (cosine) reduction introduces an additional factor of four
+            # compared to the full complex IFFT.
+            # See Eqs. (2.72) and (2.92) in A. W. Chao,
+            # "Physics of Collective Beam Instabilities in High Energy Accelerators".
+            wake = np.real(ihfft(Z.real, norm='forward')) * 4 * df
+        elif plane.lower() == "transverse":
+            # Z*(f) = -Z(-f)
+            # sine transform
+            wake = np.imag(ihfft(Z.real, norm='forward')) * 4 * df
+        else:
+            raise ValueError("plane must be 'longitudinal' or 'transverse'")
+
+        # IHFFT does not automatically apply the half-weighting of the boundary points
+        # required by the discrete version of the fundamental theorem of beam loading.
+        # Both the first and the last samples must therefore be scaled by 1/2.
+        wake[[0, -1]] *= 0.5
 
         if verbose:
-            print(f"* Number of samples = {len(t)}")
+            print(f"* Number of samples = {Nt}")
             print(f"* Maximum time = {t.max()} s")
-            print(f"* Maximum resolution = {np.mean(t[1:] - t[:-1])} s")
+            print(f"* Time resolution = {np.mean(np.diff(t))} s")
+            print(f"* Relativistic beta = {beta}")
 
         return [t, wake]
 
