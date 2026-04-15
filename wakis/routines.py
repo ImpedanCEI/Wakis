@@ -9,7 +9,7 @@ import h5py
 import numpy as np
 from tqdm import tqdm
 
-from wakis.plotting import PlotMixin
+from wakis.plotting import PlotMixinSolver as PlotMixin
 from wakis.sources import Beam
 
 
@@ -360,9 +360,7 @@ class RoutinesMixin:
             z = self.z
             zz = slice(0, self.Nz)
 
-        tmax = (
-            wakelength + self.ti * self.v + (z.max() - z.min())
-        ) / self.v  # [s]
+        tmax = (wakelength + self.ti * self.v + (z.max() - z.min())) / self.v  # [s]
         Nt = int(tmax / self.dt)
         self.tmax, self.Nt = tmax, Nt
 
