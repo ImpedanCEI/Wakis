@@ -106,7 +106,7 @@ class TestMPILossyCavity:
             "cavity": "tests/stl/007_vacuum_cavity.stl",
             "shell": "tests/stl/007_lossymetal_shell.stl",
         },
-        "stl_materials": {"cavity": "vacuum", "shell": [30, 1.0, 30]},
+        "stl_materials": {"cavity": [1.0, 1.0], "shell": [30, 1.0, 30]},
         "gridInitializationTime": 0,
     }
 
@@ -212,9 +212,7 @@ class TestMPILossyCavity:
         ys = 0.0  # y source position [m]
         ti = 3 * sigmaz / c  # injection time [s]
 
-        beam = Beam(
-            q=q, sigmaz=sigmaz, beta=beta, xsource=xs, ysource=ys, ti=ti
-        )
+        beam = Beam(q=q, sigmaz=sigmaz, beta=beta, xsource=xs, ysource=ys, ti=ti)
 
         # ----------- Solver & Simulation ----------
         # boundary conditions
@@ -253,9 +251,7 @@ class TestMPILossyCavity:
             if solver.rank == 0:
                 # print(Ez)
                 # print(len(Ez))
-                assert len(Ez) == NZ, (
-                    "Electric field Ez samples length mismatch"
-                )
+                assert len(Ez) == NZ, "Electric field Ez samples length mismatch"
                 assert np.allclose(Ez[np.s_[::5]], self.Ez, **self.tol), (
                     "Electric field Ez samples MPI failed"
                 )
@@ -274,6 +270,32 @@ class TestMPILossyCavity:
                 "Electric field Ez samples failed"
             )
 
+    def test_mpi_save_state(self, tmp_path):
+        """Save current solver state to disk on CPU and MPI."""
+        global solver
+        filename = tmp_path / "solver_state_007.h5"
+
+        solver.save_state(str(filename))
+
+        if not use_mpi or solver.rank == 0:
+            assert os.path.exists(filename)
+
+    def test_mpi_load_state(self, tmp_path):
+        """Reload a previously saved solver state and check fields are restored."""
+        global solver
+        filename = tmp_path / "solver_state_007_roundtrip.h5"
+
+        # Save current (non-zero) state
+        solver.save_state(str(filename))
+
+        # Overwrite fields and load back
+        solver.reset_fields()
+        solver.load_state(str(filename))
+
+        if not use_mpi or solver.rank == 0:
+            Ez_restored = np.asarray(solver.E.toarray())
+            assert np.any(Ez_restored != 0.0)
+
     def test_mpi_gather_asField(self, flag_offscreen):
         # Plot inspect after mpi gather
         global solver
@@ -286,9 +308,7 @@ class TestMPILossyCavity:
                     off_screen=flag_offscreen,
                     handles=True,
                 )
-                fig.savefig(
-                    self.img_folder + "Einspect_" + str(3000).zfill(4) + ".png"
-                )
+                fig.savefig(self.img_folder + "Einspect_" + str(3000).zfill(4) + ".png")
                 plt.close(fig)
         else:
             fig, ax = solver.E.inspect(
@@ -297,9 +317,7 @@ class TestMPILossyCavity:
                 off_screen=flag_offscreen,
                 handles=True,
             )
-            fig.savefig(
-                self.img_folder + "Einspect_" + str(3000).zfill(4) + ".png"
-            )
+            fig.savefig(self.img_folder + "Einspect_" + str(3000).zfill(4) + ".png")
             plt.close(fig)
 
     def test_mpi_plot2D(self, flag_offscreen):
@@ -389,9 +407,7 @@ class TestMPILossyCavity:
                     184.43818552913254, 0.1
                 ), "Wake potential cumsum MPI failed"
         else:
-            assert len(wake.WP) == 5195, (
-                "Wake potential samples length mismatch"
-            )
+            assert len(wake.WP) == 5195, "Wake potential samples length mismatch"
             assert np.allclose(wake.WP[::50], self.WP, **self.tol), (
                 "Wake potential samples failed"
             )
@@ -406,30 +422,30 @@ class TestMPILossyCavity:
             if solver.rank == 0:
                 tol = dict(rtol=0.1)
                 assert len(wake.Z) == 998, "Impedance samples length mismatch"
-                assert np.allclose(
-                    np.abs(wake.Z)[::20], np.abs(self.Z), **tol
-                ), "Abs Impedance samples MPI failed"
-                assert np.allclose(
-                    np.real(wake.Z)[::20], np.real(self.Z), **tol
-                ), "Real Impedance samples MPI failed"
-                assert np.allclose(
-                    np.imag(wake.Z)[::20], np.imag(self.Z), **tol
-                ), "Imag Impedance samples MPI failed"
+                assert np.allclose(np.abs(wake.Z)[::20], np.abs(self.Z), **tol), (
+                    "Abs Impedance samples MPI failed"
+                )
+                assert np.allclose(np.real(wake.Z)[::20], np.real(self.Z), **tol), (
+                    "Real Impedance samples MPI failed"
+                )
+                assert np.allclose(np.imag(wake.Z)[::20], np.imag(self.Z), **tol), (
+                    "Imag Impedance samples MPI failed"
+                )
                 assert np.cumsum(np.abs(wake.Z))[-1] == pytest.approx(
                     250910.51090497518, 0.1
                 ), "Abs Impedance cumsum MPI failed"
         else:
             # print(wake.Z[::20])
             assert len(wake.Z) == 998, "Impedance samples length mismatch"
-            assert np.allclose(
-                np.abs(wake.Z)[::20], np.abs(self.Z), **self.tol
-            ), "Abs Impedance samples failed"
-            assert np.allclose(
-                np.real(wake.Z)[::20], np.real(self.Z), **self.tol
-            ), "Real Impedance samples failed"
-            assert np.allclose(
-                np.imag(wake.Z)[::20], np.imag(self.Z), **self.tol
-            ), "Imag Impedance samples failed"
+            assert np.allclose(np.abs(wake.Z)[::20], np.abs(self.Z), **self.tol), (
+                "Abs Impedance samples failed"
+            )
+            assert np.allclose(np.real(wake.Z)[::20], np.real(self.Z), **self.tol), (
+                "Real Impedance samples failed"
+            )
+            assert np.allclose(np.imag(wake.Z)[::20], np.imag(self.Z), **self.tol), (
+                "Imag Impedance samples failed"
+            )
             assert np.cumsum(np.abs(wake.Z))[-1] == pytest.approx(
                 250910.51090497518, 0.1
             ), "Abs Impedance cumsum failed"
@@ -452,22 +468,16 @@ class TestMPILossyCavity:
                 # floats
                 elif isinstance(v1, float) and isinstance(v2, float):
                     if k == "dt":
-                        assert v1 <= v2, (
-                            "Timestep bigger than for uniform grid"
-                        )
+                        assert v1 <= v2, "Timestep bigger than for uniform grid"
                     else:
                         assert np.isclose(v1, v2, rtol=rtol, atol=atol), (
                             f"Float mismatch at {p}: {v1} != {v2}"
                         )
 
                 # np.floats
-                elif isinstance(v1, np.floating) and isinstance(
-                    v2, np.floating
-                ):
+                elif isinstance(v1, np.floating) and isinstance(v2, np.floating):
                     if k == "dt":
-                        assert v1 <= v2, (
-                            "Timestep bigger than for uniform grid"
-                        )
+                        assert v1 <= v2, "Timestep bigger than for uniform grid"
                     else:
                         assert np.isclose(v1, v2, rtol=rtol, atol=atol), (
                             f"Float mismatch at {p}: {v1} != {v2}"
@@ -484,9 +494,7 @@ class TestMPILossyCavity:
                                 f"Float mismatch at {p}[{i}]: {a} != {b}"
                             )
                         else:
-                            assert a == b, (
-                                f"Value mismatch at {p}[{i}]: {a} != {b}"
-                            )
+                            assert a == b, f"Value mismatch at {p}[{i}]: {a} != {b}"
 
                 # list vs single float
                 elif isinstance(v1, (list, tuple, np.ndarray)) and isinstance(
@@ -518,9 +526,7 @@ class TestMPILossyCavity:
         self.solverLogs["use_gpu"] = use_gpu
 
         # Check log file exists
-        logfile = os.path.join(
-            solver.logger.wakeSolver["results_folder"], "wakis.log"
-        )
+        logfile = os.path.join(solver.logger.wakeSolver["results_folder"], "wakis.log")
         assert os.path.exists(logfile), "Log file not created"
 
         # Compare log dict contents

@@ -3,12 +3,15 @@
 # Copyright (c) CERN, 2024.                   #
 # ########################################### #
 
-import numpy as np
-import h5py
 import time
+
+import h5py
+import numpy as np
 from tqdm import tqdm
+
+from wakis.plotting import PlotMixinSolver as PlotMixin
 from wakis.sources import Beam
-from wakis.plotting import PlotMixin
+
 
 class RoutinesMixin:
     def emsolve(
@@ -129,13 +132,21 @@ class RoutinesMixin:
 
             for hf in hfs:
                 hf["x"], hf["y"], hf["z"] = self.x, self.y, self.z
-                hf["dx"], hf["dy"], hf["dz"] = self.grid.dx, self.grid.dy, self.grid.dz
+                hf["dx"], hf["dy"], hf["dz"] = (
+                    self.grid.dx,
+                    self.grid.dy,
+                    self.grid.dz,
+                )
                 hf["t"] = np.arange(0, Nt * self.dt, save_every * self.dt)
 
             if subdomain is not None:
                 xx, yy, zz = subdomain
             else:
-                xx, yy, zz = slice(0, self.Nx), slice(0, self.Ny), slice(0, self.Nz)
+                xx, yy, zz = (
+                    slice(0, self.Nx),
+                    slice(0, self.Ny),
+                    slice(0, self.Nz),
+                )
 
         if plot:
             plotkw = {
@@ -374,13 +385,25 @@ class RoutinesMixin:
 
                 if save_J:
                     hfJ = h5py.File("Jz.h5", "w")
-                    hfJ["x"], hfJ["y"], hfJ["z"] = self.x[xx], self.y[yy], z[zz]
-                    hfJ["dx"], hfJ["dy"], hfJ["dz"] = self.grid.dx, self.grid.dy, dz
+                    hfJ["x"], hfJ["y"], hfJ["z"] = (
+                        self.x[xx],
+                        self.y[yy],
+                        z[zz],
+                    )
+                    hfJ["dx"], hfJ["dy"], hfJ["dz"] = (
+                        self.grid.dx,
+                        self.grid.dy,
+                        dz,
+                    )
                     hfJ["t"] = np.arange(0, Nt * self.dt, self.dt)
         else:
             hf = h5py.File(self.Ez_file, "w")
             hf["x"], hf["y"], hf["z"] = self.x[xx], self.y[yy], z[zz]
-            hf["dx"], hf["dy"], hf["dz"] = self.grid.dx, self.grid.dy, self.grid.dz
+            hf["dx"], hf["dy"], hf["dz"] = (
+                self.grid.dx,
+                self.grid.dy,
+                self.grid.dz,
+            )
             hf["t"] = np.arange(0, Nt * self.dt, self.dt)
 
             if save_J:
@@ -458,22 +481,28 @@ class RoutinesMixin:
         self.logger.wakeSolver["simulationTime"] = time.time() - t0
         self.logger.save_logs()
 
-    def get_plotting_kwargs(self, name='plot2D'):
-
-        if name == 'plot1D':
+    def get_plotting_kwargs(self, name="plot2D"):
+        if name == "plot1D":
             plotkw = {
                 "field": "E",
                 "component": "z",
-                "line" : "z",
-                "pos" : [0.8, 0.6, 0.5, 0.4, 0.2],
-                "xscale" : "linear",
-                "yscale" : "linear",
-                "off_screen" : True,
-                "colors" : ["#5ccfe6", "#fdb6d0", "#ffae57", "#bae67e", "#ffd580", "#a2aabc"],
-                "title" : "plot1D",
+                "line": "z",
+                "pos": [0.8, 0.6, 0.5, 0.4, 0.2],
+                "xscale": "linear",
+                "yscale": "linear",
+                "off_screen": True,
+                "colors": [
+                    "#5ccfe6",
+                    "#fdb6d0",
+                    "#ffae57",
+                    "#bae67e",
+                    "#ffd580",
+                    "#a2aabc",
+                ],
+                "title": "plot1D",
             }
 
-        if name == 'plot2D':
+        elif name == "plot2D":
             plotkw = {
                 "field": "E",
                 "component": "z",
@@ -485,7 +514,7 @@ class RoutinesMixin:
                 "interpolation": "spline36",
                 "title": "plot2D",
             }
-        elif name == 'plot3D':
+        elif name == "plot3D":
             plotkw = {
                 "field": "E",
                 "component": "z",
@@ -500,22 +529,27 @@ class RoutinesMixin:
                 "nan_opacity": 1.0,
                 "title": "plot3D",
             }
-        elif name == 'plot3DonSTL':
+        elif name == "plot3DonSTL":
             plotkw = {
                 "field": "E",
                 "component": "z",
-                "cmap" : "rainbow",
-                "stl_with_field" : list(self.grid.stl_solids.keys())[0],
-                "field_opacity" : 1.0,
-                "stl_transparent" : list(self.grid.stl_solids.keys()),
-                "stl_opacity" : 0.1,
-                "stl_colors" : list(self.grid.stl_colors.values()),
-                "clip_plane" : True,
-                "clip_normal" : "-y",
-                "clip_origin" : [0,0,0],
-                "off_screen" : True,
-                "zoom" : 1.2,
-                "title" : "plot3DonSTL"
+                "cmap": "rainbow",
+                "stl_with_field": list(self.grid.stl_solids.keys())[0],
+                "field_opacity": 1.0,
+                "stl_transparent": list(self.grid.stl_solids.keys()),
+                "stl_opacity": 0.1,
+                "stl_colors": list(self.grid.stl_colors.values()),
+                "clip_plane": True,
+                "clip_normal": "-y",
+                "clip_origin": [0, 0, 0],
+                "off_screen": True,
+                "zoom": 1.2,
+                "title": "plot3DonSTL",
             }
 
+        else:
+            raise ValueError(
+                f"Plotting function {name} not recognized. \n"
+                f"Available options are: plot1D, plot2D, plot3D, plot3DonSTL."
+            )
         return plotkw

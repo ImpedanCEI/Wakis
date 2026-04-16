@@ -181,15 +181,9 @@ class TestPecCubicCavity:
         global grid
         grid2 = GridFIT3D(load_from_h5="tests/001_grid.h5", verbose=2)
 
-        assert np.array_equal(grid.x, grid2.x), (
-            "Grid load_from_h5 x-coords failed"
-        )
-        assert np.array_equal(grid.y, grid2.y), (
-            "Grid load_from_h5 y-coords failed"
-        )
-        assert np.array_equal(grid.z, grid2.z), (
-            "Grid load_from_h5 z-coords failed"
-        )
+        assert np.array_equal(grid.x, grid2.x), "Grid load_from_h5 x-coords failed"
+        assert np.array_equal(grid.y, grid2.y), "Grid load_from_h5 y-coords failed"
+        assert np.array_equal(grid.z, grid2.z), "Grid load_from_h5 z-coords failed"
         assert np.array_equal(grid.grid["cavity"], grid2.grid["cavity"]), (
             "Grid load_from_h5 solid mask failed"
         )

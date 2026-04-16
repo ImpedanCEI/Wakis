@@ -66,9 +66,7 @@ class Field:
             if imported_cupy:
                 self.xp = xp_gpu
             else:
-                print(
-                    "*** cupy could not be imported, please CUDA check installation"
-                )
+                print("*** cupy could not be imported, please CUDA check installation")
         else:
             self.xp = xp
 
@@ -183,9 +181,7 @@ class Field:
         if key == 0 or key == "x":
             self.array[0 : self.N] = self.xp.reshape(mat, self.N, order="F")
         elif key == 1 or key == "y":
-            self.array[self.N : 2 * self.N] = self.xp.reshape(
-                mat, self.N, order="F"
-            )
+            self.array[self.N : 2 * self.N] = self.xp.reshape(mat, self.N, order="F")
         elif key == 2 or key == "z":
             self.array[2 * self.N : 3 * self.N] = self.xp.reshape(
                 mat, self.N, order="F"
@@ -242,9 +238,7 @@ class Field:
         """
         if type(key) is tuple:
             if len(key) != 4:
-                raise IndexError(
-                    "Need 3 indexes and component to access the field"
-                )
+                raise IndexError("Need 3 indexes and component to access the field")
             if key[3] == 0 or key[3] == "x":
                 if self.on_gpu:
                     field = self.xp.reshape(
@@ -334,9 +328,7 @@ class Field:
 
         if type(key) is tuple:
             if len(key) != 4:
-                raise IndexError(
-                    "Need 3 indexes and component to access the field"
-                )
+                raise IndexError("Need 3 indexes and component to access the field")
             else:
                 field = self.to_matrix(key[3])
                 field[key[0], key[1], key[2]] = value
@@ -575,9 +567,7 @@ class Field:
                     self.field_x**2 + self.field_y**2 + self.field_z**2
                 ).get()
             else:
-                return xp.sqrt(
-                    self.field_x**2 + self.field_y**2 + self.field_z**2
-                )
+                return xp.sqrt(self.field_x**2 + self.field_y**2 + self.field_z**2)
 
     def inspect(
         self,
@@ -628,6 +618,7 @@ class Field:
             transpose = False
             extent = None
             xax, yax = "No. of cells", "No. of cells"
+            pos = "Custom slice"
 
         elif plane == "XY":
             key = [slice(0, self.Nx), slice(0, self.Ny), int(self.Nz // 2)]
@@ -635,6 +626,7 @@ class Field:
             extent = (0, self.Nx, 0, self.Ny)
             xax, yax = "nx", "ny"
             transpose = True
+            pos = f"z={z}"
 
         elif plane == "XZ":
             key = [slice(0, self.Nx), int(self.Ny // 2), slice(0, self.Nz)]
@@ -642,6 +634,7 @@ class Field:
             extent = (0, self.Nz, 0, self.Nx)
             xax, yax = "nz", "nx"
             transpose = False
+            pos = f"y={y}"
 
         elif plane == "YZ":
             key = [int(self.Nx // 2), slice(0, self.Ny), slice(0, self.Nz)]
@@ -649,10 +642,9 @@ class Field:
             extent = (0, self.Nz, 0, self.Ny)
             xax, yax = "nz", "ny"
             transpose = False
+            pos = f"x={x}"
 
-        fig, axs = plt.subplots(
-            1, 3, tight_layout=True, figsize=figsize, dpi=dpi
-        )
+        fig, axs = plt.subplots(1, 3, tight_layout=True, figsize=figsize, dpi=dpi)
         dims = {0: "x", 1: "y", 2: "z"}
 
         im = {}
@@ -686,22 +678,23 @@ class Field:
                 )
 
         for i, ax in enumerate(axs):
-            ax.set_title(f"Field {dims[i]}, plane {plane}")
+            ax.set_title(f"Field {dims[i]}")
             fig.colorbar(
                 im[i],
-                cax=make_axes_locatable(ax).append_axes(
-                    "right", size="5%", pad=0.1
-                ),
+                cax=make_axes_locatable(ax).append_axes("right", size="5%", pad=0.1),
             )
             ax.set_xlabel(xax)
             ax.set_ylabel(yax)
+            fig.suptitle(f"Field at plane {plane}, {pos}")
 
         if handles:
             return fig, axs
 
         if not off_screen:
-            plt.show()
+            plt.show(block=False)
             return None
+        else:
+            return fig, axs
 
     def inspect3D(
         self,
@@ -716,7 +709,6 @@ class Field:
         cmap="viridis",
         dpi=100,
         off_screen=False,
-        handles=False,
     ):
         """
         Visualize 3D field data on the structured grid using either Matplotlib
@@ -730,14 +722,16 @@ class Field:
 
         Parameters
         ----------
-        field : {'x', 'y', 'z', 'all'}, optional
-            Which field component(s) to visualize. Default is 'all'.
+        field : {'x', 'y', 'z', 'abs', 'all'}, optional
+            Which field component(s) to visualize. Default is 'abs'.
+            The 'all' option creates separate subplots for each component (only with
+            Matplotlib backend).
         backend : {'matplotlib', 'pyvista'}, optional
             Visualization backend to use. Default is 'pyvista'.
         grid : object, optional
             Structured grid object to use for visualization. If None, a grid is
             constructed from the solver's internal dimensions.
-        xmax, ymax, zmax : int or float, optional
+        x, y, z : int or float, optional
             Maximum extents in each direction for visualization. Defaults to the
             full grid dimensions if not specified.
         bounding_box : bool, optional
@@ -751,20 +745,17 @@ class Field:
         dpi : int, optional
             Resolution of Matplotlib figures (only for Matplotlib backend).
             Default is 100.
-        show : bool, optional
-            Whether to display the figure/plot immediately. If False in PyVista,
-            exports to `field.html` instead. Default is True.
-        handles : bool, optional
-            If True, return figure/axes (Matplotlib) or the Plotter object
-            (PyVista) for further customization instead of showing directly.
-            Default is False.
+        off_screen : bool, optional
+            Whether to display the figure/plot immediately. If True, return figure/axes
+            (Matplotlib) or the Plotter object (PyVista) for further customization
+            instead of showing directly. Default is False.
 
         Returns
         -------
         fig, axs : tuple, optional
-            Returned when `backend='matplotlib'` and `handles=True`.
+            Returned when `backend='matplotlib'` and `off_screen=True`.
         pl : pyvista.Plotter, optional
-            Returned when `backend='pyvista'` and `handles=True`.
+            Returned when `backend='pyvista'` and `off_screen=True`.
 
         Notes
         -----
@@ -779,6 +770,12 @@ class Field:
 
         # ---------- matplotlib backend ---------------
         if backend.lower() == "matplotlib":
+            if self.Nx > 50 or self.Ny > 50 or self.Nz > 50:
+                print(
+                    "[!] Warning: Matplotlib voxel rendering is not optimized \
+                    for large grids. Consider using the `pyvista` backend for \
+                    better performance and interactivity."
+                )
             import matplotlib as mpl
             import matplotlib.pyplot as plt
 
@@ -810,9 +807,7 @@ class Field:
 
             # field x
             if plot_x:
-                arr = self.to_matrix("x")[
-                    0 : int(xmax), 0 : int(ymax), 0 : int(zmax)
-                ]
+                arr = self.to_matrix("x")[0 : int(xmax), 0 : int(ymax), 0 : int(zmax)]
                 if field == "all":
                     ax = fig.add_subplot(1, 3, 1, projection="3d")
                 else:
@@ -824,9 +819,7 @@ class Field:
                 )
                 norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
                 colors = mpl.colormaps[cmap](norm(arr))
-                ax.voxels(
-                    x, y, z, filled=self.xp.ones_like(arr), facecolors=colors
-                )
+                ax.voxels(x, y, z, filled=self.xp.ones_like(arr), facecolors=colors)
 
                 m = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
                 m.set_array([])
@@ -836,9 +829,7 @@ class Field:
 
             # field y
             if plot_y:
-                arr = self.to_matrix("y")[
-                    0 : int(xmax), 0 : int(ymax), 0 : int(zmax)
-                ]
+                arr = self.to_matrix("y")[0 : int(xmax), 0 : int(ymax), 0 : int(zmax)]
                 if field == "all":
                     ax = fig.add_subplot(1, 3, 2, projection="3d")
                 else:
@@ -850,9 +841,7 @@ class Field:
                 )
                 norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
                 colors = mpl.colormaps[cmap](norm(arr))
-                ax.voxels(
-                    x, y, z, filled=self.xp.ones_like(arr), facecolors=colors
-                )
+                ax.voxels(x, y, z, filled=self.xp.ones_like(arr), facecolors=colors)
 
                 m = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
                 m.set_array([])
@@ -862,9 +851,7 @@ class Field:
 
             # field z
             if plot_z:
-                arr = self.to_matrix("z")[
-                    0 : int(xmax), 0 : int(ymax), 0 : int(zmax)
-                ]
+                arr = self.to_matrix("z")[0 : int(xmax), 0 : int(ymax), 0 : int(zmax)]
                 if field == "all":
                     ax = fig.add_subplot(1, 3, 3, projection="3d")
                 else:
@@ -876,9 +863,7 @@ class Field:
                 )
                 norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
                 colors = mpl.colormaps[cmap](norm(arr))
-                ax.voxels(
-                    x, y, z, filled=self.xp.ones_like(arr), facecolors=colors
-                )
+                ax.voxels(x, y, z, filled=self.xp.ones_like(arr), facecolors=colors)
 
                 m = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
                 m.set_array([])
@@ -897,11 +882,11 @@ class Field:
                 ax.set_ylim(self.Ny, 0)
                 ax.set_zlim(self.Nz, 0)
 
-            if handles:
+            if off_screen:
                 return fig, axs
-
-            if not off_screen:
-                plt.show()
+            else:
+                plt.show(block=False)
+                return None
 
         # ----------- pyvista backend ---------------
         else:
@@ -917,18 +902,15 @@ class Field:
                     grid.zmax,
                 )
                 grid = grid.grid
-                if field == "x":
+                if field in ("x", "y", "z"):
                     scalars = "Field " + field
-                    grid[scalars] = xp.reshape(self.to_matrix(field), self.N)
-                elif field == "y":
-                    scalars = "Field " + field
-                    grid[scalars] = xp.reshape(self.to_matrix(field), self.N)
-                elif field == "z":
-                    scalars = "Field " + field
-                    grid[scalars] = xp.reshape(self.to_matrix(field), self.N)
+                    _arr = self.to_matrix(field)
+                    grid[scalars] = (_arr.get() if self.on_gpu else _arr).reshape(
+                        self.N
+                    )
                 else:  # for all or abs
-                    scalars = "Field " + "Abs"
-                    grid[scalars] = xp.reshape(self.get_abs(), self.N)
+                    scalars = "Field Abs"
+                    grid[scalars] = self.get_abs().reshape(self.N)
 
                 if xmax is None:
                     xmax = xhi
@@ -959,22 +941,21 @@ class Field:
                 if zmax is None:
                     zmax = self.Nz
                 X, Y, Z = xp.meshgrid(x, y, z, indexing="ij")
-                grid = pv.StructuredGrid(
-                    X.transpose(), Y.transpose(), Z.transpose()
-                )
+                grid = pv.StructuredGrid(X.transpose(), Y.transpose(), Z.transpose())
 
-                if field == "x":
+                if field in ("x", "y", "z"):
                     scalars = "Field " + field
-                    grid[scalars] = xp.reshape(self.to_matrix(field), self.N)
-                elif field == "y":
-                    scalars = "Field " + field
-                    grid[scalars] = xp.reshape(self.to_matrix(field), self.N)
-                elif field == "z":
-                    scalars = "Field " + field
-                    grid[scalars] = xp.reshape(self.to_matrix(field), self.N)
-                else:  # for all or abs
-                    scalars = "Field " + "Abs"
-                    grid[scalars] = xp.reshape(self.get_abs(), self.N)
+                    _arr = self.to_matrix(field)
+                    grid[scalars] = (_arr.get() if self.on_gpu else _arr).reshape(
+                        self.N
+                    )
+                elif field.lower() == "abs":
+                    scalars = "Field Abs"
+                    grid[scalars] = self.get_abs().reshape(self.N)
+                else:
+                    raise ValueError(
+                        "For PyVista backend, `field` must be 'x', 'y', 'z', or 'abs'"
+                    )
 
             pv.global_theme.allow_empty_mesh = True
             pl = pv.Plotter()
@@ -1071,10 +1052,10 @@ class Field:
                     name="domain_box",
                 )
 
-            if handles:
+            if off_screen:
+                pl.off_screen = True
                 return pl
 
-            if off_screen:
-                pl.export_html("Field.html")
             else:
-                pl.show()
+                pl.show(auto_close=False, interactive_update=True)
+                return None

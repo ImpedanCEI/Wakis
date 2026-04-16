@@ -15,9 +15,7 @@ with open(version_file.absolute(), "r") as fp:
 __version__ = dd["__version__"]
 
 # read long_description
-long_description = (Path(__file__).parent / "README.md").read_text(
-    encoding="utf-8"
-)
+long_description = (Path(__file__).parent / "README.md").read_text(encoding="utf-8")
 
 # read requirements.txt for extras_require
 with open("requirements.txt") as f:

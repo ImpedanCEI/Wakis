@@ -20,6 +20,8 @@ ECT_*
 *.txt
 *.PNG
 _build/
+build/
 dist/
 wakis.egg-info/
 .coverage
+.vscode/

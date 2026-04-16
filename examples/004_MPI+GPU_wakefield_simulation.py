@@ -91,9 +91,7 @@ from scipy.constants import c
 
 from wakis.sources import Beam
 
-beam = Beam(
-    q=q, sigmaz=sigmaz, beta=beta, xsource=xs, ysource=ys, ti=3 * sigmaz / c
-)
+beam = Beam(q=q, sigmaz=sigmaz, beta=beta, xsource=xs, ysource=ys, ti=3 * sigmaz / c)
 
 # ----------- Solver & Simulation ----------
 # boundary conditions
@@ -138,9 +136,7 @@ if run_timeloop:
                 fig, ax = E.inspect(
                     figsize=[20, 6], plane="YZ", off_screen=True, handles=True
                 )
-                fig.savefig(
-                    img_folder + "Einspect_" + str(n).zfill(4) + ".png"
-                )
+                fig.savefig(img_folder + "Einspect_" + str(n).zfill(4) + ".png")
                 plt.close(fig)
 
         # Plot E abs in 2D every 20 timesteps
@@ -260,9 +256,7 @@ if run_wakefield:
         ax[0].legend()
         ax[0].set_xlim(xmax=wakelength * 1e2)
 
-        ax[1].plot(
-            wake.f * 1e-9, np.abs(wake.Zx), c="b", lw=1.5, label="Wakis"
-        )
+        ax[1].plot(wake.f * 1e-9, np.abs(wake.Zx), c="b", lw=1.5, label="Wakis")
         ax[1].set_xlabel("f [GHz]")
         ax[1].set_ylabel("Transverse impedance X [Abs][$\Omega$]", color="b")
         ax[1].legend()
@@ -279,9 +273,7 @@ if run_wakefield:
         ax[0].legend()
         ax[0].set_xlim(xmax=wakelength * 1e2)
 
-        ax[1].plot(
-            wake.f * 1e-9, np.abs(wake.Zy), c="b", lw=1.5, label="Wakis"
-        )
+        ax[1].plot(wake.f * 1e-9, np.abs(wake.Zy), c="b", lw=1.5, label="Wakis")
         ax[1].set_xlabel("f [GHz]")
         ax[1].set_ylabel("Transverse impedance Y [Abs][$\Omega$]", color="b")
         ax[1].legend()
@@ -391,17 +383,13 @@ def plot1D_field(
     # plot vertical lines at subdomain borders
     for r in range(size):
         if r == 0:
-            ax.axvline(
-                NZ // size * (r + 1) + grid.n_ghosts, c="red", alpha=0.5
-            )
+            ax.axvline(NZ // size * (r + 1) + grid.n_ghosts, c="red", alpha=0.5)
             ax.axvline(NZ // size * (r), c="blue", alpha=0.5)
         elif r == (size - 1):
             ax.axvline(NZ // size * (r + 1), c="red", alpha=0.5)
             ax.axvline(NZ // size * (r) - grid.n_ghosts, c="blue", alpha=0.5)
         else:  # outside subdomains
-            ax.axvline(
-                NZ // size * (r + 1) + grid.n_ghosts, c="red", alpha=0.5
-            )
+            ax.axvline(NZ // size * (r + 1) + grid.n_ghosts, c="red", alpha=0.5)
             ax.axvline(NZ // size * (r) - grid.n_ghosts, c="blue", alpha=0.5)
 
     fig.tight_layout()
@@ -447,18 +435,14 @@ def plot2D_field(
                 ax.axvline(NZ // size * (r), c="blue", alpha=0.5)
             elif r == (size - 1):
                 ax.axvline(NZ // size * (r + 1), c="red", alpha=0.5)
-                ax.axvline(
-                    NZ // size * (r) - grid.n_ghosts, c="blue", alpha=0.5
-                )
+                ax.axvline(NZ // size * (r) - grid.n_ghosts, c="blue", alpha=0.5)
             else:  # outside subdomains
                 ax.axvline(
                     NZ // size * (r + 1) + grid.n_ghosts,
                     c="red",
                     alpha=0.5,
                 )
-                ax.axvline(
-                    NZ // size * (r) - grid.n_ghosts, c="blue", alpha=0.5
-                )
+                ax.axvline(NZ // size * (r) - grid.n_ghosts, c="blue", alpha=0.5)
 
     # plot fill rectangles for each subdomain
     if False:
@@ -498,9 +482,7 @@ if False:
     sigma = solver.mpi_gather(solver.sigma, "z", x=Nx // 2)
     if rank == 0:
         # Plot eps^-1 tensor
-        fig, ax = ieps.inspect(
-            figsize=[20, 6], plane="YZ", show=False, handles=True
-        )
+        fig, ax = ieps.inspect(figsize=[20, 6], plane="YZ", show=False, handles=True)
         fig.savefig(img_folder + "ieps_inspect.png")
         plt.close(fig)
 

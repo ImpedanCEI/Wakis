@@ -13,7 +13,7 @@ sd_hide_title: true
 
 * Wake potential and impedance calculations for particle beams with different relativistic $\beta$
 * Material tensors: permittivity $\varepsilon$, permeability $\mu$, conductivity $\sigma$. Possibility of anisotropy.
-* CAD geometry importer (`STL` & `STEP` format) for definition of embedded boundaries and material regions, based on [`pyvista`](https://github.com/pyvista/pyvista) 
+* CAD geometry importer (`STL` & `STEP` format) for definition of embedded boundaries and material regions, based on [`pyvista`](https://github.com/pyvista/pyvista)
 * Boundary conditions: PEC, PMC, Periodic, ABC-FOEXTRAP, Perfect Matched Layers (PML)
 * Different time-domain sources: particle beam, planewave, gaussian wavepacket
 * 100% python, fully exposed API (material tensors, fields $E$, $H$, $J$). Matrix operators based on `numpy` and `scipy.sparse` routines ensure fast calculations.
@@ -30,7 +30,7 @@ sd_hide_title: true
 
 The source code is available in the `wakis` [GitHub repository](https://github.com/ImpedanCEI/wakis).
 
-```{toctree} 
+```{toctree}
 :caption: Table of Contents
 :maxdepth: 2
 

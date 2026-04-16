@@ -95,9 +95,7 @@ class TestPML:
                 )
 
         reflectionH = solver.H.get_abs()[Nx // 2, Ny // 2, :].max()
-        reflectionE = solver.E.get_abs()[Nx // 2, Ny // 2, :].max() / (
-            mu_0 * c
-        )
+        reflectionE = solver.E.get_abs()[Nx // 2, Ny // 2, :].max() / (mu_0 * c)
         assert reflectionH <= 10, (
             f"PML H reflection >10% with eps_r={eps_r}, sigma={sigma}"
         )
@@ -106,12 +104,8 @@ class TestPML:
         )
 
         if flag_interactive:
-            os.system(
-                "convert -delay 10 -loop 0 005_Hy*.png 005_Hy_planewave.gif"
-            )
-            os.system(
-                "convert -delay 10 -loop 0 005_Ex*.png 005_Ex_planewave.gif"
-            )
+            os.system("convert -delay 10 -loop 0 005_Hy*.png 005_Hy_planewave.gif")
+            os.system("convert -delay 10 -loop 0 005_Ex*.png 005_Ex_planewave.gif")
             os.system("rm 005_Hy*.png")
             os.system("rm 005_Ex*.png")
 
@@ -221,9 +215,7 @@ class TestPML:
                 )
 
         reflectionH = solver.H.get_abs()[Nx // 2, Ny // 2, :].max()
-        reflectionE = solver.E.get_abs()[Nx // 2, Ny // 2, :].max() / (
-            mu_0 * c
-        )
+        reflectionE = solver.E.get_abs()[Nx // 2, Ny // 2, :].max() / (mu_0 * c)
         assert reflectionH <= 10, (
             f"PML H reflection >10% with eps_r={eps_r}, sigma={sigma}"
         )
@@ -343,9 +335,7 @@ class TestPML:
                 )
 
         reflectionH = solver.H.get_abs()[Nx // 2, Ny // 2, :].max()
-        reflectionE = solver.E.get_abs()[Nx // 2, Ny // 2, :].max() / (
-            mu_0 * c
-        )
+        reflectionE = solver.E.get_abs()[Nx // 2, Ny // 2, :].max() / (mu_0 * c)
         assert reflectionH <= 10, (
             f"PML H reflection >10% with eps_r={eps_r}, sigma={sigma}"
         )
@@ -391,9 +381,7 @@ class TestPML:
         n_pml = 10
 
         lin = np.linspace(pml_lo, pml_hi, n_pml)
-        geom = np.geomspace(
-            pml_lo, pml_hi, n_pml
-        )  # r=(pml_hi/pml_lo)**(1/(n_pml-1))
+        geom = np.geomspace(pml_lo, pml_hi, n_pml)  # r=(pml_hi/pml_lo)**(1/(n_pml-1))
 
         x = np.linspace(0, 1, n_pml)
         quad = pml_lo + (pml_hi - pml_lo) * x**2

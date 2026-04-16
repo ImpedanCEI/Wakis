@@ -1,6 +1,7 @@
 import sys
-import numpy as np
+
 import matplotlib.pyplot as plt
+import numpy as np
 
 sys.path.append("../wakis")
 from wakis import WakeSolver as wk

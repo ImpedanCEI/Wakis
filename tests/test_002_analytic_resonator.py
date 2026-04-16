@@ -1,12 +1,12 @@
 import sys
-import pytest
+
 import numpy as np
+import pytest
 from scipy.constants import c as c_light
 from tqdm import tqdm
 
 sys.path.append("../../wakis")
-from wakis import SolverFIT3D
-from wakis import GridFIT3D
+from wakis import GridFIT3D, SolverFIT3D
 
 
 def test_mode_101():
