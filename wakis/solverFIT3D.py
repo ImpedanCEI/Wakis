@@ -141,9 +141,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.imported_mkl = imported_mkl  # Use MKL backend when available
         self.one_step = self._one_step
 
-        if verbose > 1:
-            print(f"* Maximum frequency set to fmax={self.fmax / 1e9} GHz")
-
         if use_stl:
             self.use_conductors = False
         self.update_logger(["use_gpu", "use_mpi"])
@@ -176,6 +173,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.logger.wakeSolver = self.wake.logger.wakeSolver
         if wake is not None and fmax == 1e9:
             self.fmax = self.wake.fmax
+        if verbose > 1:
+            print(f"    * Maximum frequency set to fmax={self.fmax / 1e9} GHz")
 
         # Fields
         self.dtype = dtype
@@ -253,6 +252,12 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 bg[1] * mu_0,
                 0.0,
             )
+
+        # Max conductivity that can be resolved without SIBC
+        dn = np.sqrt(2) * min(self.dx.min(), self.dy.min(), self.dz.min())
+        self.sigma_max = 10 / (np.pi * self.fmax * mu_0 * dn**2)
+        if self.verbose > 1:
+            print(f"    * Max resolved conductivity without SIBC: {self.sigma_max} S/m")
 
         # fmt: off
         self.ieps = (
@@ -442,28 +447,26 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             mu = self.stl_materials[key][1] * mu_0
 
             # Conductivity
-            # Max conductivity that can be resolved without SIBC
-            dn = np.sqrt(2) * min(self.dx.min(), self.dy.min(), self.dz.min())
-            sigma_max = 10 / (np.pi * self.fmax * mu * dn**2)
-            if self.verbose > 1:
-                print(f"* Max resolved conductivity without SIBC: {sigma_max} S/m")
-
             if len(self.stl_materials[key]) == 3:
                 sigma = self.stl_materials[key][2]
 
+                # Relaxation time approximation
+                if self.use_sibc and sigma > 0.: 
+                    eps = sigma * eps_0
+
                 # Mark surface cells for SIBC if conductivity is high
-                if self.use_sibc and self.stl_materials[key][2] > sigma_max:
+                if self.use_sibc and self.stl_materials[key][2] > np.inf: #self.sigma_max*:
                     if self.verbose > 1:
                         print(
-                            f'* Applying SIBC for solid "{key}" with sigma={sigma} S/m'
+                            f'    * Applying SIBC for solid "{key}" with sigma={sigma} S/m'
                         )
                     self.grid._mark_cells_in_surface(key)
                     mask = np.reshape(grid[key], (self.Nx, self.Ny, self.Nz)).astype(
                         int
                     )
-                    imp = np.sqrt(np.pi * self.fmax * mu / sigma)
-                    sigma = 1 / imp  # SIBC surface conductivity [S]
-                    eps = 1 / imp
+                    Z_s = np.sqrt(np.pi * self.fmax * mu / sigma)
+                    sigma = 1 / Z_s  # SIBC surface conductivity [S]
+                    eps = 1 / Z_s
 
                 # Update sigma tensor
                 self.sigma += self.sigma * (-1.0 * mask)
