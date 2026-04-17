@@ -131,7 +131,7 @@ class WakeSolver:
         """
 
         self.verbose = verbose
-        print("Initializing Wakefield parameters...")
+        self.log("Initializing Wakefield parameters...")
         t0 = time.time()
 
         # beam
@@ -152,14 +152,15 @@ class WakeSolver:
         self.DE_model = None
 
         self.log(
-            f"* Beam longitudinal sigma sigmaz={self.sigmaz * 1e3} mm, sigmat={self.sigmaz / self.v * 1e9} ns"
+            f"    * Beam longitudinal sigma sigmaz={self.sigmaz * 1e3} mm, sigmat={self.sigmaz / self.v * 1e9} ns",
+            level=2,
         )
-        self.log(f"* Maximum frequency of interest fmax={self.fmax / 1e9} GHz")
+        self.log(f"    * Maximum frequency of interest fmax={self.fmax / 1e9} GHz", level=2,)
         self.counter_moving = counter_moving
 
         if add_space is not None:  # legacy support for add_space
             self.skip_cells = add_space
-        self.log(f"* Field values skipped from boundaries: {self.skip_cells} cells")
+        self.log(f"    * Field values skipped from boundaries: {self.skip_cells} cells", level=2,)
 
         # Injection time
         if ti is not None:
@@ -170,7 +171,7 @@ class WakeSolver:
                 8.548921333333334 * self.sigmaz / (np.sqrt(self.beta) * self.v)
             )  # injection time as in CST for beta <=1
             self.ti = ti
-        self.log(f"* Beam source injection time ti={self.ti} s")
+        self.log(f"    * Beam source injection time ti={self.ti} s", level=2,)
 
         # field
         self.Ez_file = Ez_file
@@ -438,10 +439,6 @@ class WakeSolver:
         **kwargs
             Additional parameters to set as attributes.
         """
-        self.log("\n")
-        self.log("Longitudinal wake potential")
-        self.log("-" * 24)
-
         for key, val in kwargs.items():
             setattr(self, key, val)
 
@@ -477,8 +474,8 @@ class WakeSolver:
         s = np.arange(-self.ti * self.v, wakelength, dt * self.v)
 
         if self.verbose > 1:
-            self.log(f"* Max simulated time = {np.max(self.t)} s")
-            self.log(f"* Wakelength = {wakelength} m")
+            self.log(f"    * Max simulated time = {np.max(self.t)} s", level=2,)
+            self.log(f"    * Wakelength = {wakelength} m", level=2,)
 
         # field subvolume in No.cells for x, y
         i0, j0 = self.n_transverse_cells, self.n_transverse_cells
@@ -683,9 +680,10 @@ class WakeSolver:
         )  # to obtain a 1000 sample single-sided DFT
 
         self.log(
-            f"* Single sided DFT with number of samples = {samples} and fmax = {fmax}"
+            f"    * Single sided DFT with number of samples = {samples} and fmax = {fmax}",
+            level=2,
         )
-        self.log(f"* Zero-padding to N = {N} points with ds = {ds} m")
+        self.log(f"    * Zero-padding to N = {N} points with ds = {ds} m", level=2)
 
         # Obtain DFTs - is it v or c?
         lambdafft = np.fft.fft(self.lambdas * self.v, n=N)
@@ -731,7 +729,6 @@ class WakeSolver:
             Maximum frequency of interest.
         """
         print("Calculating transverse impedance Zx, Zy...")
-        self.log(f"Single sided DFT with number of samples = {samples}")
 
         # Set up the DFT computation
         ds = np.mean(self.s[1:] - self.s[:-1])
@@ -741,9 +738,9 @@ class WakeSolver:
         )  # to obtain a 1000 sample single-sided DFT
 
         self.log(
-            f"* Single sided DFT with number of samples = {samples} and fmax = {fmax}"
+            f"    * Single sided DFT with number of samples = {samples} and fmax = {fmax}", level=2,
         )
-        self.log(f"* Zero-padding to N = {N} points with ds = {ds} m")
+        self.log(f"    * Zero-padding to N = {N} points with ds = {ds} m", level=2)
 
         # Obtain DFTs
 
@@ -1242,9 +1239,9 @@ class WakeSolver:
         f = ffft[mask]  # Positive frequencies
 
         if verbose:
-            print(f"* Number of samples = {len(f)}")
-            print(f"* Maximum frequency = {f.max()} Hz")
-            print(f"* Maximum resolution = {np.mean(f[1:] - f[:-1])} Hz")
+            print(f"    * Number of samples = {len(f)}")
+            print(f"    * Maximum frequency = {f.max()} Hz")
+            print(f"    * Maximum resolution = {np.mean(f[1:] - f[:-1])} Hz")
 
         return [f, Z]
 
@@ -1304,9 +1301,9 @@ class WakeSolver:
         t = np.linspace(0, tmax, len(wake))
 
         if verbose:
-            print(f"* Number of samples = {len(t)}")
-            print(f"* Maximum time = {t.max()} s")
-            print(f"* Maximum resolution = {np.mean(t[1:] - t[:-1])} s")
+            print(f"    * Number of samples = {len(t)}")
+            print(f"    * Maximum time = {t.max()} s")
+            print(f"    * Maximum resolution = {np.mean(t[1:] - t[:-1])} s")
 
         return [t, wake]
 
@@ -1385,7 +1382,7 @@ class WakeSolver:
                 txt, skiprows=skiprows, delimiter=delimiter, usecols=usecols
             )
         except Exception:
-            self.log(f"[!] Using dtype=np.complex128 to read {txt}")
+            self.log(f"[!] Using dtype=np.complex128 to read {txt}", level=2)
             load = np.loadtxt(
                 txt,
                 skiprows=skiprows,
@@ -1408,7 +1405,7 @@ class WakeSolver:
                 d[header[i] + "]"] = load[:, i]
 
         except Exception:  # keys == int 0, 1, ...
-            self.log("[!] Using integer keys since no header was found")
+            self.log("[!] Using integer keys since no header was found", level=2)
             d = {}
             for i in range(len(load[0, :])):
                 d[i] = load[:, i]
@@ -1519,7 +1516,7 @@ class WakeSolver:
         obj.__dict__.update(self.__dict__)
         return obj
 
-    def log(self, txt, level=0):
+    def log(self, txt, level=1):
         """
         Print a log message if verbose is enabled.
 
@@ -1527,11 +1524,11 @@ class WakeSolver:
         ----------
         txt : str
             Message to print.
+        level : int, optional
+            Verbosity level (1 for main messages, 2 for debug). Default is 1
         """
-        if self.verbose and level == 0:
-            print(txt)
-        elif self.verbose and level == 1:
-            print("\x1b[2;37m" + txt + "\x1b[0m")
+        if level <= self.verbose:
+            print(txt) if level == 1 else print("\x1b[2;37m" + txt + "\x1b[0m")
 
     def read_cst_3d(self, path=None, folder="3d", filename="Ez.h5", units=1e-3):
         """
