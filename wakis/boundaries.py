@@ -200,7 +200,7 @@ class BCsMixin:
         sx, sy, sz = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
         # pml_exp = 2
         self.pml_lo = 5.0e-3
-        self.pml_hi = 10.0
+        self.pml_hi = 1.0
         self.pml_func = np.geomspace
         self.pml_eps_r = 1.0
 
