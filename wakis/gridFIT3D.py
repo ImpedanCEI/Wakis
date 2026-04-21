@@ -559,6 +559,8 @@ class GridFIT3D(PlotMixin):
         # scale
         surf = surf.scale(self.stl_scale[key])
 
+        return surf
+
     def _compute_snap_points(self, snap_solids=None, snap_tol=1e-8):
         """
         Compute snap points from STL feature edges for mesh refinement.
