@@ -680,10 +680,13 @@ class WakeSolver:
         )  # to obtain a 1000 sample single-sided DFT
 
         self.log(
-            f"    * Single sided DFT with number of samples = {samples} and fmax = {fmax}",
+            f"    * Single sided DFT with number of samples = {samples} and fmax = {fmax*1e-9:.3f} GHz",
             level=2,
         )
-        self.log(f"    * Zero-padding to N = {N} points with ds = {ds} m", level=2)
+        self.log(f"    * Zero-padding to N = {N} points with ds = {ds:.3e} m", level=2)
+        self.log(f"    * Frequency resolution df = {self.v/(N*ds)/1e6:.3f} MHz",
+            level=2,
+        )
 
         # Obtain DFTs - is it v or c?
         lambdafft = np.fft.fft(self.lambdas * self.v, n=N)
@@ -738,9 +741,13 @@ class WakeSolver:
         )  # to obtain a 1000 sample single-sided DFT
 
         self.log(
-            f"    * Single sided DFT with number of samples = {samples} and fmax = {fmax}", level=2,
+            f"    * Single sided DFT with number of samples = {samples} and fmax = {fmax*1e-9:.3f} GHz",
+            level=2,
         )
-        self.log(f"    * Zero-padding to N = {N} points with ds = {ds} m", level=2)
+        self.log(f"    * Zero-padding to N = {N} points with ds = {ds:.3e} m", level=2)
+        self.log(f"    * Frequency resolution df = {self.v/(N*ds)/1e6:.3f} MHz",
+            level=2,
+        )
 
         # Obtain DFTs
 
