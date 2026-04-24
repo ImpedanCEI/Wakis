@@ -57,7 +57,7 @@ class GridFIT3D(PlotMixin):
         stl_scale=1.0,
         stl_colors=None,
         stl_tol=1e-3,
-        stl_method="Wakis_v070",
+        stl_method="legacy",
         load_from_h5=None,
         verbose=1,
     ):
@@ -476,9 +476,16 @@ class GridFIT3D(PlotMixin):
         """
         Mark grid cells that are inside each STL solid.
 
-        Uses PyVista's select_interior_points as default (equivalent to the deprecated select_enclosedpoints),
+        Uses PyVista's select_interior_points as default (equivalent to the deprecated select_enclosed_points),
         and otherwise input method either compute_implicit_distance or voxelize_rectilinear,
         to create boolean masks for each solid.
+
+        See also the PyVista documentation:
+        ----------------------------------
+        "interior_points": https://docs.pyvista.org/api/core/_autosummary/pyvista.datasetfilters.select_interior_points
+        "implicit_distance": https://docs.pyvista.org/api/core/_autosummary/pyvista.datasetfilters.compute_implicit_distance
+        "voxelize_rectilinear" : https://docs.pyvista.org/api/core/_autosummary/pyvista.datasetfilters.voxelize_rectilinear
+
         """
         # Obtain masks with grid cells inside each stl solid
         stl_tolerance = (
@@ -492,7 +499,7 @@ class GridFIT3D(PlotMixin):
             surf = self.read_stl(key)
 
             # mark cells in stl [True == in stl, False == out stl]
-            if method == "Wakis_v070":
+            if method.lower() == "legacy":
                 try:
                     select = self.grid.select_interior_points(
                         surf, method="cell_locator", locator_tolerance=stl_tolerance
@@ -517,7 +524,7 @@ class GridFIT3D(PlotMixin):
                             f"[!] Warning: stl solid {key} may have issues with closed surfaces. Consider checking the STL file."
                         )
 
-            elif method == "interior_points":
+            elif method.lower() == "interior_points":
                 try:
                     select = self.grid.select_interior_points(
                         surf, method="cell_locator", locator_tolerance=stl_tolerance
@@ -540,7 +547,7 @@ class GridFIT3D(PlotMixin):
                             f"[!] Warning: stl solid {key} may have issues with closed surfaces. Consider checking the STL file."
                         )
 
-            elif method == "implicit_distance":
+            elif method.lower() == "implicit_distance":
                 # negative distance is inside, positive is outside
                 try:
                     select = self.grid.compute_implicit_distance(surf)
@@ -554,7 +561,7 @@ class GridFIT3D(PlotMixin):
                         f"[!] Warning: Implicit distance computation for stl solid {key} failed."
                     )
 
-            elif method == "voxelize_rectilinear":
+            elif method.lower() == "voxelize_rectilinear":
                 dx, dy, dz = (
                     (self.xmax - self.xmin) / (self.Nx),
                     (self.ymax - self.ymin) / (self.Ny),
