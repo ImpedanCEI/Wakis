@@ -58,3 +58,8 @@ class TestGeometryUtils:
     def test_units(self):
         units = geometry.get_stp_unit_scale(self.STP_FILE)
         assert units == self.UNITS
+
+    def test_measure_stl_slice(self):
+        stl_file = "tests/stl/007_vacuum_cavity.stl"
+        pl = geometry.measure_stl_slice(stl_file, plane="ZX", off_screen=True)
+        assert pl is not None
