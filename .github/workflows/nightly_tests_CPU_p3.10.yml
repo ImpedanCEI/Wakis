@@ -26,18 +26,20 @@ jobs:
       with:
         miniforge-version: latest
         python-version: "3.10"
+    - name: Checkout wakis
+      uses: actions/checkout@v4
+      with:
+        path: wakis
     - name: pip install
       run:  |
-        pip install wakis['notebook']
+        cd wakis
+        pip install .
+        pip install pytest pytest-cov
         pip uninstall vtk -y
         pip install --extra-index-url https://wheels.vtk.org vtk-osmesa
 
     - name: Print versions
       run: conda list
-    - name: Checkout wakis
-      uses: actions/checkout@v4
-      with:
-        path: wakis
     - name: Run pytest
       run:  |
         cd wakis
