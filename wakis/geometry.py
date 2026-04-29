@@ -275,7 +275,7 @@ def generate_stl_solids_from_stp(stp_file, results_path=None):
 
 
 def measure_stl_slice(
-    stl_file,
+    stl_files,
     plane="ZX",
     position=None,
     stl_opacity=0.1,
@@ -293,8 +293,10 @@ def measure_stl_slice(
 
     Parameters
     ----------
-    stl_file : str
-        Path to the STL file to load and visualize.
+    stl_files : str or list of str
+        Path to an STL file, or a list of STL file paths. When a list is
+        provided, all meshes are merged (appended, not intersected) before
+        slicing.
     plane : {'XY', 'ZY', 'ZX'}, optional
         Plane of the slice. Default 'ZX'.
 
@@ -332,20 +334,24 @@ def measure_stl_slice(
     Example
     -------
     >>> import wakis.geometry as geom
-    >>> pl = geom.measure_stl_slice("path/to/geometry.stl", plane="ZX", off_screen=True)
+    >>> pl = geom.measure_stl_slice(["path/to/part1.stl", "path/to/part2.stl"], plane="ZX", off_screen=True)
     >>> pl.screenshot("stl_slice.png")
     """
     import numpy as np
     import pyvista as pv
 
-    # Load the STL file
-    surf = pv.read(stl_file)
+    # Load and merge STL files (accepts a single path or a list of paths)
+    if isinstance(stl_files, str):
+        stl_files = [stl_files]
+    surf = pv.read(stl_files[0])
+    for _f in stl_files[1:]:
+        surf = surf + pv.read(_f)
 
     # Compute domain bounds from the loaded surface
     xmin, xmax, ymin, ymax, zmin, zmax = surf.bounds
 
     plane = plane.upper()
-    plane_to_normal = {"XY": "z", "ZY": "x", "ZX": "y"}
+    plane_to_normal = {"XY": "z", "ZY": "x", "YZ": "x", "ZX": "y", "XZ": "y"}
     if plane not in plane_to_normal:
         raise ValueError(f"plane must be one of 'XY', 'ZY', 'ZX', got '{plane}'")
 
