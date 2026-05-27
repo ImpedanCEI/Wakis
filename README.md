@@ -75,12 +75,6 @@ For additional features, including **interactive 3D plots in Jupyter notebooks**
 ```bash
 pip install wakis['all']
 ```
-To use the *version-frozen* environment specified in `requirements.txt`, with python 3.9-3.11 do:
-```bash
-conda create --name wakis-env python=3.11
-conda activate wakis-env
-pip install wakis['notebook']
-```
 
 To install Wakis from the source, clone the repository and install it in *editable* mode:
 ```bash
