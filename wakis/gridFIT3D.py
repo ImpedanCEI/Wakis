@@ -10,10 +10,10 @@ import numpy as np
 import pyvista as pv
 from scipy.optimize import least_squares
 
+from .clara_pba_plotting import PlotMixinGrid as PlotMixin
 from .field import Field
 from .logger import Logger
 from .materials import material_colors, material_lib
-from .plotting import PlotMixinGrid as PlotMixin
 
 try:
     from mpi4py import MPI
@@ -21,6 +21,7 @@ try:
     imported_mpi = True
 except ImportError:
     imported_mpi = False
+
 
 class GridFIT3D(PlotMixin):
     """
@@ -198,6 +199,7 @@ class GridFIT3D(PlotMixin):
             self.update_logger(["stl_translate"])
         if stl_scale != 1.0:
             self.update_logger(["stl_scale"])
+
         if stl_solids is not None:
             self._prepare_stl_dicts()
 
@@ -216,14 +218,15 @@ class GridFIT3D(PlotMixin):
                 self._compute_snap_points(snap_solids=snap_solids, snap_tol=snap_tol)
             self._refine_xyz_axis(method=refinement_method, tol=refinement_tol)
 
-        print(f"Generating grid with {self.Nx * self.Ny * self.Nz} mesh cells...")
-        if verbose > 1:
-            print(
-                f"    * Simulation domain bounds: \n\
-                x:[{xmin:.3f}, {xmax:.3f}],\n\
-                y:[{ymin:.3f}, {ymax:.3f}],\n\
-                z:[{zmin:.3f}, {zmax:.3f}]"
-            )
+        if verbose:
+            print(f"Generating grid with {self.Nx * self.Ny * self.Nz} mesh cells...")
+            if verbose > 1:
+                print(
+                    f" * Simulation domain bounds: \n\
+                    x:[{xmin:.3f}, {xmax:.3f}],\n\
+                    y:[{ymin:.3f}, {ymax:.3f}],\n\
+                    z:[{zmin:.3f}, {zmax:.3f}]"
+                )
 
         # MPI subdivide domain
         if self.use_mpi:
@@ -327,7 +330,7 @@ class GridFIT3D(PlotMixin):
         self.Z += (self.ZMAX - self.ZMIN) / (2 * self.NZ)
 
         if self.verbose and self.rank == 0:
-            print(f"* Global grid ZMIN={self.ZMIN}, ZMAX={self.ZMAX}, NZ={self.NZ}")
+            print(f" * Global grid ZMIN={self.ZMIN}, ZMAX={self.ZMAX}, NZ={self.NZ}")
 
         # MPI subdomain quantities [TODO: support non-uniform dz with MPI]
         self.Nz = self.NZ // (self.size)
@@ -337,7 +340,7 @@ class GridFIT3D(PlotMixin):
 
         if self.verbose:
             print(
-                f"    * MPI rank {self.rank} of {self.size} initialized with \
+                f"MPI rank {self.rank} of {self.size} initialized with \
                         zmin={self.zmin}, zmax={self.zmax}, Nz={self.Nz}"
             )
         # Add ghost cells
@@ -403,7 +406,7 @@ class GridFIT3D(PlotMixin):
                 self.stl_solids = {"Solid 1": self.stl_solids}
             else:
                 raise Exception(
-                    "[!] Attribute `stl_solids` must contain a string or a dictionary"
+                    "Attribute `stl_solids` must contain a string or a dictionary"
                 )
 
         if type(self.stl_rotate) is not dict:
@@ -453,7 +456,7 @@ class GridFIT3D(PlotMixin):
                 self.stl_materials = {"Solid 1": self.stl_materials}
             else:
                 raise Exception(
-                    "[!] Attribute `stl_materials` must contain a string or a dictionary"
+                    "Attribute `stl_materials` must contain a string or a dictionary"
                 )
 
         for key in self.stl_solids.keys():
@@ -597,8 +600,64 @@ class GridFIT3D(PlotMixin):
 
             if self.verbose > 1:
                 print(
-                    f"    * STL solid {key}: {np.sum(self.grid[key])} cells marked inside the solid."
+                    f" * STL solid {key}: {np.sum(self.grid[key])} cells marked inside the solid."
                 )
+
+    # new PBA----------------------------------------------------------------------------------------------------------
+    def compute_pba_mask(
+        self, key, inplace=True, distval=0.1, threshold=False, value=0.1
+    ):
+        """
+        Computes fractional volume mask for a specific STL key.
+        If inplace=True, updates self.grid[key] with float fractions [0.0, 1.0].
+        """
+        # 1. Setup Voxel metrics from Wakis attributes
+        # self.dx, dy, dz are the grid spacings defined in __init__
+        voxel_vol = np.min(self.dx) * np.min(self.dy) * np.min(self.dz)
+        min_spacing = min(np.min(self.dx), np.min(self.dy), np.min(self.dz))
+
+        # Track cell IDs to map fragments back to original cells
+        self.grid.cell_data["_tmp_ids"] = np.arange(self.grid.n_cells)
+
+        surface = self.read_stl(key)
+        clipped = self.grid.clip_surface(
+            surface, invert=True, crinkle=False, value=distval * min_spacing
+        )
+
+        # Calculate Fractions
+        fractions_1d = np.zeros(self.grid.n_cells)
+        if clipped.n_cells > 0:
+            clipped_vols = np.abs(clipped.compute_cell_sizes()["Volume"])
+            parent_ids = clipped.cell_data["_tmp_ids"]
+            # Accumulate fractional volumes into original cell indices
+            np.add.at(fractions_1d, parent_ids, clipped_vols / voxel_vol)
+
+        fractions_1d = np.clip(fractions_1d, 0.0, 1.0)
+
+        if threshold:
+            # Returns a boolean mask where fraction > value
+            mask_to_store = (fractions_1d >= value).astype(int)
+        else:
+            mask_to_store = fractions_1d
+
+        if inplace:
+            # Overwrite the previous binary/boolean mask in the PyVista grid
+            self.grid[key] = mask_to_store
+            if self.verbose:
+                print(
+                    f" * Updated '{key}' mask in self.grid with PBA fractional volumes."
+                )
+        else:
+            print(
+                "something is wrong with the shape of the PBA fractional volumes object"
+            )
+
+        # Return 3D reshaped mask for direct use if needed
+        # Fortran order 'F' is used to match Wakis meshgrid indexing='ij'... not sure about this TO DO
+        cell_dims = (self.Nx, self.Ny, self.Nz)
+        # return fractions_1d.reshape(cell_dims, order="F")
+
+    # new PBA end-------------------------------------------------------------------------------------------------------------
 
     def _mark_cells_in_surface(self, key):
         # Modify the STL mask to account only for the surface
@@ -660,7 +719,7 @@ class GridFIT3D(PlotMixin):
             Tolerance for snap point detection.
         """
         if self.verbose > 1:
-            print("    * Calculating snappy points...")
+            print(" * Calculating snappy points...")
         # Support for user-defined stl_keys as list
         if snap_solids is None:
             snap_solids = self.stl_solids.keys()
@@ -874,7 +933,7 @@ class GridFIT3D(PlotMixin):
         """
 
         if self.verbose > 1:
-            print(f"    * Refining x axis with {len(self.x_snaps)} snaps...")
+            print(f" * Refining x axis with {len(self.x_snaps)} snaps...")
         self.x = self.refine_axis(
             self.xmin,
             self.xmax,
@@ -885,7 +944,7 @@ class GridFIT3D(PlotMixin):
         )
 
         if self.verbose > 1:
-            print(f"    * Refining y axis with {len(self.y_snaps)} snaps...")
+            print(f" * Refining y axis with {len(self.y_snaps)} snaps...")
         self.y = self.refine_axis(
             self.ymin,
             self.ymax,
@@ -896,7 +955,7 @@ class GridFIT3D(PlotMixin):
         )
 
         if self.verbose > 1:
-            print(f"    * Refining z axis with {len(self.z_snaps)} snaps...")
+            print(f" * Refining z axis with {len(self.z_snaps)} snaps...")
         self.z = self.refine_axis(
             self.zmin,
             self.zmax,
@@ -1055,19 +1114,19 @@ class GridFIT3D(PlotMixin):
         # add verbosity
         if self.verbose > 1:
             print(f"Loaded grid with {self.Nx * self.Ny * self.Nz} mesh cells:")
-            print(f"    * Number of cells: Nx={self.Nx}, Ny={self.Ny}, Nz={self.Nz}")
+            print(f" * Number of cells: Nx={self.Nx}, Ny={self.Ny}, Nz={self.Nz}")
             print(
-                f"    * Simulation domain bounds: \n\
+                f" * Simulation domain bounds: \n\
                 x:[{self.xmin:.3f}, {self.xmax:.3f}],\n\
                 y:[{self.ymin:.3f}, {self.ymax:.3f}],\n\
                 z:[{self.zmin:.3f}, {self.zmax:.3f}]"
             )
             print(
-                f"    * STL solids imported:\n\
+                f" * STL solids imported:\n\
                 {list(self.stl_solids.keys())}"
             )
             print(
-                f"    * STL solids assigned materials [eps_r, mu_r, sigma]:\n\
+                f" * STL solids assigned materials [eps_r, mu_r, sigma]:\n\
                 {list(self.stl_materials.values())}"
             )
 
