@@ -11,10 +11,10 @@ import pyvista as pv
 from scipy.ndimage import gaussian_filter
 from scipy.optimize import least_squares
 
-from .clara_pba_plotting import PlotMixinGrid as PlotMixin
 from .field import Field
 from .logger import Logger
 from .materials import material_colors, material_lib
+from .plotting import PlotMixinGrid as PlotMixin
 
 try:
     from mpi4py import MPI
