@@ -455,50 +455,63 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.stl_colors = self.grid.stl_colors
 
         for key in self.stl_solids.keys():
-            # TODO: adapt for subpixel smoothing
 
             # Retrieve mask and materials from grid
-            mask = np.reshape(grid[key], (self.Nx, self.Ny, self.Nz)).astype(int)
+            mask = np.reshape(grid[key], (self.Nx, self.Ny, self.Nz)).astype(float)
             eps = self.stl_materials[key][0] * eps_0
             mu = self.stl_materials[key][1] * mu_0
+            sigma = self.stl_materials[key][2]
 
             # Conductivity
-            if len(self.stl_materials[key]) == 3:
-                sigma = self.stl_materials[key][2]
+            if sigma > 0.0:  # if conductivity provided
 
-                # Relaxation time approximation
-                if self.use_sibc and sigma > 0.0:
-                    eps = sigma * eps_0
-
-                # Mark surface cells for SIBC if conductivity is high
-                if (
-                    self.use_sibc and self.stl_materials[key][2] > np.inf
-                ):  # self.sigma_max*:
-                    if self.verbose > 1:
+                if self.use_sibc:
+                    eps = np.inf # bulk material is PEC
+                else:
+                    if sigma > 100*eps/eps_0:
                         print(
-                            f'    * Applying SIBC for solid "{key}" with sigma={sigma} S/m'
+                            f"[!] Warning: High conductivity sigma={sigma} S/m "
+                            f"for solid '{key}' with low permittivity epsilon_r={eps/eps_0} "
+                            f"will considerably reduce the maximal stable timestep.\n"
+                            f"Consider enabling SIBC approximation `use_sibc=True`"
                         )
-                    self.grid._mark_cells_in_surface(key)
-                    mask = np.reshape(grid[key], (self.Nx, self.Ny, self.Nz)).astype(
-                        int
-                    )
-                    Z_s = np.sqrt(np.pi * self.fmax * mu / sigma)
-                    sigma = 1 / Z_s  # SIBC surface conductivity [S]
-                    eps = 1 / Z_s
 
                 # Update sigma tensor
                 self.sigma += self.sigma * (-1.0 * mask)
                 self.sigma += mask * sigma
                 self.use_conductivity = True
 
-            elif self.sigma_bg > 0.0:  # assumed sigma=0
-                self.sigma += self.sigma * (-1.0 * mask)
-
             # Update ieps and imu tensors
             self.ieps += self.ieps * (-1.0 * mask)
             self.imu += self.imu * (-1.0 * mask)
             self.ieps += mask * 1.0 / eps
             self.imu += mask * 1.0 / mu
+
+    def _apply_SIBC(self, key):
+
+        eps = self.stl_materials[key][0] * eps_0
+        mu = self.stl_materials[key][1] * mu_0
+        sigma = self.stl_materials[key][2]
+
+        # Mark surface cells for SIBC if conductivity is high
+        if (self.use_sibc and sigma > np.inf):  # self.sigma_max*:
+            if self.verbose > 1:
+                print(f'    * Applying SIBC for solid "{key}" with sigma={sigma} S/m')
+
+            # Retrieve surface mask
+            surface_mask = self.grid._mark_cells_in_surface(key)
+            mask = np.reshape(surface_mask, (self.Nx, self.Ny, self.Nz)).astype(int)
+
+            # Calculate effective surface impedance and update tensors at the surface
+            Z_s = np.sqrt(np.pi * self.fmax * mu / sigma)
+            sigma_eff = 1 / Z_s  # SIBC surface conductivity [S]
+            eps_eff = (1 / Z_s - 1) * eps_0 + eps
+
+            # Update tensors
+            self.sigma += self.sigma * (-1.0 * mask)
+            self.sigma += mask * sigma_eff
+            self.ieps += self.ieps * (-1.0 * mask)
+            self.ieps += mask * 1.0 / eps_eff
 
     def _one_step(self):
         if self.step_0:

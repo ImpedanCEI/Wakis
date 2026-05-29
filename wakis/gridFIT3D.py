@@ -60,6 +60,7 @@ class GridFIT3D(PlotMixin):
         stl_tol=1e-3,
         stl_method="legacy",
         use_subpixel_smoothing=False,
+        subpixel_smoothing_factor=4,
         load_from_h5=None,
         verbose=1,
     ):
@@ -112,6 +113,11 @@ class GridFIT3D(PlotMixin):
         stl_method : str, optional
             Method for marking cells inside STL solids. Options are "interior_points" (default),
             "implicit_distance", or "voxelize_rectilinear".
+        use_subpixel_smoothing : bool, optional
+            Whether to apply subpixel smoothing to the STL masks after voxelization. Default is False.
+        subpixel_smoothing_factor : int, optional
+            Factor by which to increase the resolution for subpixel smoothing. Default is 4.
+            Memory usage increases with the cube of this factor, so use with caution!
         load_from_h5 : str, optional
             Load grid from an h5 file previously saved with `save_to_h5`.
         verbose : int or bool, optional
@@ -253,7 +259,8 @@ class GridFIT3D(PlotMixin):
             print("Importing STL solids...")
         self.stl_tol = stl_tol
         self.stl_method = stl_method
-        self.use_scs = use_subpixel_smoothing
+        self.use_subpixel_smoothing = use_subpixel_smoothing
+        self.subpixel_smoothing_factor = subpixel_smoothing_factor
         if stl_solids is not None:
             self._mark_cells_in_stl(method=self.stl_method)
 
@@ -461,19 +468,14 @@ class GridFIT3D(PlotMixin):
                 raise Exception(
                     "Attribute `stl_materials` must contain a string or a dictionary"
                 )
-
+        # Material library lookup and conversion to [eps, mu, sigma] format
         for key in self.stl_solids.keys():
-            # if material keys are str, convert to vals using material library
             if type(self.stl_materials[key]) is str:
                 mat_key = self.stl_materials[key].lower()
-                eps_r = material_lib[mat_key][0]
-                mu_r = material_lib[mat_key][1]
-
-                self.stl_materials[key] = [eps_r, mu_r]
-
-                if len(material_lib[mat_key]) == 3:
-                    sigma = material_lib[mat_key][2]
-                    self.stl_materials[key].append(sigma)
+                mat = material_lib[mat_key]
+                self.stl_materials[key] = [mat[0], mat[1], mat[2] if len(mat) == 3 else 0.0]
+            elif len(self.stl_materials[key]) == 2:
+                self.stl_materials[key].append(0.0)
 
     def _mark_cells_in_stl(self, method):
         """
@@ -587,8 +589,10 @@ class GridFIT3D(PlotMixin):
                     ).astype(bool)
                     self.grid[key] = np.reshape(mask, (self.Nx * self.Ny * self.Nz))
 
-                    if self.use_scs:
-                        self._apply_scs(key, factor=self.scs_factor)
+                    # Apply subpixel smoothing if enabled
+                    if self.use_subpixel_smoothing:
+                        self._apply_subpixel_smoothing(key, factor=self.subpixel_smoothing_factor)
+
                 except Exception:
                     print(
                         f"[!] Warning: voxelization for stl solid {key} failed. Consider checking if the grid is uniform or using a different method."
@@ -609,7 +613,7 @@ class GridFIT3D(PlotMixin):
                     f" * STL solid {key}: {np.sum(self.grid[key])} cells marked inside the solid."
                 )
 
-    def _apply_scs(
+    def _apply_subpixel_smoothing(
         self,
         key,
         factor=4,
@@ -617,8 +621,36 @@ class GridFIT3D(PlotMixin):
         make_bool=True,
         threshold=0.1,
     ):
-        """ """
+        """ 
+        Apply subpixel smoothing to the STL mask. 
 
+        This method creates a higher resolution reference volume for voxelization, 
+        applies the voxelization at this higher resolution, and then combines 
+        the results to create a more accurate mask with the original grid resolution. 
+        
+        The smoothing is done by averaging the values from the higher resolution grid 
+        and computing the gradient at mask edges, then applying a Gaussian filter.
+
+        Parameters
+        ----------
+        key : str
+            Key of the STL solid to smooth.
+        factor : int, optional
+            Factor by which to increase the resolution for subpixel smoothing. Default is 4.
+        sigma : float, optional
+            Standard deviation for Gaussian filter. Default is 0.5.
+        make_bool : bool, optional
+            Whether to convert the smoothed mask to boolean. Default is True.
+        threshold : float, optional
+            Threshold for converting the smoothed mask to boolean. Default is 0.1.
+        """
+        # Skip for vacuum solids
+        if self.stl_materials[key][0] == 1.0 and self.stl_materials[key][1] == 1.0 and self.stl_materials[key][2] == 0.0:
+            return 
+
+        surface = self.read_stl(key)
+
+        # Create a higher resolution reference volume for voxelization
         Nx, Ny, Nz = self.Nx * factor, self.Ny * factor, self.Nz * factor
         dx = (self.xmax - self.xmin) / (Nx)
         dy = (self.ymax - self.ymin) / (Ny)
@@ -629,33 +661,48 @@ class GridFIT3D(PlotMixin):
             origin=(self.xmin + dx / 2, self.ymin + dy / 2, self.zmin + dz / 2),
             spacing=(dx, dy, dz),
         )
-
-        surface = self.read_stl(key)
         vox = surface.voxelize_rectilinear(
             reference_volume=reference_vol, progress_bar=True
         )
         mask_ref = np.reshape(vox["mask"], (Nx, Ny, Nz), order="F")
 
+        # Combine the higher resolution mask back to the original grid resolution
         mask = np.zeros((self.Nx, self.Ny, self.Nz)).astype(int)
         for i in range(factor):
-            partial = (
-                mask_ref[i::factor, i::factor, i::factor].astype(int) * 255 // factor
-            )
-            grad = np.gradient(partial)
-            partial += np.sqrt(grad[0] ** 2 + grad[1] ** 2 + grad[2] ** 2).astype(int)
-            partial = gaussian_filter(partial, sigma=sigma).astype(int)
-            mask += partial
-
-        mask = np.clip(mask, 0, 255) / 255
+            partial = mask_ref[i::factor, i::factor, i::factor].astype(int) * 255 // factor
+            partial += np.sqrt(sum(g**2 for g in np.gradient(partial))).astype(int)
+            mask += gaussian_filter(partial, sigma=sigma).astype(int)
 
         # Overwrite the previous binary/boolean mask in the PyVista grid
+        mask = np.clip(mask, 0, 255) / 255  # Normalize to [0, 1]
         if make_bool:
             mask = mask > threshold
+
         self.grid[key] = np.reshape(mask, (self.Nx * self.Ny * self.Nz))
         if self.verbose > 1:
-            print(f" * Updated '{key}' mask in self.grid with SCS fractional volumes.")
+            print(f" * Updated '{key}' mask in self.grid with subpixel smoothing.")
 
-    # new SCS end-------------------------------------------------------------------------------------------------------------
+    def _check_stl_masks_overlap(self):
+        """
+        Check for overlapping STL masks in the grid 
+        and print warnings if overlaps are found.
+
+        This method computes the sum of all STL masks and identifies cells 
+        that are marked as inside more than one solid.
+        """
+        mask_sum = np.zeros(self.Nx * self.Ny * self.Nz, dtype=int)
+        for key in self.stl_solids.keys():
+            mask_sum += self.grid[key].astype(int)
+
+        overlap_mask = mask_sum > 1
+        num_overlaps = np.sum(overlap_mask)
+
+        if num_overlaps > 0 and self.verbose > 1:
+            print(
+                f"[!] Warning: {num_overlaps} cells are marked as inside multiple STL solids. \
+                Consider checking for overlapping geometries."
+            )
+
 
     def _mark_cells_in_surface(self, key):
         # Modify the STL mask to account only for the surface
@@ -673,7 +720,7 @@ class GridFIT3D(PlotMixin):
         grad = np.sqrt(grad[:, 0] ** 2 + grad[:, 1] ** 2 + grad[:, 2] ** 2)
         mask = grad.astype(bool)  # TODO: subpixel smoothing
 
-        self.grid[key] = mask
+        return mask
 
     def read_stl(self, key):
         """
