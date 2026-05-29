@@ -8,6 +8,7 @@ import time
 import h5py
 import numpy as np
 import pyvista as pv
+from scipy.ndimage import gaussian_filter
 from scipy.optimize import least_squares
 
 from .clara_pba_plotting import PlotMixinGrid as PlotMixin
@@ -58,6 +59,7 @@ class GridFIT3D(PlotMixin):
         stl_colors=None,
         stl_tol=1e-3,
         stl_method="legacy",
+        use_subpixel_smoothing=False,
         load_from_h5=None,
         verbose=1,
     ):
@@ -251,6 +253,7 @@ class GridFIT3D(PlotMixin):
             print("Importing STL solids...")
         self.stl_tol = stl_tol
         self.stl_method = stl_method
+        self.use_scs = use_subpixel_smoothing
         if stl_solids is not None:
             self._mark_cells_in_stl(method=self.stl_method)
 
@@ -583,6 +586,9 @@ class GridFIT3D(PlotMixin):
                         vox["mask"], (self.Nx, self.Ny, self.Nz), order="F"
                     ).astype(bool)
                     self.grid[key] = np.reshape(mask, (self.Nx * self.Ny * self.Nz))
+
+                    if self.use_scs:
+                        self._apply_scs(key, factor=self.scs_factor)
                 except Exception:
                     print(
                         f"[!] Warning: voxelization for stl solid {key} failed. Consider checking if the grid is uniform or using a different method."
@@ -603,61 +609,53 @@ class GridFIT3D(PlotMixin):
                     f" * STL solid {key}: {np.sum(self.grid[key])} cells marked inside the solid."
                 )
 
-    # new PBA----------------------------------------------------------------------------------------------------------
-    def compute_pba_mask(
-        self, key, inplace=True, distval=0.1, threshold=False, value=0.1
+    def _apply_scs(
+        self,
+        key,
+        factor=4,
+        sigma=0.5,
+        make_bool=True,
+        threshold=0.1,
     ):
-        """
-        Computes fractional volume mask for a specific STL key.
-        If inplace=True, updates self.grid[key] with float fractions [0.0, 1.0].
-        """
-        # 1. Setup Voxel metrics from Wakis attributes
-        # self.dx, dy, dz are the grid spacings defined in __init__
-        voxel_vol = np.min(self.dx) * np.min(self.dy) * np.min(self.dz)
-        min_spacing = min(np.min(self.dx), np.min(self.dy), np.min(self.dz))
+        """ """
 
-        # Track cell IDs to map fragments back to original cells
-        self.grid.cell_data["_tmp_ids"] = np.arange(self.grid.n_cells)
+        Nx, Ny, Nz = self.Nx * factor, self.Ny * factor, self.Nz * factor
+        dx = (self.xmax - self.xmin) / (Nx)
+        dy = (self.ymax - self.ymin) / (Ny)
+        dz = (self.zmax - self.zmin) / (Nz)
 
-        surface = self.read_stl(key)
-        clipped = self.grid.clip_surface(
-            surface, invert=True, crinkle=False, value=distval * min_spacing
+        reference_vol = pv.ImageData(
+            dimensions=(Nx, Ny, Nz),
+            origin=(self.xmin + dx / 2, self.ymin + dy / 2, self.zmin + dz / 2),
+            spacing=(dx, dy, dz),
         )
 
-        # Calculate Fractions
-        fractions_1d = np.zeros(self.grid.n_cells)
-        if clipped.n_cells > 0:
-            clipped_vols = np.abs(clipped.compute_cell_sizes()["Volume"])
-            parent_ids = clipped.cell_data["_tmp_ids"]
-            # Accumulate fractional volumes into original cell indices
-            np.add.at(fractions_1d, parent_ids, clipped_vols / voxel_vol)
+        surface = self.read_stl(key)
+        vox = surface.voxelize_rectilinear(
+            reference_volume=reference_vol, progress_bar=True
+        )
+        mask_ref = np.reshape(vox["mask"], (Nx, Ny, Nz), order="F")
 
-        fractions_1d = np.clip(fractions_1d, 0.0, 1.0)
-
-        if threshold:
-            # Returns a boolean mask where fraction > value
-            mask_to_store = (fractions_1d >= value).astype(int)
-        else:
-            mask_to_store = fractions_1d
-
-        if inplace:
-            # Overwrite the previous binary/boolean mask in the PyVista grid
-            self.grid[key] = mask_to_store
-            if self.verbose:
-                print(
-                    f" * Updated '{key}' mask in self.grid with PBA fractional volumes."
-                )
-        else:
-            print(
-                "something is wrong with the shape of the PBA fractional volumes object"
+        mask = np.zeros((self.Nx, self.Ny, self.Nz)).astype(int)
+        for i in range(factor):
+            partial = (
+                mask_ref[i::factor, i::factor, i::factor].astype(int) * 255 // factor
             )
+            grad = np.gradient(partial)
+            partial += np.sqrt(grad[0] ** 2 + grad[1] ** 2 + grad[2] ** 2).astype(int)
+            partial = gaussian_filter(partial, sigma=sigma).astype(int)
+            mask += partial
 
-        # Return 3D reshaped mask for direct use if needed
-        # Fortran order 'F' is used to match Wakis meshgrid indexing='ij'... not sure about this TO DO
-        cell_dims = (self.Nx, self.Ny, self.Nz)
-        # return fractions_1d.reshape(cell_dims, order="F")
+        mask = np.clip(mask, 0, 255) / 255
 
-    # new PBA end-------------------------------------------------------------------------------------------------------------
+        # Overwrite the previous binary/boolean mask in the PyVista grid
+        if make_bool:
+            mask = mask > threshold
+        self.grid[key] = np.reshape(mask, (self.Nx * self.Ny * self.Nz))
+        if self.verbose > 1:
+            print(f" * Updated '{key}' mask in self.grid with SCS fractional volumes.")
+
+    # new SCS end-------------------------------------------------------------------------------------------------------------
 
     def _mark_cells_in_surface(self, key):
         # Modify the STL mask to account only for the surface
