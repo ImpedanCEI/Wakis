@@ -121,6 +121,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             CFL number used when computing dt from grid spacing.
         """
 
+        print("Initializing Electromagnetic solver...")
         self.verbose = verbose
         t0 = time.time()
         self.logger = Logger()

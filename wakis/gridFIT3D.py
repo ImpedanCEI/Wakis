@@ -226,15 +226,17 @@ class GridFIT3D(PlotMixin):
                 self._compute_snap_points(snap_solids=snap_solids, snap_tol=snap_tol)
             self._refine_xyz_axis(method=refinement_method, tol=refinement_tol)
 
-        if verbose:
-            print(f"Generating grid with {self.Nx * self.Ny * self.Nz} mesh cells...")
-            if verbose > 1:
-                print(
-                    f" * Simulation domain bounds: \n\
-                    x:[{xmin:.3f}, {xmax:.3f}],\n\
-                    y:[{ymin:.3f}, {ymax:.3f}],\n\
-                    z:[{zmin:.3f}, {zmax:.3f}]"
-                )
+        print(f"Generating grid with {self.Nx * self.Ny * self.Nz} mesh cells...")
+        if verbose > 1:
+            print(
+                f"    * Simulation domain bounds: \n\
+                x:[{xmin:.3f}, {xmax:.3f}],\n\
+                y:[{ymin:.3f}, {ymax:.3f}],\n\
+                z:[{zmin:.3f}, {zmax:.3f}]"
+            )
+            print("    * Minimum cell sizes: dx={:.3e}, dy={:.3e}, dz={:.3e}".format(
+                np.min(self.dx), np.min(self.dy), np.min(self.dz)
+            ))
 
         # MPI subdivide domain
         if self.use_mpi:
