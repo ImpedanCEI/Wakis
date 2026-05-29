@@ -623,14 +623,14 @@ class GridFIT3D(PlotMixin):
         make_bool=True,
         threshold=0.1,
     ):
-        """ 
-        Apply subpixel smoothing to the STL mask. 
+        """
+        Apply subpixel smoothing to the STL mask.
 
-        This method creates a higher resolution reference volume for voxelization, 
-        applies the voxelization at this higher resolution, and then combines 
-        the results to create a more accurate mask with the original grid resolution. 
-        
-        The smoothing is done by averaging the values from the higher resolution grid 
+        This method creates a higher resolution reference volume for voxelization,
+        applies the voxelization at this higher resolution, and then combines
+        the results to create a more accurate mask with the original grid resolution.
+
+        The smoothing is done by averaging the values from the higher resolution grid
         and computing the gradient at mask edges, then applying a Gaussian filter.
 
         Parameters
@@ -648,7 +648,7 @@ class GridFIT3D(PlotMixin):
         """
         # Skip for vacuum solids
         if self.stl_materials[key][0] == 1.0 and self.stl_materials[key][1] == 1.0 and self.stl_materials[key][2] == 0.0:
-            return 
+            return
 
         surface = self.read_stl(key)
 
@@ -686,10 +686,10 @@ class GridFIT3D(PlotMixin):
 
     def _check_stl_masks_overlap(self):
         """
-        Check for overlapping STL masks in the grid 
+        Check for overlapping STL masks in the grid
         and print warnings if overlaps are found.
 
-        This method computes the sum of all STL masks and identifies cells 
+        This method computes the sum of all STL masks and identifies cells
         that are marked as inside more than one solid.
         """
         mask_sum = np.zeros(self.Nx * self.Ny * self.Nz, dtype=int)
