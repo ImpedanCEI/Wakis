@@ -620,7 +620,7 @@ class GridFIT3D(PlotMixin):
         key,
         factor=4,
         sigma=0.5,
-        make_bool=True,
+        make_bool=False,
         threshold=0.1,
     ):
         """
