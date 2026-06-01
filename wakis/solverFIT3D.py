@@ -478,13 +478,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                         )
 
                 # Update sigma tensor
-                self.sigma += self.sigma * (-1.0 * mask)
+                self.sigma += self.sigma * (-1.0 * mask.astype(bool))
                 self.sigma += mask * sigma
                 self.use_conductivity = True
 
             # Update ieps and imu tensors
-            self.ieps += self.ieps * (-1.0 * mask)
-            self.imu += self.imu * (-1.0 * mask)
+            self.ieps += self.ieps * (-1.0 * mask.astype(bool))
+            self.imu += self.imu * (-1.0 * mask.astype(bool))
             self.ieps += mask * 1.0 / eps
             self.imu += mask * 1.0 / mu
 
