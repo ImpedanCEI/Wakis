@@ -59,7 +59,7 @@ class GridFIT3D(PlotMixin):
         stl_colors=None,
         stl_tol=1e-3,
         stl_method="legacy",
-        use_subpixel_smoothing=False,
+        subpixel_smoothing=False,
         subpixel_smoothing_factor=4,
         load_from_h5=None,
         verbose=1,
@@ -261,7 +261,7 @@ class GridFIT3D(PlotMixin):
             print("Importing STL solids...")
         self.stl_tol = stl_tol
         self.stl_method = stl_method
-        self.use_subpixel_smoothing = use_subpixel_smoothing
+        self.use_subpixel_smoothing = subpixel_smoothing
         self.subpixel_smoothing_factor = subpixel_smoothing_factor
         if stl_solids is not None:
             self._mark_cells_in_stl(method=self.stl_method)
@@ -499,11 +499,14 @@ class GridFIT3D(PlotMixin):
             np.min([np.min(self.dx), np.min(self.dy), np.min(self.dz)]) * self.stl_tol
         )
         progress_bar = False
-        if self.Nx * self.Ny * self.Nz > 5e6 and self.verbose:
+        if self.verbose > 1:
             progress_bar = True
 
         for key in self.stl_solids.keys():
             surf = self.read_stl(key)
+
+            if self.verbose:
+                print(f" * Marking cells inside STL solid '{key}'...")
 
             # mark cells in stl [True == in stl, False == out stl]
             if method.lower() == "legacy":
@@ -610,9 +613,9 @@ class GridFIT3D(PlotMixin):
                     f"[!] Warning: no cells were marked inside stl solid {key}. Consider increasing the tolerance factor (currently {self.stl_tol})."
                 )
 
-            if self.verbose > 1:
+            if self.verbose:
                 print(
-                    f" * STL solid {key}: {np.sum(self.grid[key])} cells marked inside the solid."
+                    f"    * STL solid {key}: {np.sum(self.grid[key])} cells marked inside the solid."
                 )
 
     def _apply_subpixel_smoothing(
@@ -646,6 +649,9 @@ class GridFIT3D(PlotMixin):
         threshold : float, optional
             Threshold for converting the smoothed mask to boolean. Default is 0.1.
         """
+        if self.verbose > 1:
+            print(f"    * Applying subpixel smoothing with factor {factor}...")
+
         # Skip for vacuum solids
         if self.stl_materials[key][0] == 1.0 and self.stl_materials[key][1] == 1.0 and self.stl_materials[key][2] == 0.0:
             return
@@ -664,25 +670,27 @@ class GridFIT3D(PlotMixin):
             spacing=(dx, dy, dz),
         )
         vox = surface.voxelize_rectilinear(
-            reference_volume=reference_vol, progress_bar=True
+            reference_volume=reference_vol, 
         )
         mask_ref = np.reshape(vox["mask"], (Nx, Ny, Nz), order="F")
 
         # Combine the higher resolution mask back to the original grid resolution
-        mask = np.zeros((self.Nx, self.Ny, self.Nz)).astype(int)
+        mask = np.zeros((self.Nx, self.Ny, self.Nz)).astype(float)
         for i in range(factor):
-            partial = mask_ref[i::factor, i::factor, i::factor].astype(int) * 255 // factor
-            partial += np.sqrt(sum(g**2 for g in np.gradient(partial))).astype(int)
-            mask += gaussian_filter(partial, sigma=sigma).astype(int)
+            for j in range(factor):
+                for k in range(factor):
+                    sub_mask = mask_ref[i::factor, j::factor, k::factor].astype(float)  
+                    sub_mask += np.sqrt(sum(g**2 for g in np.gradient(sub_mask)))
+                    mask += gaussian_filter(np.clip(sub_mask, 0, 1) , sigma=sigma)
 
         # Overwrite the previous binary/boolean mask in the PyVista grid
-        mask = np.clip(mask, 0, 255) / 255  # Normalize to [0, 1]
+        mask = np.clip(mask, 0, factor**3) / factor**3  # Normalize to [0, 1]
         if make_bool:
             mask = mask > threshold
 
-        self.grid[key] = np.reshape(mask, (self.Nx * self.Ny * self.Nz))
-        if self.verbose > 1:
-            print(f" * Updated '{key}' mask in self.grid with subpixel smoothing.")
+        self.grid[key] = np.reshape(mask, (self.Nx * self.Ny * self.Nz)).astype(float)
+        del vox, mask_ref, mask, sub_mask
+
 
     def _check_stl_masks_overlap(self):
         """
