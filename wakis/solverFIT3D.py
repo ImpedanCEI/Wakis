@@ -54,7 +54,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         dtype=np.float64,
         n_pml=10,
         bg=[1.0, 1.0],
-        verbose=1,
+        verbose=2,
     ):
         """
         3D time-domain electromagnetic solver based on the Finite Integration
@@ -315,7 +315,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.tau = (1 / self.ieps.toarray()[mask]) / self.sigma.toarray()[mask]
 
             if self.dt > self.tau.min():
-               self.dt = self.tau.min()
+                self.dt = self.tau.min()
 
         if self.verbose > 1:
             print(f"    * Simulation timestep: dt={self.dt:.3e} s")
@@ -456,7 +456,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.stl_colors = self.grid.stl_colors
 
         for key in self.stl_solids.keys():
-
             # Retrieve mask and materials from grid
             mask = np.reshape(grid[key], (self.Nx, self.Ny, self.Nz)).astype(float)
             eps = self.stl_materials[key][0] * eps_0
@@ -465,14 +464,14 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
             # Conductivity of bulk material
             if sigma > 0.0:
-                if self.use_sibc: # bulk material is PEC
+                if self.use_sibc:  # bulk material is PEC
                     eps = np.inf
                     sigma = 0.0
                 else:
-                    if sigma > 100*eps/eps_0:
+                    if sigma > 100 * eps / eps_0:
                         print(
                             f"[!] Warning: High conductivity sigma={sigma} S/m "
-                            f"for solid '{key}' with low permittivity epsilon_r={eps/eps_0} "
+                            f"for solid '{key}' with low permittivity epsilon_r={eps / eps_0} "
                             f"will considerably reduce the maximal stable timestep.\n"
                             f"Consider enabling SIBC approximation `use_sibc=True`"
                         )
@@ -493,7 +492,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self._apply_SIBC(key)
 
     def _apply_SIBC(self, key):
-
         eps = self.stl_materials[key][0] * eps_0
         mu = self.stl_materials[key][1] * mu_0
         sigma = self.stl_materials[key][2]

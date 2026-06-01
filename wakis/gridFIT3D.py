@@ -62,7 +62,7 @@ class GridFIT3D(PlotMixin):
         subpixel_smoothing=False,
         subpixel_smoothing_factor=4,
         load_from_h5=None,
-        verbose=1,
+        verbose=2,
     ):
         """
         Class holding the grid information and STL importing/handling using PyVista.
@@ -234,9 +234,11 @@ class GridFIT3D(PlotMixin):
                 y:[{ymin:.3f}, {ymax:.3f}],\n\
                 z:[{zmin:.3f}, {zmax:.3f}]"
             )
-            print("    * Minimum cell sizes: dx={:.3e}, dy={:.3e}, dz={:.3e}".format(
-                np.min(self.dx), np.min(self.dy), np.min(self.dz)
-            ))
+            print(
+                "    * Minimum cell sizes: dx={:.3e}, dy={:.3e}, dz={:.3e}".format(
+                    np.min(self.dx), np.min(self.dy), np.min(self.dz)
+                )
+            )
 
         # MPI subdivide domain
         if self.use_mpi:
@@ -475,7 +477,11 @@ class GridFIT3D(PlotMixin):
             if type(self.stl_materials[key]) is str:
                 mat_key = self.stl_materials[key].lower()
                 mat = material_lib[mat_key]
-                self.stl_materials[key] = [mat[0], mat[1], mat[2] if len(mat) == 3 else 0.0]
+                self.stl_materials[key] = [
+                    mat[0],
+                    mat[1],
+                    mat[2] if len(mat) == 3 else 0.0,
+                ]
             elif len(self.stl_materials[key]) == 2:
                 self.stl_materials[key].append(0.0)
 
@@ -596,7 +602,9 @@ class GridFIT3D(PlotMixin):
 
                     # Apply subpixel smoothing if enabled
                     if self.use_subpixel_smoothing:
-                        self._apply_subpixel_smoothing(key, factor=self.subpixel_smoothing_factor)
+                        self._apply_subpixel_smoothing(
+                            key, factor=self.subpixel_smoothing_factor
+                        )
 
                 except Exception:
                     print(
@@ -653,7 +661,11 @@ class GridFIT3D(PlotMixin):
             print(f"    * Applying subpixel smoothing with factor {factor}...")
 
         # Skip for vacuum solids
-        if self.stl_materials[key][0] == 1.0 and self.stl_materials[key][1] == 1.0 and self.stl_materials[key][2] == 0.0:
+        if (
+            self.stl_materials[key][0] == 1.0
+            and self.stl_materials[key][1] == 1.0
+            and self.stl_materials[key][2] == 0.0
+        ):
             return
 
         surface = self.read_stl(key)
@@ -670,7 +682,7 @@ class GridFIT3D(PlotMixin):
             spacing=(dx, dy, dz),
         )
         vox = surface.voxelize_rectilinear(
-            reference_volume=reference_vol, 
+            reference_volume=reference_vol,
         )
         mask_ref = np.reshape(vox["mask"], (Nx, Ny, Nz), order="F")
 
@@ -679,9 +691,9 @@ class GridFIT3D(PlotMixin):
         for i in range(factor):
             for j in range(factor):
                 for k in range(factor):
-                    sub_mask = mask_ref[i::factor, j::factor, k::factor].astype(float)  
+                    sub_mask = mask_ref[i::factor, j::factor, k::factor].astype(float)
                     sub_mask += np.sqrt(sum(g**2 for g in np.gradient(sub_mask)))
-                    mask += gaussian_filter(np.clip(sub_mask, 0, 1) , sigma=sigma)
+                    mask += gaussian_filter(np.clip(sub_mask, 0, 1), sigma=sigma)
 
         # Overwrite the previous binary/boolean mask in the PyVista grid
         mask = np.clip(mask, 0, factor**3) / factor**3  # Normalize to [0, 1]
@@ -690,7 +702,6 @@ class GridFIT3D(PlotMixin):
 
         self.grid[key] = np.reshape(mask, (self.Nx * self.Ny * self.Nz)).astype(float)
         del vox, mask_ref, mask, sub_mask
-
 
     def _check_stl_masks_overlap(self):
         """
@@ -712,7 +723,6 @@ class GridFIT3D(PlotMixin):
                 f"[!] Warning: {num_overlaps} cells are marked as inside multiple STL solids. \
                 Consider checking for overlapping geometries."
             )
-
 
     def _mark_cells_in_surface(self, key):
         # Modify the STL mask to account only for the surface
