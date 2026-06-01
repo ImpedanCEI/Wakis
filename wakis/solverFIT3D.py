@@ -457,18 +457,26 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         for key in self.stl_solids.keys():
             # Retrieve mask and materials from grid
-            mask = np.reshape(grid[key], (self.Nx, self.Ny, self.Nz)).astype(float)
+            mask = np.reshape(grid[key], (self.Nx, self.Ny, self.Nz))
             eps = self.stl_materials[key][0] * eps_0
             mu = self.stl_materials[key][1] * mu_0
             sigma = self.stl_materials[key][2]
 
+            # Boolean mask: any cell with non-zero subpixel fraction
+            occupied = mask.astype(bool)
+
+            # # Subpixel smoothing: arithmetic mean of ε and μ over the cell volume
+            # # ε_eff = f·ε + (1-f)·ε_bg  →  ieps = 1/ε_eff
+            eps_eff = mask * eps + (1.0 - mask) * eps_0
+            mu_eff = mask * mu + (1.0 - mask) * mu_0
+
             # Conductivity of bulk material
             if sigma > 0.0:
                 if self.use_sibc:  # bulk material is PEC
-                    eps = np.inf
+                    eps_eff = np.inf
                     sigma = 0.0
                 else:
-                    if sigma > 100 * eps / eps_0:
+                    if sigma > 10 * eps / eps_0:
                         print(
                             f"[!] Warning: High conductivity sigma={sigma} S/m "
                             f"for solid '{key}' with low permittivity epsilon_r={eps / eps_0} "
@@ -476,16 +484,17 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                             f"Consider enabling SIBC approximation `use_sibc=True`"
                         )
 
-                # Update sigma tensor
-                self.sigma += self.sigma * (-1.0 * mask.astype(bool))
-                self.sigma += mask * sigma
+                    # Update sigma tensor: arithmetic mean (σ_bg = 0)
+                    sigma_eff = mask * sigma
+                    self.sigma += self.sigma * (-1.0 * occupied)
+                    self.sigma += occupied * sigma_eff
                 self.use_conductivity = True
 
-            # Update ieps and imu tensors
-            self.ieps += self.ieps * (-1.0 * mask.astype(bool))
-            self.imu += self.imu * (-1.0 * mask.astype(bool))
-            self.ieps += mask * 1.0 / eps
-            self.imu += mask * 1.0 / mu
+            # Update ieps and imu tensors with subpixel-smoothed values
+            self.ieps += self.ieps * (-1.0 * occupied)
+            self.imu += self.imu * (-1.0 * occupied)
+            self.ieps += occupied * (1.0 / eps_eff)
+            self.imu += occupied * (1.0 / mu_eff)
 
             # Apply SIBC if enabled
             if self.stl_materials[key][2] > 0.0 and self.use_sibc:

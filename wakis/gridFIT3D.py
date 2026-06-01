@@ -703,7 +703,7 @@ class GridFIT3D(PlotMixin):
         self.grid[key] = np.reshape(mask, (self.Nx * self.Ny * self.Nz)).astype(float)
         del vox, mask_ref, mask, sub_mask
 
-    def _check_stl_masks_overlap(self):
+    def check_stl_masks_overlap(self):
         """
         Check for overlapping STL masks in the grid
         and print warnings if overlaps are found.
@@ -723,6 +723,13 @@ class GridFIT3D(PlotMixin):
                 f"[!] Warning: {num_overlaps} cells are marked as inside multiple STL solids. \
                 Consider checking for overlapping geometries."
             )
+
+    def _get_background_mask(self):
+        # Get a mask for the background (cells not inside any STL solid)
+        bg_mask = np.ones(self.Nx * self.Ny * self.Nz, dtype=bool)
+        for key in self.stl_solids.keys():
+            bg_mask &= ~self.grid[key].astype(int).astype(bool)
+        return bg_mask
 
     def _mark_cells_in_surface(self, key):
         # Modify the STL mask to account only for the surface
