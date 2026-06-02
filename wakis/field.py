@@ -580,7 +580,7 @@ class Field:
         bounding_box=False,
         show_grid=False,
         dpi=100,
-        figsize=[8, 6],
+        figsize=[10, 6],
         x=None,
         y=None,
         z=None,
@@ -838,7 +838,7 @@ class Field:
             xax, yax = "No. of cells", "No. of cells"
             pos = "Custom slice"
 
-        elif plane == "XY":
+        elif plane == "XY" or plane == "YX":
             key = [slice(0, self.Nx), slice(0, self.Ny), int(self.Nz // 2)]
             x, y, z = key[0], key[1], key[2]
             extent = (0, self.Nx, 0, self.Ny)
@@ -846,7 +846,7 @@ class Field:
             transpose = True
             pos = f"z={z}"
 
-        elif plane == "XZ":
+        elif plane == "XZ" or plane == "ZX":
             key = [slice(0, self.Nx), int(self.Ny // 2), slice(0, self.Nz)]
             x, y, z = key[0], key[1], key[2]
             extent = (0, self.Nz, 0, self.Nx)
@@ -854,7 +854,7 @@ class Field:
             transpose = False
             pos = f"y={y}"
 
-        elif plane == "YZ":
+        elif plane == "YZ" or plane == "ZY":
             key = [int(self.Nx // 2), slice(0, self.Ny), slice(0, self.Nz)]
             x, y, z = key[0], key[1], key[2]
             extent = (0, self.Nz, 0, self.Ny)
