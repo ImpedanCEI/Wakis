@@ -585,8 +585,6 @@ class GridFIT3D(PlotMixin):
                 )
                 reference_vol = pv.ImageData(
                     dimensions=(self.Nx, self.Ny, self.Nz),
-                    # origin=(self.xmin + dx / 2, self.ymin + dy / 2, self.zmin + dz / 2),
-                    # origin=(self.xmin - dx / 2, self.ymin - dy / 2, self.zmin - dz / 2),
                     origin=(self.xmin, self.ymin, self.zmin),
                     spacing=(dx, dy, dz),
                 )
@@ -598,13 +596,13 @@ class GridFIT3D(PlotMixin):
                     mask = np.reshape(
                         vox["mask"], (self.Nx, self.Ny, self.Nz), order="F"
                     ).astype(bool)
-                    self.grid[key] = np.reshape(mask, (self.Nx * self.Ny * self.Nz))
 
                     # Apply subpixel smoothing if enabled
                     if self.use_subpixel_smoothing:
-                        self._apply_subpixel_smoothing(
+                        mask = self._apply_subpixel_smoothing(
                             key, factor=self.subpixel_smoothing_factor
                         )
+                        self.grid[key] = np.reshape(mask, (self.Nx * self.Ny * self.Nz))
 
                 except Exception:
                     print(
@@ -678,7 +676,7 @@ class GridFIT3D(PlotMixin):
 
         reference_vol = pv.ImageData(
             dimensions=(Nx, Ny, Nz),
-            origin=(self.xmin + dx / 2, self.ymin + dy / 2, self.zmin + dz / 2),
+            origin=(self.xmin, self.ymin, self.zmin),
             spacing=(dx, dy, dz),
         )
         vox = surface.voxelize_rectilinear(
@@ -697,11 +695,11 @@ class GridFIT3D(PlotMixin):
 
         # Overwrite the previous binary/boolean mask in the PyVista grid
         mask = np.clip(mask, 0, factor**3) / factor**3  # Normalize to [0, 1]
+        mask = np.where(mask < threshold, 0 * mask, mask)  # clip below threshold
         if make_bool:
             mask = mask > threshold
 
-        self.grid[key] = np.reshape(mask, (self.Nx * self.Ny * self.Nz)).astype(float)
-        del vox, mask_ref, mask, sub_mask
+        return mask
 
     def check_stl_masks_overlap(self):
         """
@@ -791,7 +789,7 @@ class GridFIT3D(PlotMixin):
             Tolerance for snap point detection.
         """
         if self.verbose > 1:
-            print(" * Calculating snappy points...")
+            print("    * Calculating snappy points...")
         # Support for user-defined stl_keys as list
         if snap_solids is None:
             snap_solids = self.stl_solids.keys()
@@ -1005,7 +1003,7 @@ class GridFIT3D(PlotMixin):
         """
 
         if self.verbose > 1:
-            print(f" * Refining x axis with {len(self.x_snaps)} snaps...")
+            print(f"    * Refining x axis with {len(self.x_snaps)} snaps...")
         self.x = self.refine_axis(
             self.xmin,
             self.xmax,
@@ -1016,7 +1014,7 @@ class GridFIT3D(PlotMixin):
         )
 
         if self.verbose > 1:
-            print(f" * Refining y axis with {len(self.y_snaps)} snaps...")
+            print(f"    * Refining y axis with {len(self.y_snaps)} snaps...")
         self.y = self.refine_axis(
             self.ymin,
             self.ymax,
@@ -1027,7 +1025,7 @@ class GridFIT3D(PlotMixin):
         )
 
         if self.verbose > 1:
-            print(f" * Refining z axis with {len(self.z_snaps)} snaps...")
+            print(f"    * Refining z axis with {len(self.z_snaps)} snaps...")
         self.z = self.refine_axis(
             self.zmin,
             self.zmax,
@@ -1045,7 +1043,7 @@ class GridFIT3D(PlotMixin):
         self.dz = np.diff(self.z)
 
         if self.verbose > 1:
-            print(f"Refined grid: Nx = {self.Nx}, Ny ={self.Ny}, Nz = {self.Nz}")
+            print(f"    * Refined grid: Nx = {self.Nx}, Ny ={self.Ny}, Nz = {self.Nz}")
 
     def _assign_colors(self):
         """
@@ -1186,19 +1184,19 @@ class GridFIT3D(PlotMixin):
         # add verbosity
         if self.verbose > 1:
             print(f"Loaded grid with {self.Nx * self.Ny * self.Nz} mesh cells:")
-            print(f" * Number of cells: Nx={self.Nx}, Ny={self.Ny}, Nz={self.Nz}")
+            print(f"    * Number of cells: Nx={self.Nx}, Ny={self.Ny}, Nz={self.Nz}")
             print(
-                f" * Simulation domain bounds: \n\
+                f"    * Simulation domain bounds: \n\
                 x:[{self.xmin:.3f}, {self.xmax:.3f}],\n\
                 y:[{self.ymin:.3f}, {self.ymax:.3f}],\n\
                 z:[{self.zmin:.3f}, {self.zmax:.3f}]"
             )
             print(
-                f" * STL solids imported:\n\
+                f"    * STL solids imported:\n\
                 {list(self.stl_solids.keys())}"
             )
             print(
-                f" * STL solids assigned materials [eps_r, mu_r, sigma]:\n\
+                f"    * STL solids assigned materials [eps_r, mu_r, sigma]:\n\
                 {list(self.stl_materials.values())}"
             )
 

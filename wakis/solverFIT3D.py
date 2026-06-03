@@ -466,7 +466,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             occupied = mask.astype(bool)
 
             # # Subpixel smoothing: arithmetic mean of ε and μ over the cell volume
-            # # ε_eff = f·ε + (1-f)·ε_bg  →  ieps = 1/ε_eff
+            # # ε_eff = f·ε + (1-f)·ε_bg  →  ieps = 1/ε_eff)
+            # TODO smooth to background / overlapping masks
             eps_eff = mask * eps + (1.0 - mask) * eps_0
             mu_eff = mask * mu + (1.0 - mask) * mu_0
 
