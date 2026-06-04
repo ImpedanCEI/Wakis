@@ -597,12 +597,13 @@ class GridFIT3D(PlotMixin):
                         vox["mask"], (self.Nx, self.Ny, self.Nz), order="F"
                     ).astype(bool)
 
+                    self.grid[key] = np.reshape(mask, (self.Nx * self.Ny * self.Nz))
+
                     # Apply subpixel smoothing if enabled
                     if self.use_subpixel_smoothing:
-                        mask = self._apply_subpixel_smoothing(
+                        self._apply_subpixel_smoothing(
                             key, factor=self.subpixel_smoothing_factor
                         )
-                        self.grid[key] = np.reshape(mask, (self.Nx * self.Ny * self.Nz))
 
                 except Exception:
                     print(
@@ -655,8 +656,6 @@ class GridFIT3D(PlotMixin):
         threshold : float, optional
             Threshold for converting the smoothed mask to boolean. Default is 0.1.
         """
-        if self.verbose > 1:
-            print(f"    * Applying subpixel smoothing with factor {factor}...")
 
         # Skip for vacuum solids
         if (
@@ -665,6 +664,9 @@ class GridFIT3D(PlotMixin):
             and self.stl_materials[key][2] == 0.0
         ):
             return
+
+        if self.verbose > 1:
+            print(f"    * Applying subpixel smoothing with factor {factor}...")
 
         surface = self.read_stl(key)
 
@@ -699,7 +701,7 @@ class GridFIT3D(PlotMixin):
         if make_bool:
             mask = mask > threshold
 
-        return mask
+        self.grid[key] = np.reshape(mask, (self.Nx * self.Ny * self.Nz))
 
     def check_stl_masks_overlap(self):
         """
