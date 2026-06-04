@@ -572,7 +572,7 @@ class Field:
     def inspect(
         self,
         plane="ZY",
-        cmap="bwr",
+        cmap=None,
         backend="matplotlib",
         component="z",
         grid=None,
@@ -600,7 +600,8 @@ class Field:
         plane : {'XY', 'XZ', 'YZ', 'ZX', 'ZY'}, optional
             Plane to visualize. Default is 'YZ'.
         cmap : str, optional
-            Colormap for the plot. Default is 'bwr'.
+            Colormap for the plot. Default is 'Reds' for positive values and
+            "bwr" for positive/negative values.
         backend : {'matplotlib', 'pyvista'}, optional
             Visualization backend. Default is 'matplotlib'.
         component : {'x', 'y', 'z', 'abs'}, optional
@@ -670,9 +671,7 @@ class Field:
                 ylo, yhi = 0, self.Ny
                 zlo, zhi = 0, self.Nz
                 X, Y, Z = xp.meshgrid(_x, _y, _z, indexing="ij")
-                pv_grid = pv.StructuredGrid(
-                    X.transpose(), Y.transpose(), Z.transpose()
-                )
+                pv_grid = pv.StructuredGrid(X.transpose(), Y.transpose(), Z.transpose())
 
             # --- Assign scalar data ---
             if component == "abs":
@@ -739,7 +738,11 @@ class Field:
 
             # Optional STL solid outlines (only when grid is a GridFIT3D)
             outline_actors = {}
-            if grid is not None and hasattr(grid, "stl_solids") and hasattr(grid, "read_stl"):
+            if (
+                grid is not None
+                and hasattr(grid, "stl_solids")
+                and hasattr(grid, "read_stl")
+            ):
                 stl_colors_map = getattr(grid, "stl_colors", {})
                 for key in grid.stl_solids:
                     surf = grid.read_stl(key)
@@ -747,9 +750,11 @@ class Field:
                         init_outline = surf.slice(
                             normal=normal, origin=origin_fn(position)
                         )
-                        color = 'black'
+                        color = "black"
                         outline_actors[key] = (
-                            pl.add_mesh(init_outline, color=color, name=f"outline_{key}"),
+                            pl.add_mesh(
+                                init_outline, color=color, name=f"outline_{key}"
+                            ),
                             surf,
                         )
 
@@ -867,6 +872,13 @@ class Field:
 
         im = {}
 
+        # cmap
+        if cmap is None:
+            if self.get_abs(as_matrix=True).min() < 0:
+                cmap = "bwr"
+            else:
+                cmap = "Reds"
+
         for d in [0, 1, 2]:
             field = self.to_matrix(d)
 
@@ -877,7 +889,7 @@ class Field:
                 im[d] = axs[d].imshow(
                     field[x, y, z].T,
                     cmap=cmap,
-                    vmin=-field.max(),
+                    vmin=field.min(),
                     vmax=field.max(),
                     extent=extent,
                     origin="lower",
@@ -888,7 +900,7 @@ class Field:
                 im[d] = axs[d].imshow(
                     field[x, y, z],
                     cmap=cmap,
-                    vmin=-field.max(),
+                    vmin=field.min(),
                     vmax=field.max(),
                     extent=extent,
                     origin="lower",
