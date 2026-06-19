@@ -414,6 +414,7 @@ def measure_stl_slice(
         "point_actors": [],
         "line_actor": None,
         "distance_text_actor": None,
+        "coords_text_actor": None,
         "current_slice": initial_slice,
     }
 
@@ -440,6 +441,13 @@ def measure_stl_slice(
             except Exception:
                 pass
             measurement_state["distance_text_actor"] = None
+
+        if measurement_state["coords_text_actor"] is not None:
+            try:
+                pl.remove_actor(measurement_state["coords_text_actor"])
+            except Exception:
+                pass
+            measurement_state["coords_text_actor"] = None
 
         measurement_state["picked_points"] = []
 
@@ -470,6 +478,23 @@ def measure_stl_slice(
 
         measurement_state["picked_points"].append(snapped_point)
 
+        # Update coordinates label at center bottom
+        x, y, z = snapped_point
+        coords_text = f"x={x:.6f}  y={y:.6f}  z={z:.6f}"
+        if measurement_state["coords_text_actor"] is not None:
+            try:
+                pl.remove_actor(measurement_state["coords_text_actor"])
+            except Exception:
+                pass
+        coords_actor = pl.add_text(
+            coords_text,
+            position=(0.5, 0.02),
+            font_size=10,
+            color="red",
+            name="coords_label",
+        )
+        measurement_state["coords_text_actor"] = coords_actor
+
         # Add a point actor
         point_cloud = pv.PolyData(snapped_point)
         pt_actor = pl.add_mesh(
@@ -496,11 +521,11 @@ def measure_stl_slice(
             )
             measurement_state["line_actor"] = line_actor
 
-            # Add distance label
+            # Add distance label (upper right corner)
             label_text = f"Distance: {distance:.6f} m"
             text_actor = pl.add_text(
                 label_text,
-                position="lower_left",
+                position="upper_right",
                 font_size=10,
                 color="red",
                 name="distance_label",
