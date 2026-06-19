@@ -484,12 +484,12 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                             f"will considerably reduce the maximal stable timestep.\n"
                             f"Consider enabling SIBC approximation `use_sibc=True`"
                         )
-
-                    # Update sigma tensor: arithmetic mean (σ_bg = 0)
-                    sigma_eff = mask * sigma
-                    self.sigma += self.sigma * (-1.0 * occupied)
-                    self.sigma += occupied * sigma_eff
                 self.use_conductivity = True
+
+            # Update sigma tensor: arithmetic mean (σ_bg = 0)
+            sigma_eff = mask * sigma
+            self.sigma += self.sigma * (-1.0 * occupied)
+            self.sigma += occupied * sigma_eff
 
             # Update ieps and imu tensors with subpixel-smoothed values
             self.ieps += self.ieps * (-1.0 * occupied)

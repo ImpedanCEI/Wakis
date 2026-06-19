@@ -1543,13 +1543,10 @@ class PlotMixinGrid:
         stl_solid,
         cmap="viridis",
         bounding_box=True,
-        show_grid=False,
+        clip_plane="x",
         add_stl=True,
         stl_opacity=0.1,
         stl_colors=None,
-        xmax=None,
-        ymax=None,
-        zmax=None,
         anti_aliasing="ssaa",
         smooth_shading=False,
         off_screen=False,
@@ -1601,176 +1598,90 @@ class PlotMixinGrid:
         - STL solids can be visualized in transparent mode.
         - A static domain bounding box can be added for reference.
         """
-        self.grid.set_active_scalars(stl_solid)
-
         if stl_colors is None:
             stl_colors = self.stl_colors
 
-        if xmax is None:
-            xmax = self.xmax
-        if ymax is None:
-            ymax = self.ymax
-        if zmax is None:
-            zmax = self.zmax
+        if self.subpixel_smoothing_factor is not None:
+            value = self.subpixel_smoothing_factor
 
         pv.global_theme.allow_empty_mesh = True
         pl = pv.Plotter()
-        vals = {"x": xmax, "y": ymax, "z": zmax}
 
-        # --- Initial slice ---
-        initial_clip = self.grid.clip_box(
-            bounds=(self.xmin, xmax, self.ymin, ymax, self.zmin, zmax),
-            invert=False,
-        )
-        clip_actor = pl.add_mesh(
-            initial_clip,
+        # Threshold to extract only the cells inside the mask
+        self.grid.set_active_scalars(stl_solid)
+        cells_inside = self.grid.threshold(value=value, scalars=stl_solid)
+
+        # Interactive clip-plane widget over the thresholded cells
+        pl.add_mesh_clip_plane(
+            cells_inside,
             cmap=cmap,
-            name="clip",
+            show_edges=True,
+            # scalars=stl_solid,
+            label="cells mask",
+            normal=clip_plane,
+            widget_color="white",
         )
-
-        # --- Update function ---
-        def update_clip(val, axis="x"):
-            vals[axis] = val
-            # define bounds dynamically
-            if axis == "x":
-                slice_obj = self.grid.slice(normal="x", origin=(val, 0, 0))
-            elif axis == "y":
-                slice_obj = self.grid.slice(normal="y", origin=(0, val, 0))
-            else:  # z
-                slice_obj = self.grid.slice(normal="z", origin=(0, 0, val))
-
-            # compute new clip
-            new_clip = self.grid.clip_box(
-                bounds=(
-                    self.xmin,
-                    vals["x"],
-                    self.ymin,
-                    vals["y"],
-                    self.zmin,
-                    vals["z"],
-                ),
-                invert=False,
-            )
-
-            # update existing actors in place
-            clip_actor.mapper.SetInputData(new_clip)
-
-            # add slice wireframe (grid structure)
-            if show_grid:
-                pl.add_mesh(slice_obj, style="wireframe", color="grey", name="slice")
-
-            pl.render()
 
         # Plot stl surface(s)
-        if add_stl is not None:
-            if add_stl:  # Default, add the stl solid corresponding to the mask
+        if add_stl is not None and add_stl is not False:
+            if add_stl is True:  # default: add the STL solid matching the mask
                 key = stl_solid
                 surf = self.read_stl(key)
                 pl.add_mesh(
                     surf,
                     color=stl_colors[key],
                     opacity=stl_opacity,
-                    silhouette=dict(color=stl_colors[key]),
-                    name=key,
+                    smooth_shading=smooth_shading,
+                    label="STL surface",
                 )
-
-            elif type(add_stl) is str:  # add all stl solids
+            elif type(add_stl) is str:
                 if add_stl.lower() == "all":
                     for i, key in enumerate(self.stl_solids):
                         surf = self.read_stl(key)
-                        if type(stl_colors) is dict:
-                            pl.add_mesh(
-                                surf,
-                                color=stl_colors[key],
-                                opacity=stl_opacity,
-                                silhouette=dict(color=stl_colors[key]),
-                                name=key,
+                        color = (
+                            stl_colors[key]
+                            if isinstance(stl_colors, dict)
+                            else (
+                                stl_colors[i]
+                                if isinstance(stl_colors, list)
+                                else "white"
                             )
-                        elif type(stl_colors) is list:
-                            pl.add_mesh(
-                                surf,
-                                color=stl_colors[i],
-                                opacity=stl_opacity,
-                                silhouette=dict(color=stl_colors[i]),
-                                name=key,
-                            )
-                        else:
-                            pl.add_mesh(
-                                surf,
-                                color="white",
-                                opacity=stl_opacity,
-                                silhouette=True,
-                                name=key,
-                            )
-                else:  # add 1 selected stl solid
+                        )
+                        pl.add_mesh(
+                            surf,
+                            color=color,
+                            opacity=stl_opacity,
+                            smooth_shading=smooth_shading,
+                            name=key,
+                        )
+                else:  # single named solid
                     key = add_stl
                     surf = self.read_stl(key)
+                    color = stl_colors[key] if isinstance(stl_colors, dict) else "white"
                     pl.add_mesh(
                         surf,
-                        color=stl_colors[key],
+                        color=color,
                         opacity=stl_opacity,
-                        silhouette=dict(color=stl_colors[key]),
-                        name=key,
+                        smooth_shading=smooth_shading,
+                        label="STL surface",
                     )
-
-            elif type(add_stl) is list:  # add selected list of stl solids
+            elif type(add_stl) is list:
                 for i, key in enumerate(add_stl):
                     surf = self.read_stl(key)
-                    if type(stl_colors[key]) is dict:
-                        pl.add_mesh(
-                            surf,
-                            color=stl_colors[key],
-                            opacity=stl_opacity,
-                            silhouette=dict(color=stl_colors[key]),
-                            name=key,
+                    color = (
+                        stl_colors[key]
+                        if isinstance(stl_colors, dict)
+                        else (
+                            stl_colors[i] if isinstance(stl_colors, list) else "white"
                         )
-                    elif type(stl_colors) is list:
-                        pl.add_mesh(
-                            surf,
-                            color=stl_colors[i],
-                            opacity=stl_opacity,
-                            silhouette=dict(color=stl_colors[i]),
-                            name=key,
-                        )
-                    else:
-                        pl.add_mesh(
-                            surf,
-                            color="white",
-                            opacity=stl_opacity,
-                            silhouette=True,
-                            name=key,
-                        )
-
-        # --- Sliders (placed side-by-side vertically) ---
-        pl.add_slider_widget(
-            lambda val: update_clip(val, "x"),
-            [self.xmin, self.xmax],
-            value=xmax,
-            title="X Clip",
-            pointa=(0.8, 0.8),
-            pointb=(0.95, 0.8),  # top-right
-            style="modern",
-        )
-
-        pl.add_slider_widget(
-            lambda val: update_clip(val, "y"),
-            [self.ymin, self.ymax],
-            value=ymax,
-            title="Y Clip",
-            pointa=(0.8, 0.6),
-            pointb=(0.95, 0.6),  # middle-right
-            style="modern",
-        )
-
-        pl.add_slider_widget(
-            lambda val: update_clip(val, "z"),
-            [self.zmin, self.zmax],
-            value=zmax,
-            title="Z Clip",
-            pointa=(0.8, 0.4),
-            pointb=(0.95, 0.4),  # lower-right
-            style="modern",
-        )
+                    )
+                    pl.add_mesh(
+                        surf,
+                        color=color,
+                        opacity=stl_opacity,
+                        smooth_shading=smooth_shading,
+                        name=key,
+                    )
 
         # Camera orientation
         pl.camera_position = "zx"
@@ -1779,8 +1690,8 @@ class PlotMixinGrid:
         pl.set_background("mistyrose", top="white")
         self._add_logo_widget(pl)
         pl.add_axes()
-        # pl.enable_3_lights()
-        # pl.enable_anti_aliasing(anti_aliasing)
+        pl.add_legend()
+        pl.enable_3_lights()
 
         if bounding_box:
             pl.add_mesh(
@@ -1802,7 +1713,6 @@ class PlotMixinGrid:
 
         if off_screen:
             return pl
-            # pl.export_html(f"grid_stl_mask_{stl_solid}.html")
         else:
             pl.show()
 
@@ -1874,9 +1784,18 @@ class PlotMixinGrid:
             stl_colors = self.stl_colors
 
         plane = plane.upper()
-        plane_to_normal = {"XY": "z", "YX": "z", "ZY": "x", "YZ": "x", "ZX": "y", "XZ": "y"}
+        plane_to_normal = {
+            "XY": "z",
+            "YX": "z",
+            "ZY": "x",
+            "YZ": "x",
+            "ZX": "y",
+            "XZ": "y",
+        }
         if plane not in plane_to_normal:
-            raise ValueError(f"plane must be one of 'XY', 'YX', 'ZY', 'YZ', 'ZX', 'XZ', got '{plane}'")
+            raise ValueError(
+                f"plane must be one of 'XY', 'YX', 'ZY', 'YZ', 'ZX', 'XZ', got '{plane}'"
+            )
 
         normal = plane_to_normal[plane]
         if normal == "x":

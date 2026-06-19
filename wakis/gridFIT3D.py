@@ -61,6 +61,7 @@ class GridFIT3D(PlotMixin):
         stl_method="legacy",
         subpixel_smoothing=False,
         subpixel_smoothing_factor=4,
+        subpixel_smoothing_threshold=None,
         load_from_h5=None,
         verbose=2,
     ):
@@ -118,6 +119,8 @@ class GridFIT3D(PlotMixin):
         subpixel_smoothing_factor : int, optional
             Factor by which to increase the resolution for subpixel smoothing. Default is 4.
             Memory usage increases with the cube of this factor, so use with caution!
+        subpixel_smoothing_threshold : float, optional
+            Threshold value for subpixel smoothing. Default is 1/(subpixel_smoothing_factor**3).
         load_from_h5 : str, optional
             Load grid from an h5 file previously saved with `save_to_h5`.
         verbose : int or bool, optional
@@ -265,6 +268,9 @@ class GridFIT3D(PlotMixin):
         self.stl_method = stl_method
         self.use_subpixel_smoothing = subpixel_smoothing
         self.subpixel_smoothing_factor = subpixel_smoothing_factor
+        self.subpixel_smoothing_threshold = subpixel_smoothing_threshold
+        if self.subpixel_smoothing_threshold is None:
+            self.subpixel_smoothing_threshold = 1 / (self.subpixel_smoothing_factor**3)
         if stl_solids is not None:
             self._mark_cells_in_stl(method=self.stl_method)
 
@@ -631,7 +637,7 @@ class GridFIT3D(PlotMixin):
         factor=4,
         sigma=0.5,
         make_bool=False,
-        threshold=0.1,
+        threshold=None,
     ):
         """
         Apply subpixel smoothing to the STL mask.
@@ -656,7 +662,8 @@ class GridFIT3D(PlotMixin):
         threshold : float, optional
             Threshold for converting the smoothed mask to boolean. Default is 0.1.
         """
-
+        if threshold is None:
+            threshold = 1 / (factor**3)
         # Skip for vacuum solids
         if (
             self.stl_materials[key][0] == 1.0
