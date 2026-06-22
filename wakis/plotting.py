@@ -636,12 +636,12 @@ class PlotMixinSolver:
         interpolation="antialiased",
         dpi=100,
         return_handles=False,
+        backend="matplotlib",
     ):
-        """Built-in 2D plotting of a field slice using matplotlib.
+        """Built-in 2D plotting of a field slice.
 
-        Renders a 2D cut through the structured grid and displays the selected
-        field component using ``matplotlib.pyplot.imshow``. Optionally adds a
-        patch showing STL masks as overlays.
+        Renders a 2D cut through the structured grid using either a matplotlib
+        (``imshow``) or PyVista (static slice) backend.
 
         Parameters
         ----------
@@ -652,12 +652,13 @@ class PlotMixinSolver:
             Component to plot ('x','y','z','Abs'). Default 'z'.
         plane : str or sequence, optional
             Cut plane specified as 'XY', 'ZY', 'ZX' or a sequence of slices
-            and an integer index ``[x,y,z]``. Default 'XZ'.
+            and an integer index ``[x,y,z]``. Default 'ZY'.
         pos : float, optional
             Relative position in the normal direction for the cut (0-1).
             Default 0.5 (center).
         norm : str or None, optional
             Color normalization for ``imshow`` ('linear','log','symlog').
+            Matplotlib backend only.
         vmin, vmax : scalar, optional
             Color limits for the plot.
         figsize : sequence, optional
@@ -665,120 +666,314 @@ class PlotMixinSolver:
         cmap : str, optional
             Colormap for the field plot (default 'jet').
         patch_alpha : float, optional
-            Alpha value for STL mask overlays (default 0.1).
+            Alpha value for STL overlays (default 0.1).
         patch_reverse : bool, optional
-            If True, reverse the mask for the patch overlay.
+            If True, reverse the mask for the patch overlay. Matplotlib only.
         add_patch : str or list, optional
-            STL key or list of keys to overlay as a mask patch on the plot.
+            STL key or list of keys to overlay.
+            Matplotlib: drawn as a filled mask patch.
+            PyVista: drawn as STL contour lines on the slice.
         title : str, optional
             Basename used to save screenshots when ``off_screen=True``.
         off_screen : bool, optional
-            If True save the figure to disk instead of showing it interactively.
+            Matplotlib: save figure to disk. PyVista: return plotter object.
         n : int, optional
-            Timestep index appended to saved filenames.
+            Timestep index appended to saved filenames. Matplotlib only.
         interpolation : str, optional
             Interpolation method for ``imshow`` (default 'antialiased').
+            Matplotlib only.
         dpi : int, optional
-            Dots per inch for the figure (default 100).
+            Dots per inch for the figure (default 100). Matplotlib only.
         return_handles : bool, optional
             If True return the ``(fig, ax)`` handles instead of showing.
+            Matplotlib only.
+        backend : {'matplotlib', 'pyvista'}, optional
+            Visualization backend. Default 'matplotlib'.
 
         Returns
         -------
-        None or tuple
-            Returns (fig, ax) if ``return_handles=True``, otherwise None.
+        None or tuple or pyvista.Plotter
+            - ``(fig, ax)`` when ``backend='matplotlib'`` and
+              ``return_handles=True`` or ``off_screen=True``.
+            - ``pyvista.Plotter`` when ``backend='pyvista'`` and
+              ``off_screen=True``.
+            - ``None`` otherwise.
 
         Notes
         -----
-        - When running with MPI (`use_mpi=True`), only rank 0 will display or save the
-          figure.
+        - When running with MPI (`use_mpi=True`), only rank 0 will display or
+          save the figure (matplotlib backend only).
         - STL patch overlays are not supported when running under MPI.
         """
-        from mpl_toolkits.axes_grid1 import make_axes_locatable
+        # ------------------------------------------------------------------ #
+        # PyVista backend                                                      #
+        # ------------------------------------------------------------------ #
+        if backend.lower() == "pyvista":
+            if self.use_mpi:
+                print("[!] plot2D pyvista backend is not supported with `use_mpi=True`")
+                return
 
-        Nx, Ny, Nz = self.Nx, self.Ny, self.Nz
-        xmin, xmax = self.grid.xmin, self.grid.xmax
-        ymin, ymax = self.grid.ymin, self.grid.ymax
-        zmin, zmax = self.grid.zmin, self.grid.zmax
-        _z = self.z
-
-        if self.use_mpi:
-            zmin, zmax = self.grid.ZMIN, self.grid.ZMAX
-            Nz = self.grid.NZ
-            _z = self.grid.Z
-
-        if type(field) is str:
-            if len(field) == 2:  # support for e.g. field='Ex'
+            if len(field) == 2:
                 component = field[1]
                 field = field[0]
-            elif len(field) == 4:  # support for e.g. field='EAbs'
-                component = field[1:]
-                field = field[0]
 
-        if title is None:
-            title = field + component + "2d"
+            pv = __import__("pyvista")
 
-        if type(plane) is not str and len(plane) == 3:
-            x, y, z = plane[0], plane[1], plane[2]
+            # Populate the grid cell data with the requested field component
+            scalar_key = field + component
+            if field == "E":
+                self.grid.grid.cell_data[scalar_key] = np.reshape(
+                    self.E[:, :, :, component], self.N
+                )
+            elif field == "H":
+                self.grid.grid.cell_data[scalar_key] = np.reshape(
+                    self.H[:, :, :, component], self.N
+                )
+            elif field == "J":
+                self.grid.grid.cell_data[scalar_key] = np.reshape(
+                    self.J[:, :, :, component], self.N
+                )
+            else:
+                print("`field` value not valid")
+                return
 
-            if type(plane[2]) is int:
-                cut = f"(x,y,a) a={round(self.z[z], 3)}"
-                xax, yax = "y", "x"
-                extent = [
-                    self.y[y].min(),
-                    self.y[y].max(),
-                    self.x[x].min(),
-                    self.x[x].max(),
-                ]
+            pv_grid = self.grid.grid.cell_data_to_point_data()
+            pv_grid.set_active_scalars(scalar_key)
 
-            if type(plane[0]) is int:
-                cut = f"(a,y,z) a={round(self.x[x], 3)}"
-                xax, yax = "z", "y"
-                extent = [
-                    _z[z].min(),
-                    _z[z].max(),
-                    self.y[y].min(),
-                    self.y[y].max(),
-                ]
+            # Plane → normal mapping (same conventions as matplotlib branch)
+            plane_up = plane.upper() if isinstance(plane, str) else ""
+            plane_to_normal = {
+                "XY": "z",
+                "YX": "z",
+                "ZY": "x",
+                "YZ": "x",
+                "ZX": "y",
+                "XZ": "y",
+            }
+            if plane_up not in plane_to_normal:
+                raise ValueError(
+                    f"plane must be one of 'XY','XZ','YZ','ZX','ZY'; got '{plane}'"
+                )
+            normal = plane_to_normal[plane_up]
 
-            if type(plane[1]) is int:
-                cut = f"(x,a,z) a={round(self.y[y], 3)}"
-                xax, yax = "z", "x"
-                extent = [
-                    _z[z].min(),
-                    _z[z].max(),
-                    self.x[x].min(),
-                    self.x[x].max(),
-                ]
+            xlo, xhi = self.grid.xmin, self.grid.xmax
+            ylo, yhi = self.grid.ymin, self.grid.ymax
+            zlo, zhi = self.grid.zmin, self.grid.zmax
 
-        elif plane == "XY":
-            x, y, z = slice(0, Nx), slice(0, Ny), int(Nz * pos)  # plane XY
-            cut = f"(x,y,a) a={round(pos * (zmax - zmin) + zmin, 3)}"
-            xax, yax = "y", "x"
-            extent = [ymin, ymax, xmin, xmax]
+            if normal == "x":
+                axis_min, axis_max = xlo, xhi
+                _cy, _cz = (ylo + yhi) / 2, (zlo + zhi) / 2
+                origin = (axis_min + pos * (axis_max - axis_min), _cy, _cz)
+            elif normal == "y":
+                axis_min, axis_max = ylo, yhi
+                _cx, _cz = (xlo + xhi) / 2, (zlo + zhi) / 2
+                origin = (_cx, axis_min + pos * (axis_max - axis_min), _cz)
+            else:  # z
+                axis_min, axis_max = zlo, zhi
+                _cx, _cy = (xlo + xhi) / 2, (ylo + yhi) / 2
+                origin = (_cx, _cy, axis_min + pos * (axis_max - axis_min))
 
-        elif plane == "ZY" or plane == "YZ":
-            x, y, z = int(Nx * pos), slice(0, Ny), slice(0, Nz)  # plane ZY
-            cut = f"(a,y,z) a={round(pos * (xmax - xmin) + xmin, 3)}"
-            xax, yax = "z", "y"
-            extent = [zmin, zmax, ymin, ymax]
+            pv.global_theme.allow_empty_mesh = True
+            pl = pv.Plotter(off_screen=off_screen)
 
-        elif plane == "ZX" or plane == "XZ":
-            x, y, z = slice(0, Nx), int(Ny * pos), slice(0, Nz)  # plane XZ
-            cut = f"(x,a,z) a={round(pos * (ymax - ymin) + ymin, 3)}"
-            xax, yax = "z", "x"
-            extent = [zmin, zmax, xmin, xmax]
-
-        else:
-            print(
-                "Plane needs to be an array of slices [x,y,z] or a str 'XY', 'ZY', 'ZX'"
+            # Field slice
+            field_slice = pv_grid.slice(normal=normal, origin=origin)
+            pl.add_mesh(
+                field_slice,
+                cmap=cmap,
+                clim=[vmin, vmax] if (vmin is not None and vmax is not None) else None,
+                name="slice",
             )
 
-        if self.use_mpi:  # only in rank=0
-            _field = self.mpi_gather(field, x=x, y=y, z=z, component=component)
+            # STL outlines on the slice plane (add_patch)
+            if add_patch:
+                _stl_colors = getattr(self.grid, "stl_colors", {})
+                solids = [add_patch] if isinstance(add_patch, str) else list(add_patch)
+                for key in solids:
+                    surf = self.grid.read_stl(key)
+                    if surf is not None:
+                        outline = surf.slice(normal=normal, origin=origin)
+                        color = (
+                            _stl_colors[key]
+                            if isinstance(_stl_colors, dict) and key in _stl_colors
+                            else "black"
+                        )
+                        pl.add_mesh(outline, color=color, name=f"outline_{key}")
 
-            if self.rank == 0:
+            # Camera — enforce correct 2-D view
+            _view_fns = {
+                "XY": pl.view_xy,
+                "YX": pl.view_xy,
+                "XZ": pl.view_xz,
+                "ZX": pl.view_zx,
+                "YZ": pl.view_yz,
+                "ZY": pl.view_zy,
+            }
+            _view_fns.get(plane_up, pl.view_yz)()
+
+            pl.set_background("mistyrose", top="white")
+            self._add_logo_widget(pl)
+            pl.add_axes()
+            pl.enable_anti_aliasing()
+
+            _title = title if title is not None else field + component + "2d"
+            if n is not None:
+                pl.add_title(
+                    field + component + f" field, timestep={n}",
+                    font="times",
+                    font_size=12,
+                )
+                _title += "_" + str(n).zfill(6)
+
+            if off_screen:
+                pl.screenshot(_title + ".png")
+                return None
+            elif return_handles:
+                return pl
+            else:
+                pl.show()
+                return None
+
+        # ------------------------------------------------------------------ #
+        # Matplotlib backend                                                   #
+        # ------------------------------------------------------------------ #
+        elif backend.lower() == "matplotlib":
+            from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+            Nx, Ny, Nz = self.Nx, self.Ny, self.Nz
+            xmin, xmax = self.grid.xmin, self.grid.xmax
+            ymin, ymax = self.grid.ymin, self.grid.ymax
+            zmin, zmax = self.grid.zmin, self.grid.zmax
+            _z = self.z
+
+            if self.use_mpi:
+                zmin, zmax = self.grid.ZMIN, self.grid.ZMAX
+                Nz = self.grid.NZ
+                _z = self.grid.Z
+
+            if type(field) is str:
+                if len(field) == 2:  # support for e.g. field='Ex'
+                    component = field[1]
+                    field = field[0]
+                elif len(field) == 4:  # support for e.g. field='EAbs'
+                    component = field[1:]
+                    field = field[0]
+
+            if title is None:
+                title = field + component + "2d"
+
+            if type(plane) is not str and len(plane) == 3:
+                x, y, z = plane[0], plane[1], plane[2]
+
+                if type(plane[2]) is int:
+                    cut = f"(x,y,a) a={round(self.z[z], 3)}"
+                    xax, yax = "y", "x"
+                    extent = [
+                        self.y[y].min(),
+                        self.y[y].max(),
+                        self.x[x].min(),
+                        self.x[x].max(),
+                    ]
+
+                if type(plane[0]) is int:
+                    cut = f"(a,y,z) a={round(self.x[x], 3)}"
+                    xax, yax = "z", "y"
+                    extent = [
+                        _z[z].min(),
+                        _z[z].max(),
+                        self.y[y].min(),
+                        self.y[y].max(),
+                    ]
+
+                if type(plane[1]) is int:
+                    cut = f"(x,a,z) a={round(self.y[y], 3)}"
+                    xax, yax = "z", "x"
+                    extent = [
+                        _z[z].min(),
+                        _z[z].max(),
+                        self.x[x].min(),
+                        self.x[x].max(),
+                    ]
+
+            elif plane == "XY":
+                x, y, z = slice(0, Nx), slice(0, Ny), int(Nz * pos)  # plane XY
+                cut = f"(x,y,a) a={round(pos * (zmax - zmin) + zmin, 3)}"
+                xax, yax = "y", "x"
+                extent = [ymin, ymax, xmin, xmax]
+
+            elif plane == "ZY" or plane == "YZ":
+                x, y, z = int(Nx * pos), slice(0, Ny), slice(0, Nz)  # plane ZY
+                cut = f"(a,y,z) a={round(pos * (xmax - xmin) + xmin, 3)}"
+                xax, yax = "z", "y"
+                extent = [zmin, zmax, ymin, ymax]
+
+            elif plane == "ZX" or plane == "XZ":
+                x, y, z = slice(0, Nx), int(Ny * pos), slice(0, Nz)  # plane XZ
+                cut = f"(x,a,z) a={round(pos * (ymax - ymin) + ymin, 3)}"
+                xax, yax = "z", "x"
+                extent = [zmin, zmax, xmin, xmax]
+
+            else:
+                print(
+                    "Plane needs to be an array of slices [x,y,z] or a str 'XY', 'ZY', 'ZX'"
+                )
+
+            if self.use_mpi:  # only in rank=0
+                _field = self.mpi_gather(field, x=x, y=y, z=z, component=component)
+
+                if self.rank == 0:
+                    fig, ax = plt.subplots(1, 1, figsize=figsize, dpi=dpi)
+                    im = ax.imshow(
+                        _field,
+                        cmap=cmap,
+                        norm=norm,
+                        extent=extent,
+                        origin="lower",
+                        vmin=vmin,
+                        vmax=vmax,
+                        interpolation=interpolation,
+                    )
+
+                    fig.colorbar(
+                        im,
+                        cax=make_axes_locatable(ax).append_axes(
+                            "right", size="5%", pad=0.05
+                        ),
+                    )
+                    ax.set_title(f"Wakis {field}{component}{cut}")
+                    ax.set_xlabel(xax)
+                    ax.set_ylabel(yax)
+
+                    if n is not None:
+                        fig.suptitle(
+                            "$"
+                            + str(field)
+                            + "_{"
+                            + str(component)
+                            + "}$ field, timestep="
+                            + str(n)
+                        )
+                        title += "_" + str(n).zfill(6)
+
+                    fig.tight_layout()
+
+                    if off_screen:
+                        fig.savefig(title + ".png")
+                        plt.clf()
+                        plt.close(fig)
+                    elif return_handles:
+                        return fig, ax
+                    else:
+                        plt.show(block=False)
+            else:
                 fig, ax = plt.subplots(1, 1, figsize=figsize, dpi=dpi)
+                if field == "E":
+                    _field = self.E[x, y, z, component]
+                if field == "H":
+                    _field = self.H[x, y, z, component]
+                if field == "J":
+                    _field = self.J[x, y, z, component]
+
                 im = ax.imshow(
                     _field,
                     cmap=cmap,
@@ -799,6 +994,44 @@ class PlotMixinSolver:
                 ax.set_title(f"Wakis {field}{component}{cut}")
                 ax.set_xlabel(xax)
                 ax.set_ylabel(yax)
+
+                if add_patch:
+                    # All solids are merged into a single combined mask:
+                    # - non-vacuum solids are OR-ed in (added)
+                    # - vacuum solids [eps=1, mu=1, sigma=0] are AND-NOT-ed (subtracted)
+                    # A single imshow overlay is produced for the combined mask.
+                    solids = (
+                        [add_patch] if isinstance(add_patch, str) else list(add_patch)
+                    )
+                    combined = np.zeros((Nx, Ny, Nz), dtype=bool)
+                    for solid in solids:
+                        solid_mask = np.reshape(
+                            self.grid.grid[solid], (Nx, Ny, Nz)
+                        ).astype(bool)
+                        mat = self.grid.stl_materials.get(solid, [0.0, 0.0, 0.0])
+                        is_vacuum = (
+                            len(mat) >= 3
+                            and mat[0] == 1.0
+                            and mat[1] == 1.0
+                            and mat[2] == 0.0
+                        )
+                        if is_vacuum:
+                            combined &= ~solid_mask  # subtract vacuum regions
+                        else:
+                            combined |= solid_mask  # add non-vacuum regions
+
+                    patch = np.ones((Nx, Ny, Nz))
+                    if patch_reverse:
+                        patch[combined] = np.nan
+                    else:
+                        patch[~combined] = np.nan
+                    ax.imshow(
+                        patch[x, y, z],
+                        cmap="Greys",
+                        extent=extent,
+                        origin="lower",
+                        alpha=patch_alpha,
+                    )
 
                 if n is not None:
                     fig.suptitle(
@@ -821,88 +1054,11 @@ class PlotMixinSolver:
                     return fig, ax
                 else:
                     plt.show(block=False)
+
         else:
-            fig, ax = plt.subplots(1, 1, figsize=figsize, dpi=dpi)
-            if field == "E":
-                _field = self.E[x, y, z, component]
-            if field == "H":
-                _field = self.H[x, y, z, component]
-            if field == "J":
-                _field = self.J[x, y, z, component]
-
-            im = ax.imshow(
-                _field,
-                cmap=cmap,
-                norm=norm,
-                extent=extent,
-                origin="lower",
-                vmin=vmin,
-                vmax=vmax,
-                interpolation=interpolation,
+            raise ValueError(
+                "Invalid plotting backend specified. Choose 'matplotlib' or 'pyvista'."
             )
-
-            fig.colorbar(
-                im,
-                cax=make_axes_locatable(ax).append_axes("right", size="5%", pad=0.05),
-            )
-            ax.set_title(f"Wakis {field}{component}{cut}")
-            ax.set_xlabel(xax)
-            ax.set_ylabel(yax)
-
-            # Patch stl - not supported when running MPI
-            if add_patch is not None:
-                if type(add_patch) is str:
-                    mask = np.reshape(self.grid.grid[add_patch], (Nx, Ny, Nz))
-                    patch = np.ones((Nx, Ny, Nz))
-                    if patch_reverse:
-                        patch[mask] = np.nan
-                    else:
-                        patch[np.logical_not(mask)] = np.nan
-                    ax.imshow(
-                        patch[x, y, z],
-                        cmap="Greys",
-                        extent=extent,
-                        origin="lower",
-                        alpha=patch_alpha,
-                    )
-
-                elif type(add_patch) is list:
-                    for solid in add_patch:
-                        mask = np.reshape(self.grid.grid[solid], (Nx, Ny, Nz))
-                        patch = np.ones((Nx, Ny, Nz))
-                        if patch_reverse:
-                            patch[mask] = np.nan
-                        else:
-                            patch[np.logical_not(mask)] = np.nan
-                        ax.imshow(
-                            patch[x, y, z],
-                            cmap="Greys",
-                            extent=extent,
-                            origin="lower",
-                            alpha=patch_alpha,
-                        )
-
-            if n is not None:
-                fig.suptitle(
-                    "$"
-                    + str(field)
-                    + "_{"
-                    + str(component)
-                    + "}$ field, timestep="
-                    + str(n)
-                )
-                title += "_" + str(n).zfill(6)
-
-            fig.tight_layout()
-
-            if off_screen:
-                fig.savefig(title + ".png")
-                plt.clf()
-                plt.close(fig)
-            elif return_handles:
-                return fig, ax
-            else:
-                plt.show(block=False)
 
     def plot1D(
         self,
@@ -1601,8 +1757,16 @@ class PlotMixinGrid:
         if stl_colors is None:
             stl_colors = self.stl_colors
 
-        if self.subpixel_smoothing_factor is not None:
-            value = self.subpixel_smoothing_factor
+        # change the sign of clip plane if y or z
+        if clip_plane.lower() in ["-y", "y"]:
+            clip_plane = "-y"
+        elif clip_plane.lower() in ["-z", "z"]:
+            clip_plane = "-z"
+
+        # Default threshold value for extracting cells inside the mask
+        value = 0.1
+        if getattr(self, "subpixel_smoothing_threshold", None) is not None:
+            value = self.subpixel_smoothing_threshold
 
         pv.global_theme.allow_empty_mesh = True
         pl = pv.Plotter()
@@ -1683,14 +1847,17 @@ class PlotMixinGrid:
                         name=key,
                     )
 
-        # Camera orientation
-        pl.camera_position = "zx"
+        # Camera orientation — face the cut plane, then tilt +30°/+30° to show 3D structure
+        _clip_axis = clip_plane.lstrip("-").lower()
+        {"x": pl.view_zy, "y": pl.view_zx, "z": pl.view_xy}.get(
+            _clip_axis, pl.view_zy
+        )()
         pl.camera.azimuth += 30
         pl.camera.elevation += 30
+
         pl.set_background("mistyrose", top="white")
         self._add_logo_widget(pl)
         pl.add_axes()
-        pl.add_legend()
         pl.enable_3_lights()
 
         if bounding_box:
