@@ -26,7 +26,9 @@ copyright = "2024, CERN, BE-ABP-CEI"
 author = "Elena de la Fuente, Lorenzo Giacomel, Giovanni Iadarola, Carlo Zannini"
 
 # The full version, including alpha/beta/rc tags
-release = "1.0"
+from wakis import __version__
+
+release = __version__
 
 # -- General configuration ---------------------------------------------------
 
