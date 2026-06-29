@@ -61,7 +61,8 @@ class GridFIT3D(PlotMixin):
         stl_method="legacy",
         subpixel_smoothing=False,
         subpixel_smoothing_factor=4,
-        subpixel_smoothing_threshold=None,
+        subpixel_smoothing_threshold=0.3,
+        subpixel_smoothing_bool=True,
         load_from_h5=None,
         verbose=2,
     ):
@@ -261,7 +262,7 @@ class GridFIT3D(PlotMixin):
         # grid G and tilde grid ~G, lengths and inverse areas
         self._compute_grid()
 
-        # tolerance for stl import tol*min(dx,dy,dz)
+        # STL import and mask generation
         if verbose:
             print("Importing STL solids...")
         self.stl_tol = stl_tol
@@ -269,6 +270,7 @@ class GridFIT3D(PlotMixin):
         self.use_subpixel_smoothing = subpixel_smoothing
         self.subpixel_smoothing_factor = subpixel_smoothing_factor
         self.subpixel_smoothing_threshold = subpixel_smoothing_threshold
+        self.subpixel_smoothing_bool = subpixel_smoothing_bool
         if self.subpixel_smoothing_threshold is None:
             self.subpixel_smoothing_threshold = 1 / (self.subpixel_smoothing_factor**3)
         if stl_solids is not None:
@@ -608,7 +610,10 @@ class GridFIT3D(PlotMixin):
                     # Apply subpixel smoothing if enabled
                     if self.use_subpixel_smoothing:
                         self._apply_subpixel_smoothing(
-                            key, factor=self.subpixel_smoothing_factor
+                            key,
+                            factor=self.subpixel_smoothing_factor,
+                            threshold=self.subpixel_smoothing_threshold,
+                            make_bool=self.subpixel_smoothing_bool,
                         )
 
                 except Exception:
@@ -636,8 +641,8 @@ class GridFIT3D(PlotMixin):
         key,
         factor=4,
         sigma=0.5,
-        make_bool=False,
-        threshold=None,
+        make_bool=None,  #
+        threshold=None,  # default is 1/(factor**3)
     ):
         """
         Apply subpixel smoothing to the STL mask.
@@ -662,8 +667,7 @@ class GridFIT3D(PlotMixin):
         threshold : float, optional
             Threshold for converting the smoothed mask to boolean. Default is 0.1.
         """
-        if threshold is None:
-            threshold = 1 / (factor**3)
+
         # Skip for vacuum solids
         if (
             self.stl_materials[key][0] == 1.0

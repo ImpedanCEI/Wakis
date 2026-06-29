@@ -53,7 +53,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         fmax=1e9,
         dtype=np.float64,
         n_pml=10,
-        bg=[1.0, 1.0],
+        bg=[1.0, 1.0, 0.0],
         verbose=2,
     ):
         """
