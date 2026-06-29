@@ -235,7 +235,7 @@ class RoutinesMixin:
         callback=None,
         compute_plane="both",
         plot=False,
-        plot_func=PlotMixin.plot2D,
+        plot_func=None,
         plot_from=None,
         plot_every=1,
         plot_until=None,
@@ -333,6 +333,8 @@ class RoutinesMixin:
             self.wake.skip_cells = add_space
 
         # plot params defaults
+        if plot_func is None:
+            plot_func = self.plot2D  # default plotting function
         if plot:
             plotkw = self.get_plotting_kwargs(plot_func.__name__)
             plotkw.update(kwargs)
