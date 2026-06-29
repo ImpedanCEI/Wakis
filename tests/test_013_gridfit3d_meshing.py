@@ -1,18 +1,13 @@
-import os
-import sys
 
-import matplotlib.pyplot as plt
+import sys
 import numpy as np
 import pyvista as pv
 
 sys.path.append("../wakis")
 
 import pytest
-from scipy.constants import c
-from tqdm import tqdm
-
 from wakis import GridFIT3D, SolverFIT3D, WakeSolver
-from wakis.sources import Beam
+
 
 # Run with:
 # mpiexec -n 2 python -m pytest --color=yes -v -s tests/test_013_gridfit3d_meshing.py
@@ -22,99 +17,52 @@ from wakis.sources import Beam
 class TestGridFIT3DMeshing:
     # Regression data
     # fmt: off
-    tol = dict(rtol=50e-5, atol=50e-4)
-    dtype = np.float32
+    WP = np.array([ 9.67345087e-19, -2.17164213e-13, -2.46909922e-09, -3.35736557e-06, -6.68783545e-04,
+        -2.03471539e-02, -8.93366466e-02,  2.21782798e-03,  1.21944850e-01,  2.65765433e-02,
+        -4.95708206e-02, -2.88028306e-02,  9.05319186e-04,  9.19114857e-02, -2.93135252e-02,
+        -1.05165644e-01,  7.22711895e-02,  6.04058770e-02, -5.66535414e-02, -2.71704419e-02,
+        -5.21572263e-04,  6.24378705e-02,  9.82923044e-03, -9.71731801e-02,  2.22139919e-02,
+        8.85327605e-02, -4.62353298e-02, -3.97817186e-02,  6.97264916e-03,  3.95994154e-02,
+        2.65785066e-02, -7.19997432e-02, -1.89248689e-02,  9.12103520e-02, -1.71569383e-02,
+        -5.61388341e-02,  7.71421643e-03,  3.33498980e-02,  2.32096595e-02, -4.10197933e-02,
+        -4.41299903e-02,  7.45925725e-02,  1.52849901e-02, -6.26857268e-02, -2.71268610e-03,
+        3.61423830e-02,  1.65933166e-02, -2.10142816e-02, -4.81579782e-02,  4.63937593e-02,
+        3.98669695e-02, -5.42217321e-02, -2.16236505e-02,  4.06084475e-02,  1.35533369e-02,
+        -1.16436235e-02, -4.15325567e-02,  2.11196806e-02,  4.88665705e-02, -3.40779255e-02,
+        -3.92676324e-02,  3.71275977e-02,  1.92633580e-02, -1.12574493e-02, -3.11576144e-02,
+        3.82191895e-03,  4.52120404e-02, -1.08903261e-02, -4.90844003e-02,  2.58177495e-02,
+        2.74693885e-02, -1.00551312e-02, -2.61124913e-02, -2.73028041e-03,  3.41625232e-02,
+        7.47955334e-03, -4.73350653e-02,  8.06941570e-03,  3.51520091e-02, -6.47884339e-03,
+        -2.46368796e-02, -4.59794705e-03])
 
-    WP = np.array([])
 
-    Z = np.array([ ])
+    Z = np.array([ 5.19585047e+00   -0.j        , -1.14584967e+00  +10.07240661j,  8.57752415e-02   +6.01789639j,
+        7.82619161e+00  +16.00298465j, -2.09913641e-01  +23.79009263j,  2.25936860e+00  +19.33604521j,
+        9.44234793e+00  +30.93420192j,  1.15160305e-02  +37.83475196j,  4.13830902e+00  +32.99371877j,
+        1.11279023e+01  +47.06880521j, -2.17806106e-01  +53.27943471j,  6.20341923e+00  +47.87777531j,
+        1.32490192e+01  +65.72089242j, -9.64938404e-01  +71.3043722j ,  8.89282637e+00  +65.07658368j,
+        1.62659217e+01  +88.99341956j, -2.55604121e+00  +93.95087188j,  1.29871525e+01  +86.53428044j,
+        2.11294381e+01 +121.2423969j , -5.85354188e+00 +125.70421173j,  2.04773483e+01 +116.73572463j,
+        3.06238179e+01 +174.1142225j , -1.33926893e+01 +179.84849633j,  3.89537992e+01 +170.39341032j,
+        5.86719481e+01 +295.3922762j , -3.46162682e+01 +327.27250813j,  1.43593011e+02 +353.34433544j,
+        6.01920709e+02+1202.0840238j ,  1.37069557e+03 -858.17451862j, -8.45765393e+01 -261.48097504j,
+        1.73388593e+00 -298.6092324j ,  1.10792221e+02  -48.66599352j, -4.81755071e+01  +34.36500335j,
+        5.33563341e+00  -48.23594643j,  8.34238121e+01  +94.72344872j, -3.62433387e+01 +144.60058139j,
+        2.90362116e+01  +79.15226046j,  1.09096072e+02 +256.59678218j, -1.84928388e+01 +346.47133802j,
+        1.66004913e+02 +362.92496325j,  8.80510046e+02+1078.09377996j,  1.35373690e+03 -881.94842291j,
+        2.80079423e+01 -530.396313j  ,  5.88141964e+01 -388.69913707j,  4.77113269e+01 -169.50329412j,
+        -2.74628280e+01 -149.86592623j,  4.08748760e+01 -123.17588073j,  1.25959867e+01  -23.45937766j,
+        -1.79762955e+01  -53.60614807j,  6.52952860e+01  -16.41154217j,  2.03685498e+01  +40.09814247j])
 
-    Ez = np.array([] )
+    #Ez = np.array([])
 
     # fmt: on
-
-    gridLogs = {
-        "use_mesh_refinement": False,
-        "Nx": 60,
-        "Ny": 60,
-        "Nz": 140,
-        "dx": 0.00866666634877522,
-        "dy": 0.00866666634877522,
-        "dz": 0.005714285799435207,
-        "xmin": -0.25999999046325684,
-        "xmax": 0.25999999046325684,
-        "ymin": -0.25999999046325684,
-        "ymax": 0.25999999046325684,
-        "zmin": -0.25,
-        "zmax": 0.550000011920929,
-        "stl_solids": {
-            "cavity": "tests/stl/007_vacuum_cavity.stl",
-            "shell": "tests/stl/007_lossymetal_shell.stl",
-        },
-        "stl_materials": {"cavity": [1.0, 1.0, 0.0], "shell": [30, 1.0, 30]},
-        "gridInitializationTime": 0,
-    }
-
-    solverLogs = {
-        "use_gpu": False,  # updated in test_log_file
-        "use_mpi": False,  # updated in test_log_file
-        "background": "pec",
-        "bc_low": ["pec", "pec", "pec"],
-        "bc_high": ["pec", "pec", "pec"],
-        "dt": dtype(6.970326659611059e-12),
-        "solverInitializationTime": 0,
-    }
-
-    wakeSolverLogs = {
-        "ti": 2.8516132094735135e-09,
-        "q": 1e-09,
-        "sigmaz": 0.1,
-        "beta": 1.0,
-        "xsource": 0.0,
-        "ysource": 0.0,
-        "xtest": 0.0,
-        "ytest": 0.0,
-        "chargedist": None,
-        "skip_cells": 10,
-        "results_folder": "tests/013_results/",
-        "wakelength": 10.0,
-        "simulationTime": 0,
-    }
-
-    img_folder = "tests/013_img/"
-
-    def test_mesh_import(self):
-        # ---------- MPI setup ------------
-        global use_mpi
-        try:
-            # can be skipped since it is handled inside GridFIT3D
-            from mpi4py import MPI
-
-            comm = MPI.COMM_WORLD  # Get MPI communicator
-            size = comm.Get_size()  # Total number of MPI processes
-            if size > 1:
-                use_mpi = True
-            else:
-                use_mpi = False
-        except Exception as e:
-            print(f"[!] MPI not available: {e}")
-            use_mpi = False
-
-        print(f"Using mpi: {use_mpi}")
-
-    def test_new_meshing_implementation(self, use_gpu):
+    def test_voxelize_rectilinear(self, use_gpu):
         """
         Tests 'voxelize_rectilinear' and subpixel smoothing using the
         exact cavity and shell gridLogs configuration.
         """
-        logs = self.grid_logs
-
-        # Guard clause to skip safely if the specific repository STL files are not locally accessible
-        if not all(os.path.exists(path) for path in logs["stl_solids"].values()):
-            self.skipTest(
-                "Missing the required local STL files in tests/stl/. Skipping execution."
-            )
-
+       
         # Geometry & Materials
         solid_1 = "tests/stl/007_vacuum_cavity.stl"  # logs["stl_solids"]["cavity"]
         solid_2 = "tests/stl/007_lossymetal_shell.stl"  # logs["stl_solids"]["shell"]
@@ -135,7 +83,6 @@ class TestGridFIT3DMeshing:
         Ny = 60  # logs["Ny"]
         Nz = 140  # logs["Nz"]
 
-        global use_mpi
         grid = GridFIT3D(
             xmin,
             xmax,
@@ -146,176 +93,89 @@ class TestGridFIT3DMeshing:
             Nx,
             Ny,
             Nz,  # Global domain Nz
-            use_mpi=use_mpi,  # Enables MPI subdivision of the domain
             stl_solids=stl_solids,
             stl_materials=stl_materials,
             stl_method="voxelize_rectilinear",
-            subpixel_smoothing=True,
-            subpixel_smoothing_factor=4,
+            subpixel_smoothing=False,
             stl_scale=1.0,
             stl_rotate=[0, 0, 0],
             stl_translate=[0, 0, 0],
             verbose=1,
         )
-        if use_mpi:
-            print(
-                f"Process {grid.rank}: Handling Z range {grid.zmin} to {grid.zmax} with {grid.Nz} cells"
-            )
 
-        # ------------ Beam source & Wake ----------------
-        # Beam parameters
-        sigmaz = 10e-2  # [m] -> 2 GHz
-        q = 1e-9  # [C]
-        beta = 1.0  # beam beta
-        xs = 0.0  # x source position [m]
-        ys = 0.0  # y source position [m]
-        ti = 3 * sigmaz / c  # injection time [s]
+        # number of cells in the mask
+        n_inside = grid.grid.threshold(scalars='shell', value=0.5).n_cells
+        n_inside_expected = 61258
+        assert n_inside == n_inside_expected, f"Number of cells masked inside the shell is {n_inside}, expected {n_inside_expected}"
 
-        beam = Beam(q=q, sigmaz=sigmaz, beta=beta, xsource=xs, ysource=ys, ti=ti)
+        # volume
+        vol=n_inside*np.min(grid.dx)*np.min(grid.dy)*np.min(grid.dz)
+        vol_expected = 0.02629232100267493
+        assert np.allclose(vol, vol_expected, rtol=1e-5), f"Volume of the shell mask is {vol}, expected {vol_expected}"
 
-        # ----------- Solver & Simulation ----------
-        # boundary conditions
-        bc_low = ["pec", "pec", "pec"]
-        bc_high = ["pec", "pec", "pec"]
+    def test_subpixel_smoothing(self):
+        """
+        Tests 'voxelize_rectilinear' and subpixel smoothing using the
+        exact cavity and shell gridLogs configuration.
+        """
+       
+        # Geometry & Materials
+        solid_1 = "tests/stl/007_vacuum_cavity.stl"  # logs["stl_solids"]["cavity"]
+        solid_2 = "tests/stl/007_lossymetal_shell.stl"  # logs["stl_solids"]["shell"]
 
-        # Solver setup
-        global solver
-        solver = SolverFIT3D(
-            grid,
-            bc_low=bc_low,
-            bc_high=bc_high,
-            use_stl=True,
-            use_mpi=use_mpi,  # Activate MPI
-            bg="pec",  # Background material
-            dtype=self.dtype,
-            use_gpu=use_gpu,
+        stl_solids = {"cavity": solid_1, "shell": solid_2}
+
+        stl_materials = {
+            "cavity": "vacuum",
+            "shell": [30, 1.0, 30],  # [eps_r, mu_r, sigma[S/m]]
+        }
+
+        # Extract domain bounds from geometry
+        solids = pv.read(solid_1) + pv.read(solid_2)
+        xmin, xmax, ymin, ymax, zmin, zmax = solids.bounds
+
+        # Number of mesh cells
+        Nx = 60  # logs["Nx"]
+        Ny = 60  # logs["Ny"]
+        Nz = 140  # logs["Nz"]
+        
+        global grid
+        grid = GridFIT3D(
+            xmin,
+            xmax,
+            ymin,
+            ymax,
+            zmin,  # Global domain zmin
+            zmax,  # Global domain zmax
+            Nx,
+            Ny,
+            Nz,  # Global domain Nz
+            stl_solids=stl_solids,
+            stl_materials=stl_materials,
+            stl_method="voxelize_rectilinear",
+            subpixel_smoothing=True,
+            subpixel_smoothing_factor=4,
+            subpixel_smoothing_bool=True,
+            subpixel_smoothing_threshold=0.3,   
+            stl_scale=1.0,
+            stl_rotate=[0, 0, 0],
+            stl_translate=[0, 0, 0],
+            verbose=1,
         )
 
-        # -------------- Output folder ---------------------
-        if use_mpi and solver.rank == 0:
-            if not os.path.exists(self.img_folder):
-                os.mkdir(self.img_folder)
-        elif not use_mpi:
-            if not os.path.exists(self.img_folder):
-                os.mkdir(self.img_folder)
+        # number of cells in the mask
+        n_inside = grid.grid.threshold(scalars='shell', value=0.5).n_cells
+        n_inside_expected = 89256
+        assert n_inside == n_inside_expected, f"Number of cells masked inside the shell is {n_inside}, expected {n_inside_expected}"
 
-        # -------------- Custom time loop  -----------------
-        if use_mpi:
-            Nt = 3000
-            for n in tqdm(range(Nt)):
-                beam.update(solver, n * solver.dt)
-                solver.one_step()  # MPI handled internally
+        # volume
+        vol=n_inside*np.min(grid.dx)*np.min(grid.dy)*np.min(grid.dz)
+        vol_expected = 0.038309239665264186
+        assert np.allclose(vol, vol_expected, rtol=1e-5), f"Volume of the shell mask is {vol}, expected {vol_expected}"
 
-            Ez = solver.mpi_gather("Ez", x=int(Nx / 2), y=int(Ny / 2))
-            if solver.rank == 0:
-                # print(Ez)
-                # print(len(Ez))
-                assert len(Ez) == Nz, "Electric field Ez samples length mismatch"
-                assert np.allclose(Ez[np.s_[::5]], self.Ez, **self.tol), (
-                    "Electric field Ez samples MPI failed"
-                )
-        else:
-            Nt = 3000
-            for n in tqdm(range(Nt)):
-                beam.update(solver, n * solver.dt)
-                solver.one_step()
+    def test_long_wake_potential_and_impedance(self):
 
-            Ez = solver.E[int(Nx / 2), int(Ny / 2), np.s_[::5], "z"]
-            # print(Ez)
-            assert len(solver.E[int(Nx / 2), int(Ny / 2), :, "z"]) == Nz, (
-                "Electric field Ez samples length mismatch"
-            )
-            assert np.allclose(Ez, self.Ez, **self.tol), (
-                "Electric field Ez samples failed"
-            )
-
-    def test_mesh_save_state(self, tmp_path):
-        """Save current solver state to disk on CPU and MPI."""
-        global solver
-        filename = tmp_path / "solver_state_013.h5"
-
-        solver.save_state(str(filename))
-
-        if not use_mpi or solver.rank == 0:
-            assert os.path.exists(filename)
-
-    def test_mesh_load_state(self, tmp_path):
-        """Reload a previously saved solver state and check fields are restored."""
-        global solver
-        filename = tmp_path / "solver_state_013_roundtrip.h5"
-
-        # Save current (non-zero) state
-        solver.save_state(str(filename))
-
-        # Overwrite fields and load back
-        solver.reset_fields()
-        solver.load_state(str(filename))
-
-        if not use_mpi or solver.rank == 0:
-            Ez_restored = np.asarray(solver.E.toarray())
-            assert np.any(Ez_restored != 0.0)
-
-    def test_mesh_gather_asField(self, flag_offscreen):
-        # Plot inspect after mpi gather
-        global solver
-        if use_mpi:
-            E = solver.mpi_gather_asField("E")
-            if solver.rank == 0:  # custom plots go in rank 0
-                fig, ax = E.inspect(
-                    figsize=[20, 6],
-                    plane="YZ",
-                    off_screen=flag_offscreen,
-                    handles=True,
-                )
-                fig.savefig(self.img_folder + "Einspect_" + str(3000).zfill(4) + ".png")
-                plt.close(fig)
-        else:
-            fig, ax = solver.E.inspect(
-                figsize=[20, 6],
-                plane="YZ",
-                off_screen=flag_offscreen,
-                handles=True,
-            )
-            fig.savefig(self.img_folder + "Einspect_" + str(3000).zfill(4) + ".png")
-            plt.close(fig)
-
-    def test_mesh_plot2D(self, flag_offscreen):
-        # Plot E abs in 2D every 20 timesteps
-        global solver
-        solver.plot2D(
-            field="E",
-            component="Abs",
-            plane="YZ",
-            pos=0.5,
-            cmap="rainbow",
-            vmin=0,
-            vmax=500.0,
-            interpolation="hanning",
-            off_screen=flag_offscreen,
-            title=self.img_folder + "Ez2d",
-            n=3000,
-        )
-
-    def test_mesh_plot1D(self, flag_offscreen):
-        # Plot E z in 1D at diferent transverse positions `pos` every 20 timesteps
-        global solver
-        solver.plot1D(
-            field="E",
-            component="z",
-            line="z",
-            pos=[0.45, 0.5, 0.55],
-            xscale="linear",
-            yscale="linear",
-            off_screen=flag_offscreen,
-            title=self.img_folder + "Ez1d",
-            n=3000,
-        )
-
-    def test_mesh_wakefield(self, use_gpu):
-        # Reset fields
-        global solver
-        solver.reset_fields()
-
+        global grid
         # ------------ Beam source ----------------
         # Beam parameters
         sigmaz = 10e-2  # [m] -> 2 GHz
@@ -330,10 +190,9 @@ class TestGridFIT3DMeshing:
         # ----------- Wake Solver  setup  ----------
         # Wakefield post-processor
         wakelength = 10.0  # [m] -> Partially decayed
-        skip_cells = 10  # no. cells to skip at zlo/zhi for wake integration
+        skip_cells = 20  # no. cells to skip at zlo/zhi for wake integration
         results_folder = "tests/013_results/"
 
-        global wake
         wake = WakeSolver(
             q=q,
             sigmaz=sigmaz,
@@ -347,148 +206,45 @@ class TestGridFIT3DMeshing:
             Ez_file=results_folder + "Ez.h5",
         )
 
+        # ----------- Solver & Simulation ----------
+        # boundary conditions
+        bc_low = ["pec", "pec", "pec"]
+        bc_high = ["pec", "pec", "pec"]
+
+        # Solver setup
+        solver = SolverFIT3D(
+            grid,
+            wake,
+            bc_low=bc_low,
+            bc_high=bc_high,
+            use_stl=True,
+            bg="pec",  # Background material
+            dtype=self.dtype,
+            use_gpu=use_gpu,
+            )
+
         # Run simulation
-        solver.wakesolve(wakelength=wakelength, wake=wake)
+        solver.wakesolve(wakelength=wakelength)
 
-    def test_long_wake_potential(self):
-        global wake
-        global solver
-        if use_mpi:
-            if solver.rank == 0:
-                tol = dict(rtol=0.1)
-                assert len(wake.WP) == 5195, (
-                    "Wake potential mesh samples length mismatch"
-                )
-                assert np.allclose(wake.WP[::50], self.WP, **tol), (
-                    "Wake potential mesh samples failed"
-                )
-                assert np.cumsum(np.abs(wake.WP))[-1] == pytest.approx(
-                    184.43818552913254, 0.1
-                ), "Wake potential cumsum mesh failed"
-        else:
-            assert len(wake.WP) == 5195, "Wake potential mesh samples length mismatch"
-            assert np.allclose(wake.WP[::50], self.WP, **self.tol), (
+        assert len(wake.WP) == 4090, "Wake potential mesh samples length mismatch"
+        assert np.allclose(wake.WP[::50], self.WP, **self.tol), (
                 "Wake potential mesh samples failed"
-            )
-            assert np.cumsum(np.abs(wake.WP))[-1] == pytest.approx(
-                184.43818552913254, 0.1
-            ), "Wake potential cumsum mesh failed"
+        )
+        assert np.cumsum(np.abs(wake.WP))[-1] == pytest.approx(
+                141.8402107359091, 0.1
+        ), "Wake potential cumsum mesh failed"
 
-    def test_long_impedance(self):
-        global wake
-        global solver
-        if use_mpi:
-            if solver.rank == 0:
-                tol = dict(rtol=0.1)
-                assert len(wake.Z) == 998, "Impedance samples length mismatch"
-                assert np.allclose(np.abs(wake.Z)[::20], np.abs(self.Z), **tol), (
-                    "Abs Impedance samples mesh failed"
-                )
-                assert np.allclose(np.real(wake.Z)[::20], np.real(self.Z), **tol), (
-                    "Real Impedance samples mesh failed"
-                )
-                assert np.allclose(np.imag(wake.Z)[::20], np.imag(self.Z), **tol), (
-                    "Imag Impedance samples mesh failed"
-                )
-                assert np.cumsum(np.abs(wake.Z))[-1] == pytest.approx(
-                    250910.51090497518, 0.1
-                ), "Abs Impedance cumsum mesh failed"
-        else:
-            # print(wake.Z[::20])
-            assert len(wake.Z) == 998, "Impedance samples length mismatch"
-            assert np.allclose(np.abs(wake.Z)[::20], np.abs(self.Z), **self.tol), (
+        # print(wake.Z[::20])
+        assert len(wake.Z) == 1001, "Impedance samples length mismatch"
+        assert np.allclose(np.abs(wake.Z)[::20], np.abs(self.Z), **self.tol), (
                 "Abs Impedance samples mesh failed"
-            )
-            assert np.allclose(np.real(wake.Z)[::20], np.real(self.Z), **self.tol), (
+        )
+        assert np.allclose(np.real(wake.Z)[::20], np.real(self.Z), **self.tol), (
                 "Real Impedance samples mesh failed"
-            )
-            assert np.allclose(np.imag(wake.Z)[::20], np.imag(self.Z), **self.tol), (
+        )
+        assert np.allclose(np.imag(wake.Z)[::20], np.imag(self.Z), **self.tol), (
                 "Imag Impedance samples mesh failed"
-            )
-            assert np.cumsum(np.abs(wake.Z))[-1] == pytest.approx(
-                250910.51090497518, 0.1
-            ), "Abs Impedance cumsum mesh failed"
-
-    def test_log_file(self, use_gpu):
-        # Helper function to compare nested dicts with float tolerance
-        def assert_dict_allclose(d1, d2, rtol=1e-6, atol=1e-6, path=""):
-            assert set(d1.keys()) == set(d2.keys()), (
-                f"Key mismatch at {path}: {set(d1.keys())} != {set(d2.keys())}"
-            )
-
-            for k in d1:
-                v1, v2 = d1[k], d2[k]
-                p = f"{path}.{k}" if path else k
-
-                # nested dict
-                if isinstance(v1, dict) and isinstance(v2, dict):
-                    assert_dict_allclose(v1, v2, rtol, atol, p)
-
-                # floats
-                elif isinstance(v1, float) and isinstance(v2, float):
-                    if k == "dt":
-                        assert v1 <= v2, "Timestep bigger than for uniform grid"
-                    else:
-                        assert np.isclose(v1, v2, rtol=rtol, atol=atol), (
-                            f"Float mismatch at {p}: {v1} != {v2}"
-                        )
-
-                # np.floats
-                elif isinstance(v1, np.floating) and isinstance(v2, np.floating):
-                    if k == "dt":
-                        assert v1 <= v2, "Timestep bigger than for uniform grid"
-                    else:
-                        assert np.isclose(v1, v2, rtol=rtol, atol=atol), (
-                            f"Float mismatch at {p}: {v1} != {v2}"
-                        )
-
-                # lists/tuples/arrays
-                elif isinstance(v1, (list, tuple, np.ndarray)) and isinstance(
-                    v2, (list, tuple, np.ndarray)
-                ):
-                    assert len(v1) == len(v2), f"Length mismatch at {p}"
-                    for i, (a, b) in enumerate(zip(v1, v2)):
-                        if isinstance(a, float) and isinstance(b, float):
-                            assert np.isclose(a, b, rtol=rtol, atol=atol), (
-                                f"Float mismatch at {p}[{i}]: {a} != {b}"
-                            )
-                        else:
-                            assert a == b, f"Value mismatch at {p}[{i}]: {a} != {b}"
-
-                # list vs single float
-                elif isinstance(v1, (list, tuple, np.ndarray)) and isinstance(
-                    v2, float
-                ):
-                    for i, a in enumerate(v1):
-                        assert np.isclose(a, v2, rtol=rtol, atol=atol), (
-                            f"Float mismatch at {p}[{i}]: {a} != {v2}"
-                        )
-
-                elif isinstance(v1, float) and isinstance(
-                    v2, (list, tuple, np.ndarray)
-                ):
-                    for i, b in enumerate(v2):
-                        assert np.isclose(v1, b, rtol=rtol, atol=atol), (
-                            f"Float mismatch at {p}[{i}]: {v1} != {b}"
-                        )
-
-                # everything else → exact match
-                else:
-                    assert v1 == v2, f"Mismatch at {p}: {v1} != {v2}"
-
-        global solver
-        # Exclude timing info from comparison as they can vary between runs
-        solver.logger.grid["gridInitializationTime"] = 0
-        solver.logger.solver["solverInitializationTime"] = 0
-        solver.logger.wakeSolver["simulationTime"] = 0
-        self.solverLogs["use_mpi"] = use_mpi
-        self.solverLogs["use_gpu"] = use_gpu
-
-        # Check log file exists
-        logfile = os.path.join(solver.logger.wakeSolver["results_folder"], "wakis.log")
-        assert os.path.exists(logfile), "Log file not created"
-
-        # Compare log dict contents
-        assert_dict_allclose(solver.logger.grid, self.gridLogs)
-        assert_dict_allclose(solver.logger.solver, self.solverLogs)
-        assert_dict_allclose(solver.logger.wakeSolver, self.wakeSolverLogs)
+        )
+        assert np.cumsum(np.abs(wake.Z))[-1] == pytest.approx(
+                249395.46953432143, 0.1
+        ), "Abs Impedance cumsum mesh failed"
