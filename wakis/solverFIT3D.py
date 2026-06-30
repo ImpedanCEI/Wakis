@@ -240,7 +240,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         if type(bg) is str:
             bg = material_lib[bg.lower()]
 
-        if len(bg) == 3:
+        if len(bg) == 3 and bg[2] > 0.0:
             self.eps_bg, self.mu_bg, self.sigma_bg = (
                 bg[0] * eps_0,
                 bg[1] * mu_0,
