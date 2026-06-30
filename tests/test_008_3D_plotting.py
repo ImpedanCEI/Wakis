@@ -143,7 +143,7 @@ class Test3Dplotting:
             stl_colors=None,
             anti_aliasing="ssaa",
             smooth_shading=False,
-            off_screen=False,
+            off_screen=flag_offscreen,
         )
 
     def test_grid_stl_mask_slice(self, flag_offscreen):

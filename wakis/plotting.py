@@ -996,14 +996,17 @@ class PlotMixinSolver:
                 ax.set_ylabel(yax)
 
                 if add_patch:
-                    # All solids are merged into a single combined mask:
-                    # - non-vacuum solids are OR-ed in (added)
-                    # - vacuum solids [eps=1, mu=1, sigma=0] are AND-NOT-ed (subtracted)
+                    # All solids are merged into a single combined mask.
+                    # Two-pass approach:
+                    #   Pass 1: OR in all non-vacuum solids to build the base mask.
+                    #   Pass 2: AND-NOT all vacuum solids [eps=1, mu=1, sigma=0]
+                    #           to carve out vacuum regions from the result.
                     # A single imshow overlay is produced for the combined mask.
                     solids = (
                         [add_patch] if isinstance(add_patch, str) else list(add_patch)
                     )
                     combined = np.zeros((Nx, Ny, Nz), dtype=bool)
+                    vacuum_masks = []
                     for solid in solids:
                         solid_mask = np.reshape(
                             self.grid.grid[solid], (Nx, Ny, Nz)
@@ -1016,9 +1019,11 @@ class PlotMixinSolver:
                             and mat[2] == 0.0
                         )
                         if is_vacuum:
-                            combined &= ~solid_mask  # subtract vacuum regions
+                            vacuum_masks.append(solid_mask)
                         else:
-                            combined |= solid_mask  # add non-vacuum regions
+                            combined |= solid_mask  # pass 1: add non-vacuum regions
+                    for solid_mask in vacuum_masks:
+                        combined &= ~solid_mask  # pass 2: subtract vacuum regions
 
                     patch = np.ones((Nx, Ny, Nz))
                     if patch_reverse:
@@ -1769,7 +1774,7 @@ class PlotMixinGrid:
             value = self.subpixel_smoothing_threshold
 
         pv.global_theme.allow_empty_mesh = True
-        pl = pv.Plotter()
+        pl = pv.Plotter(off_screen=off_screen)
 
         # Threshold to extract only the cells inside the mask
         self.grid.set_active_scalars(stl_solid)
@@ -1993,7 +1998,7 @@ class PlotMixinGrid:
             position = (axis_min + axis_max) / 2
 
         pv.global_theme.allow_empty_mesh = True
-        pl = pv.Plotter()
+        pl = pv.Plotter(off_screen=off_screen)
 
         # Surface used to draw the selected STL/plane intersection contour
         outline_surf = self.read_stl(stl_solid)

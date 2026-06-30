@@ -113,15 +113,20 @@ class GridFIT3D(PlotMixin):
             Tolerance factor for STL import, used in grid.select_enclosed_points.
             Default is 1e-3.
         stl_method : str, optional
-            Method for marking cells inside STL solids. Options are "interior_points" (default),
-            "implicit_distance", or "voxelize_rectilinear".
-        use_subpixel_smoothing : bool, optional
+            Method for marking cells inside STL solids. Options are "legacy" (default),
+            "interior_points", "implicit_distance", or "voxelize_rectilinear".
+        subpixel_smoothing : bool, optional
             Whether to apply subpixel smoothing to the STL masks after voxelization. Default is False.
         subpixel_smoothing_factor : int, optional
             Factor by which to increase the resolution for subpixel smoothing. Default is 4.
             Memory usage increases with the cube of this factor, so use with caution!
         subpixel_smoothing_threshold : float, optional
-            Threshold value for subpixel smoothing. Default is 1/(subpixel_smoothing_factor**3).
+            Threshold value (0–1) for classifying smoothed cells as inside/outside the solid.
+            Default is 0.3. A lower value includes more boundary cells; typical choice is
+            ``1/(subpixel_smoothing_factor**3)``.
+        subpixel_smoothing_bool : bool, optional
+            If True, convert the smoothed mask to a boolean array after thresholding.
+            Default is True.
         load_from_h5 : str, optional
             Load grid from an h5 file previously saved with `save_to_h5`.
         verbose : int or bool, optional
@@ -641,7 +646,7 @@ class GridFIT3D(PlotMixin):
         key,
         factor=4,
         sigma=0.5,
-        make_bool=None,  #
+        make_bool=True,  # default is True
         threshold=None,  # default is 1/(factor**3)
     ):
         """
