@@ -66,7 +66,9 @@ class Field:
             if imported_cupy:
                 self.xp = xp_gpu
             else:
-                print("*** cupy could not be imported, please CUDA check installation")
+                raise ImportError(
+                    "[!] CuPy could not be imported, please check CUDA installation"
+                )
         else:
             self.xp = xp
 

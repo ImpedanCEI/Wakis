@@ -155,12 +155,18 @@ class WakeSolver:
             f"    * Beam longitudinal sigma sigmaz={self.sigmaz * 1e3} mm, sigmat={self.sigmaz / self.v * 1e9} ns",
             level=2,
         )
-        self.log(f"    * Maximum frequency of interest fmax={self.fmax / 1e9} GHz", level=2,)
+        self.log(
+            f"    * Maximum frequency of interest fmax={self.fmax / 1e9} GHz",
+            level=2,
+        )
         self.counter_moving = counter_moving
 
         if add_space is not None:  # legacy support for add_space
             self.skip_cells = add_space
-        self.log(f"    * Field values skipped from boundaries: {self.skip_cells} cells", level=2,)
+        self.log(
+            f"    * Field values skipped from boundaries: {self.skip_cells} cells",
+            level=2,
+        )
 
         # Injection time
         if ti is not None:
@@ -171,7 +177,10 @@ class WakeSolver:
                 8.548921333333334 * self.sigmaz / (np.sqrt(self.beta) * self.v)
             )  # injection time as in CST for beta <=1
             self.ti = ti
-        self.log(f"    * Beam source injection time ti={self.ti} s", level=2,)
+        self.log(
+            f"    * Beam source injection time ti={self.ti} s",
+            level=2,
+        )
 
         # field
         self.Ez_file = Ez_file
@@ -474,8 +483,14 @@ class WakeSolver:
         s = np.arange(-self.ti * self.v, wakelength, dt * self.v)
 
         if self.verbose > 1:
-            self.log(f"    * Max simulated time = {np.max(self.t)} s", level=2,)
-            self.log(f"    * Wakelength = {wakelength} m", level=2,)
+            self.log(
+                f"    * Max simulated time = {np.max(self.t)} s",
+                level=2,
+            )
+            self.log(
+                f"    * Wakelength = {wakelength} m",
+                level=2,
+            )
 
         # field subvolume in No.cells for x, y
         i0, j0 = self.n_transverse_cells, self.n_transverse_cells
@@ -680,11 +695,12 @@ class WakeSolver:
         )  # to obtain a 1000 sample single-sided DFT
 
         self.log(
-            f"    * Single sided DFT with number of samples = {samples} and fmax = {fmax*1e-9:.3f} GHz",
+            f"    * Single sided DFT with number of samples = {samples} and fmax = {fmax * 1e-9:.3f} GHz",
             level=2,
         )
         self.log(f"    * Zero-padding to N = {N} points with ds = {ds:.3e} m", level=2)
-        self.log(f"    * Frequency resolution df = {self.v/(N*ds)/1e6:.3f} MHz",
+        self.log(
+            f"    * Frequency resolution df = {self.v / (N * ds) / 1e6:.3f} MHz",
             level=2,
         )
 
@@ -741,11 +757,12 @@ class WakeSolver:
         )  # to obtain a 1000 sample single-sided DFT
 
         self.log(
-            f"    * Single sided DFT with number of samples = {samples} and fmax = {fmax*1e-9:.3f} GHz",
+            f"    * Single sided DFT with number of samples = {samples} and fmax = {fmax * 1e-9:.3f} GHz",
             level=2,
         )
         self.log(f"    * Zero-padding to N = {N} points with ds = {ds:.3e} m", level=2)
-        self.log(f"    * Frequency resolution df = {self.v/(N*ds)/1e6:.3f} MHz",
+        self.log(
+            f"    * Frequency resolution df = {self.v / (N * ds) / 1e6:.3f} MHz",
             level=2,
         )
 
@@ -1346,19 +1363,19 @@ class WakeSolver:
         self.Ez_hf = hf
         self.Ez_file = filename
         if "x" in hf.keys():
-            self.xf = np.array(hf["x"])
+            self.xf = hf["x"][()]
         if "y" in hf.keys():
-            self.yf = np.array(hf["y"])
+            self.yf = hf["y"][()]
         if "z" in hf.keys():
-            self.zf = np.array(hf["z"])
+            self.zf = hf["z"][()]
         if "dx" in hf.keys():
-            self.dx = np.array(hf["dx"])
+            self.dx = hf["dx"][()]
         if "dy" in hf.keys():
-            self.dy = np.array(hf["dy"])
+            self.dy = hf["dy"][()]
         if "dz" in hf.keys():
-            self.dz = np.array(hf["dz"])
+            self.dz = hf["dz"][()]
         if "t" in hf.keys():
-            self.t = np.array(hf["t"])
+            self.t = hf["t"][()]
 
         if return_value:
             return hf
