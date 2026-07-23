@@ -39,7 +39,7 @@
 * For specific needs, please contact the developer 👩‍💻👋: elena.de.la.fuente.garcia@cern.ch
 
 ## How to use
-📖 Documentation, powered by `sphinx`, is available at [wakis.readthedocs.io](https://wakis.readthedocs.io/en/latest/index.html)
+📖 Documentation, powered by `sphinx`, is available at [wakis.readthedocs.io](https://wakis.readthedocs.io)
 
 Check 📁 `examples/` and `notebooks/` for different physical applications:
 * Planewave interacting with a PEC or dielectric sphere
