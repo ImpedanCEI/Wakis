@@ -374,6 +374,7 @@ class RoutinesMixin:
             q=self.wake.q,
             sigmaz=self.wake.sigmaz,
             beta=self.wake.beta,
+            ti=self.wake.ti,
             xsource=self.wake.xsource,
             ysource=self.wake.ysource,
         )
