@@ -364,13 +364,13 @@ class BCsMixin:
 
         # Fill
         if self.bc_low[0].lower() == "cpml":
-            interface = self.x[self.n_pml]
-            L = interface - self.x[0]
+            interface = self.grid.x[self.n_pml]
+            L = interface - self.grid.x[0]
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             for i in range(self.n_pml):
                 # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
-                dist = interface - self.x[i]   # distance into PML
-                tdist = interface - (self.x[i] + self.dx[i]/2)   # distance into PML for half-grid points
+                dist = interface - self.grid.x[i]   # distance into PML
+                tdist = interface - (self.grid.x[i] + self.dx[i]/2)   # distance into PML for half-grid points
                 tdist = max(0.0, min(tdist, L))
                 sx[i] = (dist / L)**self.pml_exp
                 ax[i] = (dist / L)
@@ -385,13 +385,13 @@ class BCsMixin:
                 self.talpha[i, :, :, 'x'] = self.alpha_max * (1 - tax[i])
 
         if self.bc_low[1].lower() == "cpml":
-            interface = self.y[self.n_pml]
-            L = interface - self.y[0]
+            interface = self.grid.y[self.n_pml]
+            L = interface - self.grid.y[0]
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             for i in range(self.n_pml):
                 # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
-                dist = interface - self.y[i]   # distance into PML
-                tdist = interface - (self.y[i] + self.dy[i]/2)   # distance into PML for half-grid points
+                dist = interface - self.grid.y[i]   # distance into PML
+                tdist = interface - (self.grid.y[i] + self.dy[i]/2)   # distance into PML for half-grid points
                 tdist = max(0.0, min(tdist, L))
                 sy[i] = (dist / L)**self.pml_exp
                 tsy[i] = (tdist / L)**self.pml_exp
@@ -406,13 +406,13 @@ class BCsMixin:
                 self.talpha[:, i, :, 'y'] = self.alpha_max * (1 - tay[i])
 
         if self.bc_low[2].lower() == "cpml":
-            interface = self.z[self.n_pml]
-            L = interface - self.z[0]
+            interface = self.grid.z[self.n_pml]
+            L = interface - self.grid.z[0]
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             for i in range(self.n_pml):
                 # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
-                dist = interface - self.z[i]   # distance into PML
-                tdist = interface - (self.z[i] + self.dz[i]/2)   # distance into PML for half-grid points
+                dist = interface - self.grid.z[i]   # distance into PML
+                tdist = interface - (self.grid.z[i] + self.dz[i]/2)   # distance into PML for half-grid points
                 tdist = max(0.0, min(tdist, L))
                 sz[i] = (dist / L)**self.pml_exp
                 tsz[i] = (tdist / L)**self.pml_exp
@@ -427,13 +427,13 @@ class BCsMixin:
                 self.talpha[:, :, i, 'z'] = self.alpha_max * (1 - taz[i])
 
         if self.bc_high[0].lower() == "cpml":
-            interface = self.x[-1-self.n_pml]
-            L = self.x[-1] - interface
+            interface = self.grid.x[-1-self.n_pml]
+            L = self.grid.x[-1] - interface
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             for i in range(-self.n_pml, 0):
                 # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
-                dist = self.x[i] - interface   # distance into PML
-                tdist = (self.x[i] + self.dx[i]/2) - interface   # distance into PML for half-grid points
+                dist = self.grid.x[i] - interface   # distance into PML
+                tdist = (self.grid.x[i] + self.dx[i]/2) - interface   # distance into PML for half-grid points
                 tdist = max(0.0, min(tdist, L))
                 sx[i] = (dist / L)**self.pml_exp
                 tsx[i] = (tdist / L)**self.pml_exp
@@ -448,13 +448,13 @@ class BCsMixin:
                 self.talpha[i, :, :, 'x'] = self.alpha_max * (1 - tax[i])
 
         if self.bc_high[1].lower() == "cpml":
-            interface = self.y[-1-self.n_pml]
-            L = self.y[-1] - interface
+            interface = self.grid.y[-1-self.n_pml]
+            L = self.grid.y[-1] - interface
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             for i in range(-self.n_pml, 0):
                 # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
-                dist = self.y[i] - interface   # distance into PML
-                tdist = (self.y[i] + self.dy[i]/2) - interface   # distance into PML for half-grid points
+                dist = self.grid.y[i] - interface   # distance into PML
+                tdist = (self.grid.y[i] + self.dy[i]/2) - interface   # distance into PML for half-grid points
                 tdist = max(0.0, min(tdist, L))
                 sy[i] = (dist / L)**self.pml_exp
                 tsy[i] = (tdist / L)**self.pml_exp
@@ -469,13 +469,13 @@ class BCsMixin:
                 self.talpha[:, i, :, 'y'] = self.alpha_max * (1 - tay[i])
 
         if self.bc_high[2].lower() == "cpml":
-            interface = self.z[-1-self.n_pml]
-            L = self.z[-1] - interface
+            interface = self.grid.z[-1-self.n_pml]
+            L = self.grid.z[-1] - interface
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             for i in range(-self.n_pml, 0):
                 # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
-                dist = self.z[i] - interface   # distance into PML
-                tdist = self.z[i] + self.dz[i]/2 - interface   # distance into PML for half-grid points
+                dist = self.grid.z[i] - interface   # distance into PML
+                tdist = self.grid.z[i] + self.dz[i]/2 - interface   # distance into PML for half-grid points
                 tdist = max(0.0, min(tdist, L))
                 sz[i] = (dist / L)**self.pml_exp
                 tsz[i] = (tdist / L)**self.pml_exp
@@ -560,6 +560,12 @@ class BCsMixin:
         self.dtzx = self.itAz * self.ikapx * self.Dbc_z * -self.Px.transpose() * self.tLy
         self.dtzy = self.itAz * self.ikapy * self.Dbc_z * -self.Py.transpose() * self.tLx
 
+        if self.source_type.lower() == "tfsf":
+            self.tf_dxz = self.iAx * self.itkapz * self.Ly
+            self.tf_dyz = self.iAy * self.itkapz * self.Lx
+            self.tf_dtxz = self.itAx * self.ikapz * self.tLy
+            self.tf_dtyz = self.itAy * self.ikapz * self.tLx
+
         del self.iAx, self.iAy, self.iAz, self.itAx, self.itAy, self.itAz, self.Lx, self.Ly, self.Lz, self.tLx, self.tLy, self.tLz, self.ikapx, self.ikapy, self.ikapz, self.itkapx, self.itkapy, self.itkapz
 
         self.pml_b_H = (
@@ -590,10 +596,76 @@ class BCsMixin:
 
         del self.kappa, self.alpha, self.sigmaPml, self.tkappa, self.talpha, self.tsigmaPml
 
-        self.psiHa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
-        self.psiHb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
-        self.psiEa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
-        self.psiEb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
+        def _get_f_order_indices(x_range, y_range, z_range, Nx, Ny, Nz):
+            """Helper to generate 1D F-order indices for given 3D slice ranges."""
+            X, Y, Z = np.meshgrid(x_range, y_range, z_range, indexing='ij')
+            # Apply the Fortran-order memory stride formula
+            indices_3d = X + (Y * Nx) + (Z * Nx * Ny)
+            return indices_3d.ravel(order='F')
+        
+        # Initialize CPML auxiliary fields and flattened PML parameters for low and high boundaries
+        if self.bc_low[0].lower() == "cpml":
+            self.psiHa_z_low = np.zeros((self.n_pml * self.Ny * self.Nz), dtype=self.dtype)
+            self.psiHb_y_low = np.zeros((self.n_pml * self.Ny * self.Nz), dtype=self.dtype)
+            self.psiEa_z_low = np.zeros((self.n_pml * self.Ny * self.Nz), dtype=self.dtype)
+            self.psiEb_y_low = np.zeros((self.n_pml * self.Ny * self.Nz), dtype=self.dtype)
+            self.pml_b_E_x_low = (self.pml_b_E[:self.n_pml, :, :, 'x'].copy()).flatten(order='F')
+            self.pml_b_H_x_low = (self.pml_b_H[:self.n_pml, :, :, 'x'].copy()).flatten(order='F')
+            self.pml_c_E_x_low = (self.pml_c_E[:self.n_pml, :, :, 'x'].copy()).flatten(order='F')
+            self.pml_c_H_x_low = (self.pml_c_H[:self.n_pml, :, :, 'x'].copy()).flatten(order='F')
+            self.idx_x_low = _get_f_order_indices(np.arange(self.n_pml), np.arange(self.Ny), np.arange(self.Nz), self.Nx, self.Ny, self.Nz)
+        if self.bc_low[1].lower() == "cpml":
+            self.psiHa_x_low = np.zeros((self.Nx *self.n_pml * self.Nz), dtype=self.dtype)
+            self.psiHb_z_low = np.zeros((self.Nx * self.n_pml * self.Nz), dtype=self.dtype)
+            self.psiEa_x_low = np.zeros((self.Nx * self.n_pml * self.Nz), dtype=self.dtype)
+            self.psiEb_z_low = np.zeros((self.Nx * self.n_pml * self.Nz), dtype=self.dtype)
+            self.pml_c_E_y_low = (self.pml_c_E[:, :self.n_pml, :, 'y'].copy()).flatten(order='F')
+            self.pml_c_H_y_low = (self.pml_c_H[:, :self.n_pml, :, 'y'].copy()).flatten(order='F')
+            self.pml_b_E_y_low = (self.pml_b_E[:, :self.n_pml, :, 'y'].copy()).flatten(order='F')
+            self.pml_b_H_y_low = (self.pml_b_H[:, :self.n_pml, :, 'y'].copy()).flatten(order='F')
+            self.idx_y_low = _get_f_order_indices(np.arange(self.Nx), np.arange(self.n_pml), np.arange(self.Nz), self.Nx, self.Ny, self.Nz)
+        if self.bc_low[2].lower() == "cpml":
+            self.psiHa_y_low = np.zeros((self.Nx * self.Ny * self.n_pml), dtype=self.dtype)
+            self.psiHb_x_low = np.zeros((self.Nx * self.Ny * self.n_pml), dtype=self.dtype)
+            self.psiEa_y_low = np.zeros((self.Nx * self.Ny * self.n_pml), dtype=self.dtype)
+            self.psiEb_x_low = np.zeros((self.Nx * self.Ny * self.n_pml), dtype=self.dtype)
+            self.pml_c_E_z_low = (self.pml_c_E[:, :, :self.n_pml, 'z'].copy()).flatten(order='F')
+            self.pml_c_H_z_low = (self.pml_c_H[:, :, :self.n_pml, 'z'].copy()).flatten(order='F')
+            self.pml_b_E_z_low = (self.pml_b_E[:, :, :self.n_pml, 'z'].copy()).flatten(order='F')
+            self.pml_b_H_z_low = (self.pml_b_H[:, :, :self.n_pml, 'z'].copy()).flatten(order='F')
+            self.idx_z_low = _get_f_order_indices(np.arange(self.Nx), np.arange(self.Ny), np.arange(self.n_pml), self.Nx, self.Ny, self.Nz)
+        if self.bc_high[0].lower() == "cpml":
+            self.psiHa_z_high = np.zeros((self.n_pml * self.Ny * self.Nz), dtype=self.dtype)
+            self.psiHb_y_high = np.zeros((self.n_pml * self.Ny * self.Nz), dtype=self.dtype)
+            self.psiEa_z_high = np.zeros((self.n_pml * self.Ny * self.Nz), dtype=self.dtype)
+            self.psiEb_y_high = np.zeros((self.n_pml * self.Ny * self.Nz), dtype=self.dtype)
+            self.pml_c_E_x_high = (self.pml_c_E[-self.n_pml:, :, :, 'x'].copy()).flatten(order='F')
+            self.pml_c_H_x_high = (self.pml_c_H[-self.n_pml:, :, :, 'x'].copy()).flatten(order='F')
+            self.pml_b_E_x_high = (self.pml_b_E[-self.n_pml:, :, :, 'x'].copy()).flatten(order='F')
+            self.pml_b_H_x_high = (self.pml_b_H[-self.n_pml:, :, :, 'x'].copy()).flatten(order='F')
+            self.idx_x_high = _get_f_order_indices(np.arange(self.Nx - self.n_pml, self.Nx), np.arange(self.Ny), np.arange(self.Nz), self.Nx, self.Ny, self.Nz)
+        if self.bc_high[1].lower() == "cpml":
+            self.psiHa_x_high = np.zeros((self.Nx * self.n_pml * self.Nz), dtype=self.dtype)
+            self.psiHb_z_high = np.zeros((self.Nx * self.n_pml * self.Nz), dtype=self.dtype)
+            self.psiEa_x_high = np.zeros((self.Nx * self.n_pml * self.Nz), dtype=self.dtype)
+            self.psiEb_z_high = np.zeros((self.Nx * self.n_pml * self.Nz), dtype=self.dtype)
+            self.pml_c_E_y_high = (self.pml_c_E[:, -self.n_pml:, :, 'y'].copy()).flatten(order='F')
+            self.pml_c_H_y_high = (self.pml_c_H[:, -self.n_pml:, :, 'y'].copy()).flatten(order='F')
+            self.pml_b_E_y_high = (self.pml_b_E[:, -self.n_pml:, :, 'y'].copy()).flatten(order='F')
+            self.pml_b_H_y_high = (self.pml_b_H[:, -self.n_pml:, :, 'y'].copy()).flatten(order='F')
+            self.idx_y_high = _get_f_order_indices(np.arange(self.Nx), np.arange(self.Ny - self.n_pml, self.Ny), np.arange(self.Nz), self.Nx, self.Ny, self.Nz)
+        if self.bc_high[2].lower() == "cpml":
+            self.psiHa_y_high = np.zeros((self.Nx * self.Ny * self.n_pml), dtype=self.dtype)
+            self.psiHb_x_high = np.zeros((self.Nx * self.Ny * self.n_pml), dtype=self.dtype)
+            self.psiEa_y_high = np.zeros((self.Nx * self.Ny * self.n_pml), dtype=self.dtype)
+            self.psiEb_x_high = np.zeros((self.Nx * self.Ny * self.n_pml), dtype=self.dtype)
+            self.pml_c_E_z_high = (self.pml_c_E[:, :, -self.n_pml:, 'z'].copy()).flatten(order='F')
+            self.pml_c_H_z_high = (self.pml_c_H[:, :, -self.n_pml:, 'z'].copy()).flatten(order='F')
+            self.pml_b_E_z_high = (self.pml_b_E[:, :, -self.n_pml:, 'z'].copy()).flatten(order='F')
+            self.pml_b_H_z_high = (self.pml_b_H[:, :, -self.n_pml:, 'z'].copy()).flatten(order='F')
+            self.idx_z_high = _get_f_order_indices(np.arange(self.Nx), np.arange(self.Ny), np.arange(self.Nz - self.n_pml, self.Nz), self.Nx, self.Ny, self.Nz)
+
+        del self.pml_b_E, self.pml_c_E, self.pml_b_H, self.pml_c_H
 
     def get_abc(self):
         """

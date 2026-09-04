@@ -342,8 +342,8 @@ class RoutinesMixin:
         # integration path (test position)
         self.xtest, self.ytest = self.wake.xtest, self.wake.ytest
         self.ixt, self.iyt = (
-            np.abs(self.x - self.xtest).argmin(),
-            np.abs(self.y - self.ytest).argmin(),
+            np.abs(self.grid.x - self.xtest).argmin(),
+            np.abs(self.grid.y - self.ytest).argmin(),
         )
         if compute_plane.lower() == "longitudinal":
             xx, yy = self.ixt, self.iyt

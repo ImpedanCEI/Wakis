@@ -16,7 +16,10 @@ every simulation timestep, e.g.:
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.constants import c as c_light
-from scipy.constants import mu_0
+from scipy.constants import mu_0, epsilon_0
+from scipy.sparse.linalg import spsolve
+import scipy.sparse as sp
+Z0 = np.sqrt(mu_0 / epsilon_0)  # Wave impedance in free space [Ohms]
 
 
 class Beam:
@@ -86,11 +89,19 @@ class Beam:
         """
         if self.is_first_update:
             self.ixs, self.iys = (
-                np.abs(solver.x - self.xsource).argmin(),
-                np.abs(solver.y - self.ysource).argmin(),
+                np.abs(solver.grid.x - self.xsource).argmin(),
+                np.abs(solver.grid.y - self.ysource).argmin(),
             )
-            if solver.source_type.lower() == "soft":
+            if solver.source_type == "direct":
                 self.Jold = np.zeros_like(solver.J[self.ixs, self.iys, :, "z"])
+            if solver.source_type == "tfsf":
+                solver.injection_done = False
+                self.Jold = np.zeros_like(solver.J[self.ixs, self.iys, solver.n_pml+1:-solver.n_pml-2, "z"])
+                solver.J_max = self.q * self.v / solver.tdx[self.ixs] / solver.tdy[self.iys] / (np.sqrt(2 * np.pi * self.sigmaz**2))
+                if solver.verbose>1:
+                    print(f"[!] Total-Field/Scattered-Field injection started at t={t:.3e}s, Jmax={solver.J_max:.3e} Cm/s")
+                self._calculate_injected_fields(solver, z_pos=solver.n_pml+1, side="low")
+                self._calculate_injected_fields(solver, z_pos=-solver.n_pml-2, side="high")
             self.is_first_update = False
             if hasattr(solver, "ZMIN"):  # support for MPI
                 zminIdx = np.abs(solver.z - solver.ZMIN).argmin()
@@ -99,7 +110,8 @@ class Beam:
                 self.zmin = solver.z.min()
         # reference shift
         s0 = self.zmin - self.v * self.ti
-        s = solver.z - self.v * t
+        s = solver.z - self.v * (t + solver.dt / 2)
+
         # gaussian
         profile = (
             1
@@ -107,16 +119,172 @@ class Beam:
             * np.exp(-((s - s0) ** 2) / (2 * self.sigmaz**2))
         )
         # update
-        if solver.source_type.lower() == "hard":
-            solver.J[self.ixs, self.iys, :, "z"] = (
-                self.q * self.v * profile / solver.dx[self.ixs] / solver.dy[self.iys]
-            )
+        if solver.source_type == "tfsf":
+            Jprofile = self.q * self.v * profile[solver.n_pml+1:-solver.n_pml-2] / solver.tdx[self.ixs] / solver.tdy[self.iys]
+            dJ = Jprofile - self.Jold
+            solver.J[self.ixs, self.iys, solver.n_pml+1:-solver.n_pml-2, "z"] += dJ
+            self.Jold = Jprofile
+            
+            if solver.injection_done == False:
 
-        if solver.source_type.lower() == "soft":
-            Jprofile = self.q * self.v * profile / solver.dx[self.ixs] / solver.dy[self.iys]
+                # Update the transverse E and H fields on the injection planes using the pre-calculated 2D templates
+                Einj_x, Einj_y, Hinj_x, Hinj_y = self.get_injected_2D_slice(solver,solver.grid.z[solver.n_pml+1], t, side="low")
+                solver.E_trans[:,:, solver.n_pml+1, "x"] = Einj_x
+                solver.E_trans[:,:, solver.n_pml+1, "y"] = Einj_y
+                Einj_x, Einj_y, Hinj_x, Hinj_y = self.get_injected_2D_slice(solver, solver.z[solver.n_pml+1], t+solver.dt/2, side="low")
+                solver.H_trans[:,:, solver.n_pml+1, "x"] = -Hinj_x
+                solver.H_trans[:,:, solver.n_pml+1, "y"] = -Hinj_y
+
+                Einj_x, Einj_y, Hinj_x, Hinj_y = self.get_injected_2D_slice(solver,solver.grid.z[-solver.n_pml-1-2], t, side="high")
+                solver.E_trans[:,:, -solver.n_pml-2, "x"] = -Einj_x
+                solver.E_trans[:,:, -solver.n_pml-2, "y"] = -Einj_y
+                Einj_x, Einj_y, Hinj_x, Hinj_y = self.get_injected_2D_slice(solver, solver.z[-solver.n_pml-2], t+solver.dt/2, side="high")
+                solver.H_trans[:,:, -solver.n_pml-2, "x"] = Hinj_x
+                solver.H_trans[:,:, -solver.n_pml-2, "y"] = Hinj_y
+
+                # Truncate the injection after the beam has passed the injection plane by 5 sigma
+                if s0-s[-solver.n_pml-2] > 5 * self.sigmaz:
+                    solver.injection_done = True
+                    del solver.E_trans, solver.H_trans
+                    del self.E2D_x_low, self.E2D_y_low, self.H2D_x_low, self.H2D_y_low, self.E2D_x_high, self.E2D_y_high, self.H2D_x_high, self.H2D_y_high
+                    del solver.tf_dxz, solver.tf_dyz, solver.tf_dtxz, solver.tf_dtyz
+                    if solver.verbose> 1:
+                        print(f"[!] Total-Field/Scattered-Field injection done at t={t:.3e}s, switching to regular CPML updating scheme")
+
+        elif solver.source_type == "direct":
+            Jprofile = self.q * self.v * profile / solver.tdx[self.ixs] / solver.tdy[self.iys]
             dJ = Jprofile - self.Jold
             solver.J[self.ixs, self.iys, :, "z"] += dJ
             self.Jold = Jprofile
+
+
+    def _calculate_injected_fields(self, solver, z_pos, side):
+            """
+            Pre-calculates the normalized 2D TEM transverse field templates (E and H)
+            on the injection plane using a discrete FIT/Yee 2D Poisson solver.
+            
+            Guarantees machine-zero discrete divergence on staggered grids.
+            """
+            if self.beta != 1.0:
+                raise NotImplementedError("Only relativistic beta=1 is currently implemented.")
+
+            def k(i, j):
+                """Maps 2D grid coordinates to 1D flat index."""
+                return i * Ny + j
+
+            Nx, Ny = solver.Nx, solver.Ny
+            N = Nx * Ny
+
+            b = np.zeros((N), dtype=solver.dtype)
+            rho_source = 1.0 / c_light  # Normalized source charge density
+            b[k(self.ixs, self.iys)] = -rho_source/epsilon_0
+
+            row, col, data = [], [], []
+
+            for i in range(Nx):
+                for j in range(Ny):
+                    row_idx = k(i, j)
+                        
+                    is_pec_node = (
+                        i == 0 or i == Nx - 1 or j == 0 or j == Ny - 1 or
+                        solver.ieps[i, j, z_pos, 'x'] == 0 or
+                        solver.ieps[i - 1, j, z_pos, 'x'] == 0 or
+                        solver.ieps[i, j, z_pos, 'y'] == 0 or
+                        solver.ieps[i, j - 1, z_pos, 'y'] == 0
+                    )
+
+                    # Enforce Dirichlet boundary condition (phi = 0) at PEC nodes
+                    if is_pec_node:
+                        row.append(row_idx); col.append(row_idx); data.append(1.0)
+                        b[row_idx] = 0.0
+                        continue
+                    
+                    a_E = 1.0 / (solver.dx[i] * solver.tdx[i])
+                    a_W = 1.0 / (solver.dx[i-1] * solver.tdx[i])
+                    a_N = 1.0 / (solver.dy[j] * solver.tdy[j])
+                    a_S = 1.0 / (solver.dy[j-1] * solver.tdy[j])
+                    a_C = -(a_E + a_W + a_N + a_S)
+
+                    row.append(row_idx); col.append(row_idx); data.append(a_C)
+                    row.append(row_idx); col.append(k(i+1, j)); data.append(a_E)
+                    row.append(row_idx); col.append(k(i-1, j)); data.append(a_W)
+                    row.append(row_idx); col.append(k(i, j+1)); data.append(a_N)
+                    row.append(row_idx); col.append(k(i, j-1)); data.append(a_S)
+
+            A = sp.coo_matrix((data, (row, col)), shape=(N, N)).tocsr()
+            phi_vec = spsolve(A, b)
+            phi = phi_vec.reshape((Nx, Ny))
+
+            E2D_x = np.zeros((Nx, Ny), dtype=solver.dtype)
+            E2D_y = np.zeros((Nx, Ny), dtype=solver.dtype)
+
+            for i in range(Nx - 1):
+                for j in range(Ny):
+                    E2D_x[i, j] = -(phi[i+1, j] - phi[i, j]) / solver.dx[i]
+
+            for i in range(Nx):
+                for j in range(Ny - 1):
+                    E2D_y[i, j] = -(phi[i, j+1] - phi[i, j]) / solver.dy[j]
+            
+            H2D_x = -E2D_y / Z0
+            H2D_y =  E2D_x / Z0
+
+            if side == "low":
+                self.E2D_x_low = E2D_x
+                self.E2D_y_low = E2D_y
+                self.H2D_x_low = H2D_x
+                self.H2D_y_low = H2D_y
+            
+            elif side == "high":
+                self.E2D_x_high = E2D_x
+                self.E2D_y_high = E2D_y
+                self.H2D_x_high = H2D_x
+                self.H2D_y_high = H2D_y
+   
+    def get_injected_2D_slice(self, solver, z_pos, t, side):
+            """
+            Evaluates the analytical 2D transverse E and H fields at a specific 
+            scalar z-coordinate and time t.
+            
+            Parameters
+            ----------
+            solver : object
+            z_pos : float
+                The exact staggered z-coordinate of the boundary plane [m].
+            t : float
+                The exact staggered simulation time [s].
+                
+            Returns
+            -------
+            E_inj_x, E_inj_y, H_inj_x, H_inj_y : 2D numpy arrays of shape (Nx, Ny)
+            """
+
+            # Calculate the relative position in the bunch frame
+            s0 = self.zmin - self.v * self.ti
+            s = z_pos - self.v * t
+
+            # Evaluate the Gaussian profile at this z-position
+            profile = (
+            1
+            / np.sqrt(2 * np.pi * self.sigmaz**2)
+            * np.exp(-((s - s0) ** 2) / (2 * self.sigmaz**2))
+            )
+            Jz_pos = self.q * self.v * profile / solver.tdx[self.ixs] / solver.tdy[self.iys]
+
+            # Scale the 2D templates by the current density at this z-position and time step
+            if side == "low":
+                E_inj_x = self.E2D_x_low * Jz_pos
+                E_inj_y = self.E2D_y_low * Jz_pos
+                H_inj_x = self.H2D_x_low * Jz_pos
+                H_inj_y = self.H2D_y_low * Jz_pos
+            elif side == "high":
+                E_inj_x = self.E2D_x_high * Jz_pos
+                E_inj_y = self.E2D_y_high * Jz_pos
+                H_inj_x = self.H2D_x_high * Jz_pos
+                H_inj_y = self.H2D_y_high * Jz_pos
+
+            return E_inj_x, E_inj_y, H_inj_x, H_inj_y
+    
 
     def plot(self, t):
         """
