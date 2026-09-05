@@ -366,6 +366,7 @@ class WakeSolver:
         else:
             zz = np.s_[:]
         z = self.zf[zz]
+        dz = self.dz[zz] if np.ndim(self.dz) else self.dz
         nz = len(z)
 
         # Set Wake length and s
@@ -399,7 +400,7 @@ class WakeSolver:
 
         elif len(Ez.shape) == 1:
             for n in range(nt):
-                Ezt[:, n] = self.Ez_hf[keys[n]]
+                Ezt[:, n] = self.Ez_hf[keys[n]][zz]
         self.Ezt = Ezt
 
         # integral of (Ez(xtest, ytest, z, t=(s+z)/c))dz
@@ -410,7 +411,7 @@ class WakeSolver:
                     ts = (z[k] + s[n]) / self.v - zmin / self.v - self.t[0] + ti
                     it = int(ts / dt)  # find index for t
                     if it < nt:
-                        WP[n] = WP[n] + (Ezt[k, it]) * self.dz[k]  # compute integral
+                        WP[n] = WP[n] + (Ezt[k, it]) * dz[k]  # compute integral
                     pbar.update(1)
 
         WP = WP / (self.q * 1e12)  # [V/pC]
@@ -471,6 +472,7 @@ class WakeSolver:
         else:
             zz = np.s_[:]
         z = self.zf[zz]
+        dz = self.dz[zz] if np.ndim(self.dz) else self.dz
         nz = len(z)
 
         # Set Wake length and s
@@ -524,7 +526,7 @@ class WakeSolver:
                                 it = int(ts / dt)  # find index for t
                                 if it < nt:
                                     WP[n] = WP[n] + (Ezt[-k - 1, it]) * (
-                                        -1 * self.dz[k]
+                                        -1 * dz[k]
                                     )  # compute integral
                             pbar.update(1)
 
@@ -540,7 +542,7 @@ class WakeSolver:
                                 it = int(ts / dt)  # find index for t
                                 if it < nt:
                                     WP[n] = (
-                                        WP[n] + (Ezt[k, it]) * self.dz[k]
+                                        WP[n] + (Ezt[k, it]) * dz[k]
                                     )  # compute integral
 
                             pbar.update(1)
