@@ -366,7 +366,12 @@ class WakeSolver:
         else:
             zz = np.s_[:]
         z = self.zf[zz]
-        dz = self.dz[zz] if np.ndim(self.dz) else self.dz
+        if not np.ndim(self.dz):
+            dz = self.dz
+        elif len(self.dz) == len(self.zf):
+            dz = self.dz[zz]
+        else:
+            dz = self.dz[self.skip_cells : self.skip_cells + len(z)]
         nz = len(z)
 
         # Set Wake length and s
@@ -472,7 +477,12 @@ class WakeSolver:
         else:
             zz = np.s_[:]
         z = self.zf[zz]
-        dz = self.dz[zz] if np.ndim(self.dz) else self.dz
+        if not np.ndim(self.dz):
+            dz = self.dz
+        elif len(self.dz) == len(self.zf):
+            dz = self.dz[zz]
+        else:
+            dz = self.dz[self.skip_cells : self.skip_cells + len(z)]
         nz = len(z)
 
         # Set Wake length and s
