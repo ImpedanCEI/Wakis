@@ -23,19 +23,26 @@ def test_loss_factor_calculates_missing_wake_and_profile(tmp_path):
 def test_016_wake_factors(tmp_path):
     height = 0.093
     cavity = pv.Cylinder(
-        center=(0, 0, height / 2), direction=(0, 0, 1),
-        radius=0.0085, height=height, resolution=32,
+        center=(0, 0, height / 2),
+        direction=(0, 0, 1),
+        radius=0.0085,
+        height=height,
+        resolution=32,
     ).triangulate()
-    shell = pv.Disc(inner=0.0085, outer=0.01, r_res=1, c_res=32).extrude(
-        (0, 0, height), capping=True
-    ).triangulate()
+    shell = (
+        pv.Disc(inner=0.0085, outer=0.01, r_res=1, c_res=32)
+        .extrude((0, 0, height), capping=True)
+        .triangulate()
+    )
     solids = {"cavity": tmp_path / "cavity.stl", "shell": tmp_path / "shell.stl"}
     cavity.save(solids["cavity"])
     shell.save(solids["shell"])
     bounds = shell.bounds
     grid = GridFIT3D(
         *bounds,
-        12, 10, 30,
+        12,
+        10,
+        30,
         stl_solids={name: str(path) for name, path in solids.items()},
         stl_materials={"cavity": "vacuum", "shell": [1.0, 1.0, 30.0]},
         stl_method="implicit_distance",
@@ -51,7 +58,8 @@ def test_016_wake_factors(tmp_path):
         verbose=0,
     )
     solver = SolverFIT3D(
-        grid, wake,
+        grid,
+        wake,
         bc_low=["pec", "pec", "pec"],
         bc_high=["pec", "pec", "pec"],
         use_stl=True,
