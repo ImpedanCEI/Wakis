@@ -732,7 +732,7 @@ class Field:
 
             # --- Build plotter ---
             pv.global_theme.allow_empty_mesh = True
-            pl = pv.Plotter()
+            pl = pv.Plotter(off_screen=off_screen)
 
             # Initial slice
             initial_slice = pv_grid.slice(normal=normal, origin=origin_fn(position))
@@ -827,7 +827,6 @@ class Field:
             pl.enable_3_lights()
 
             if off_screen:
-                pl.off_screen = True
                 return pl
             else:
                 pl.show()
@@ -1190,7 +1189,7 @@ class Field:
                     )
 
             pv.global_theme.allow_empty_mesh = True
-            pl = pv.Plotter()
+            pl = pv.Plotter(off_screen=off_screen)
             vals = {"x": xmax, "y": ymax, "z": zmax}
 
             # --- Update function ---
@@ -1285,7 +1284,6 @@ class Field:
                 )
 
             if off_screen:
-                pl.off_screen = True
                 return pl
 
             else:

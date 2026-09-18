@@ -98,7 +98,7 @@ class TestPlanewave:
     def test_field_inspect(self, flag_offscreen):
         global solver
         # Inspect plane
-        solver.E.inspect(
+        e_handles = solver.E.inspect(
             plane="YZ",
             cmap="bwr",
             dpi=100,
@@ -106,16 +106,20 @@ class TestPlanewave:
             off_screen=flag_offscreen,
         )
         # Inspect custom slice
-        solver.ieps.inspect(
+        ieps_handles = solver.ieps.inspect(
             x=slice(20, 60),
             y=slice(20, 60),
             z=int(grid.Nz / 2),
             off_screen=flag_offscreen,
         )
         # Inspect with handles
-        _, _ = solver.H.inspect(
+        h_fig, _ = solver.H.inspect(
             plane="XY", cmap="bwr", handles=True, off_screen=flag_offscreen
         )
+        if flag_offscreen:
+            for fig, _ in (e_handles, ieps_handles):
+                plt.close(fig)
+            plt.close(h_fig)
 
     def test_plot1D(self, flag_offscreen):
         global solver

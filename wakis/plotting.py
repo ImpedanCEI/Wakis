@@ -1391,7 +1391,7 @@ class PlotMixinSolver:
             self.wake = wake
 
         # Initialize plotter
-        pl = pv.Plotter(window_size=window_size)
+        pl = pv.Plotter(window_size=window_size, off_screen=off_screen)
         solid_state = {}
         for key, path in self.stl_solids.items():
             surf = self.grid.read_stl(key)
@@ -1558,7 +1558,6 @@ class PlotMixinSolver:
 
         # Save
         if off_screen:
-            pl.off_screen = True
             return pl
         else:
             pl.show(auto_close=False, interactive_update=True)
@@ -1652,7 +1651,7 @@ class PlotMixinGrid:
         - Colors come from ``self.stl_colors`` when available.
         - Solids labeled 'vacuum' are rendered with reduced opacity by default.
         """
-        pl = pv.Plotter()
+        pl = pv.Plotter(off_screen=off_screen)
         pl.add_mesh(self.grid, opacity=0.0, name="grid", show_scalar_bar=False)
         for key in self.stl_solids:
             color = self.stl_colors[key]
@@ -2282,7 +2281,7 @@ class PlotMixinGrid:
             stl_colors = self.stl_colors
 
         pv.global_theme.allow_empty_mesh = True
-        pl = pv.Plotter()
+        pl = pv.Plotter(off_screen=off_screen)
         pl.add_mesh(self.grid, show_edges=True, cmap=["white", "white"], name="grid")
 
         def clip(widget):
@@ -2387,7 +2386,6 @@ class PlotMixinGrid:
         pl.enable_anti_aliasing(anti_aliasing)
 
         if off_screen:
-            pl.off_screen = True
             return pl
             # pl.export_html('grid_inspect.html')
         else:
