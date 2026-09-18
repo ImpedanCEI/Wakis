@@ -253,10 +253,15 @@ class RoutinesMixin:
         The `Ez` field is saved every timestep in a subdomain (xtest, ytest, z) around
         the beam trajectory in HDF5 format file `Ez.h5`.
 
-        The computed results are available as Solver class attributes:
+        The computed results are available as attributes of the WakeSolver object:
             - wake potential: WP (longitudinal), WPx, WPy (transverse) [V/pC]
             - impedance: Z (longitudinal), Zx, Zy (transverse) [Ohm]
-            - beam charge distribution: lambdas (distance) [C/m], lambdaf (spectrum) [C]
+            - normalized bunch profile: lambdas (distance) [1/m],
+              lambdaf (spectrum) [dimensionless]
+
+        By default, these results are also saved as `.txt` files in the
+        WakeSolver results folder. Set `WakeSolver(save=False)` to disable
+        txt output.
 
         Parameters
         ----------
