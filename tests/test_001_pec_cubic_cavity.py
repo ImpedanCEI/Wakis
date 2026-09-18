@@ -100,6 +100,7 @@ class TestPecCubicCavity:
             Nz,
             stl_solids=stl_solids,
             stl_materials=stl_materials,
+            verbose=2,
         )
 
         # Beam parameters
@@ -113,7 +114,9 @@ class TestPecCubicCavity:
 
         global wake
         skip_cells = 12  # no. cells to skip in WP integration
+        wakelength = 1.0  # [m]
         wake = WakeSolver(
+            wakelength=wakelength,
             q=q,
             sigmaz=sigmaz,
             beta=beta,
@@ -124,6 +127,7 @@ class TestPecCubicCavity:
             save=False,
             Ez_file="tests/001_Ez.h5",
             skip_cells=skip_cells,
+            verbose=2,
         )
 
         # boundary conditions
@@ -140,9 +144,9 @@ class TestPecCubicCavity:
             bg="pec",
             dtype=self.dtype,
             use_gpu=use_gpu,
+            verbose=2,
         )
 
-        wakelength = 1.0  # [m]
         solver.wakesolve(wakelength=wakelength, save_J=False)
         os.remove("tests/001_Ez.h5")
 

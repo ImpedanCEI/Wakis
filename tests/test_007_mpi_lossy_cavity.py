@@ -106,13 +106,14 @@ class TestMPILossyCavity:
             "cavity": "tests/stl/007_vacuum_cavity.stl",
             "shell": "tests/stl/007_lossymetal_shell.stl",
         },
-        "stl_materials": {"cavity": [1.0, 1.0], "shell": [30, 1.0, 30]},
+        "stl_materials": {"cavity": [1.0, 1.0, 0.0], "shell": [30, 1.0, 30]},
         "gridInitializationTime": 0,
     }
 
     solverLogs = {
         "use_gpu": False,  # updated in test_log_file
         "use_mpi": False,  # updated in test_log_file
+        "source_type": "hard",
         "background": "pec",
         "bc_low": ["pec", "pec", "pec"],
         "bc_high": ["pec", "pec", "pec"],

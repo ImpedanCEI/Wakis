@@ -136,11 +136,13 @@ class Test3Dplotting:
         solver.grid.plot_stl_mask(
             stl_solid="cavity",
             cmap="viridis",
-            add_stl="all",
-            stl_opacity=0.5,
-            smooth_shading=False,
+            bounding_box=True,
+            clip_plane="x",
+            add_stl=True,
+            stl_opacity=0.1,
+            stl_colors=None,
             anti_aliasing="ssaa",
-            ymax=0.0,
+            smooth_shading=False,
             off_screen=flag_offscreen,
         )
 

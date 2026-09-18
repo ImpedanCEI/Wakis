@@ -230,12 +230,12 @@ class RoutinesMixin:
 
     def wakesolve(
         self,
-        wakelength,
+        wakelength=None,
         wake=None,
         callback=None,
         compute_plane="both",
         plot=False,
-        plot_func=PlotMixin.plot2D,
+        plot_func=None,
         plot_from=None,
         plot_every=1,
         plot_until=None,
@@ -326,10 +326,15 @@ class RoutinesMixin:
                 "Wake solver information not passed to the solver instantiation"
             )
 
+        if wakelength is None:
+            wakelength = self.wake.wakelength
+
         if add_space is not None:  # legacy support
             self.wake.skip_cells = add_space
 
         # plot params defaults
+        if plot_func is None:
+            plot_func = self.plot2D  # default plotting function
         if plot:
             plotkw = self.get_plotting_kwargs(plot_func.__name__)
             plotkw.update(kwargs)
@@ -369,6 +374,7 @@ class RoutinesMixin:
             q=self.wake.q,
             sigmaz=self.wake.sigmaz,
             beta=self.wake.beta,
+            ti=self.wake.ti,
             xsource=self.wake.xsource,
             ysource=self.wake.ysource,
         )
@@ -490,6 +496,10 @@ class RoutinesMixin:
                 "pos": [0.8, 0.6, 0.5, 0.4, 0.2],
                 "xscale": "linear",
                 "yscale": "linear",
+                "xlim": None,
+                "ylim": None,
+                "figsize": [8, 4],
+                "title": "plot1D",
                 "off_screen": True,
                 "colors": [
                     "#5ccfe6",
@@ -499,7 +509,6 @@ class RoutinesMixin:
                     "#ffd580",
                     "#a2aabc",
                 ],
-                "title": "plot1D",
             }
 
         elif name == "plot2D":
@@ -508,43 +517,64 @@ class RoutinesMixin:
                 "component": "z",
                 "plane": "ZY",
                 "pos": 0.5,
+                "norm": None,
+                "vmin": None,
+                "vmax": None,
+                "figsize": [8, 4],
                 "cmap": "rainbow",
+                "patch_alpha": 0.1,
                 "patch_reverse": True,
+                "add_patch": False,
+                "title": "plot2D",
                 "off_screen": True,
                 "interpolation": "spline36",
-                "title": "plot2D",
+                "dpi": 100,
+                "return_handles": False,
             }
         elif name == "plot3D":
             plotkw = {
                 "field": "E",
                 "component": "z",
+                "clim": None,
+                "hide_solids": None,
+                "show_solids": None,
                 "add_stl": None,
                 "stl_opacity": 0.0,
                 "stl_colors": "white",
+                "title": "plot3D",
                 "cmap": "jet",
-                "clip_box": False,
+                "clip_interactive": True,
                 "clip_normal": "-y",
+                "clip_box": False,
+                "clip_bounds": None,
                 "off_screen": True,
                 "zoom": 1.0,
+                "camera_position": None,
                 "nan_opacity": 1.0,
-                "title": "plot3D",
             }
         elif name == "plot3DonSTL":
             plotkw = {
                 "field": "E",
                 "component": "z",
+                "clim": None,
                 "cmap": "rainbow",
+                "log_scale": False,
                 "stl_with_field": list(self.grid.stl_solids.keys())[0],
                 "field_opacity": 1.0,
+                "tolerance": None,
                 "stl_transparent": list(self.grid.stl_solids.keys()),
                 "stl_opacity": 0.1,
                 "stl_colors": list(self.grid.stl_colors.values()),
                 "clip_plane": True,
+                "clip_interactive": False,
                 "clip_normal": "-y",
                 "clip_origin": [0, 0, 0],
+                "clip_box": False,
+                "clip_bounds": None,
+                "title": "plot3DonSTL",
                 "off_screen": True,
                 "zoom": 1.2,
-                "title": "plot3DonSTL",
+                "camera_position": None,
             }
 
         else:
