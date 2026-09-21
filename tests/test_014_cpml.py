@@ -2,16 +2,37 @@ import os
 import sys
 
 import numpy as np
+import pyvista as pv
 from scipy.constants import c, mu_0
 from tqdm import tqdm
 
-sys.path.append("../")
+import pytest
+
+sys.path.append("../wakis")
 import wakis
 
 flag_interactive = False  # Set to true to run plot tests
 
 
-class TestPML:
+class TestCPML:
+    """Test CPML implementation in SolverFIT3D. First test is a reflection test with a Gaussian packet, 
+    second test is a TFSF simulation of a cubic cavity. It benchmarks the impedance of the cavity against 
+    the current simulation results with CPML and TF/SF as reference."""
+
+    Zabs = np.array([3.47693052e+00, 5.97952135e+00, 2.23594356e+00, 1.23041419e+01,
+        1.22201430e+01, 1.28218589e+01, 2.29114040e+01, 1.75525664e+01,
+        2.56345387e+01, 3.21612781e+01, 2.44292230e+01, 4.00746924e+01,
+        3.94104665e+01, 3.53968300e+01, 5.53200893e+01, 4.47282125e+01,
+        5.19363120e+01, 7.02880426e+01, 4.96917143e+01, 7.45682232e+01,
+        8.35969888e+01, 5.88591427e+01, 1.03503345e+02, 9.35392058e+01,
+        8.00242393e+01, 1.39037339e+02, 9.83042826e+01, 1.21894553e+02,
+        1.81927304e+02, 9.80347377e+01, 1.96021453e+02, 2.34397155e+02,
+        1.08701529e+02, 3.30726630e+02, 3.04232502e+02, 2.10965648e+02,
+        6.36343822e+02, 4.32886760e+02, 7.58951826e+02, 2.33175587e+03,
+        3.31244192e+03, 2.97231161e+03, 1.52717039e+03, 1.95922650e+02,
+        7.93183689e+02, 5.28075340e+02, 2.83064438e+02, 5.13982844e+02,
+        3.23441265e+02, 3.25819911e+02],)
+    
     def test_reflection_gaussianPacket(self, use_gpu):
         print("\n---------- Initializing simulation ------------------")
         # Domain bounds and grid
@@ -105,10 +126,6 @@ class TestPML:
         )
 
         if flag_interactive:
-            os.system("convert -delay 10 -loop 0 005_Hy*.png 005_Hy_planewave.gif")
-            os.system("convert -delay 10 -loop 0 005_Ex*.png 005_Ex_planewave.gif")
-            os.system("rm 005_Hy*.png")
-            os.system("rm 005_Ex*.png")
 
             solver.plot2D(
                 "Ex",
@@ -135,3 +152,93 @@ class TestPML:
                 off_screen=True,
                 title="005_Hy2d",
             )
+
+    def test_tfsf_simulation(self, use_gpu):
+        print("\n---------- Initializing simulation ------------------")
+        # Number of mesh cells
+        Nx = 50
+        Ny = 50
+        Nz = 150
+
+        # Embedded boundaries
+        stl_file = "tests/stl/001_cubic_cavity.stl"
+        surf = pv.read(stl_file)
+
+        stl_solids = {"cavity": stl_file}
+        stl_materials = {"cavity": "vacuum"}
+
+        # Domain bounds
+        xmin, xmax, ymin, ymax, zmin, zmax = surf.bounds
+
+        # set grid and geometry
+        global grid
+        grid = wakis.GridFIT3D(
+            xmin,
+            xmax,
+            ymin,
+            ymax,
+            zmin,
+            zmax,
+            Nx,
+            Ny,
+            Nz,
+            stl_solids=stl_solids,
+            stl_materials=stl_materials,
+            verbose=2,
+        )
+
+        # Beam parameters
+        beta = 1.0  # beam beta
+        sigmaz = 18.5e-3 * beta  # [m]
+        q = 1e-9  # [C]
+        xs = 0.0  # x source position [m]
+        ys = 0.0  # y source position [m]
+        xt = 0.0  # x test position [m]
+        yt = 0.0  # y test position [m]
+
+        global wake
+        skip_cells = 8  # no. cells to skip in WP integration
+        wakelength = 1.0  # [m]
+        wake = wakis.WakeSolver(
+            wakelength=wakelength,
+            q=q,
+            sigmaz=sigmaz,
+            beta=beta,
+            xsource=xs,
+            ysource=ys,
+            xtest=xt,
+            ytest=yt,
+            save=False,
+            Ez_file="tests/014_Ez.h5",
+            skip_cells=skip_cells,
+            verbose=2,
+        )
+
+        # boundary conditions
+        bc_low = ["pec", "pec", "cpml"]
+        bc_high = ["pec", "pec", "cpml"]
+
+        # set Solver object
+        solver = wakis.SolverFIT3D(
+            grid,
+            wake,
+            bc_low=bc_low,
+            bc_high=bc_high,
+            use_stl=True,
+            bg="pec",
+            dtype=np.float32,
+            use_gpu=use_gpu,
+            verbose=2,
+            n_pml=4,
+        )
+
+        solver.wakesolve(wakelength=wakelength, save_J=False)
+        os.remove("tests/014_Ez.h5")
+
+    def test_long_impedance(self):
+        global wake
+        tol = dict(rtol=50 * 1e-5, atol=50 * 1e-5)
+        print(np.abs(wake.Z)[::20])
+        assert np.allclose(np.abs(wake.Z)[::20], self.Zabs, **tol), (
+            "Abs Impedance samples failed"
+        )

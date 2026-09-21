@@ -347,8 +347,8 @@ class RoutinesMixin:
         # integration path (test position)
         self.xtest, self.ytest = self.wake.xtest, self.wake.ytest
         self.ixt, self.iyt = (
-            np.abs(self.x - self.xtest).argmin(),
-            np.abs(self.y - self.ytest).argmin(),
+            np.abs(self.grid.x - self.xtest).argmin(),
+            np.abs(self.grid.y - self.ytest).argmin(),
         )
         if compute_plane.lower() == "longitudinal":
             xx, yy = self.ixt, self.iyt
@@ -362,9 +362,9 @@ class RoutinesMixin:
         self.wake.wakelength = wakelength
         self.ti = self.wake.ti
         self.v = self.wake.v
-        if self.use_mpi:  # E- should it be zmin, zmax instead?
+        if self.use_mpi:
             z = self.Z  # use global coords
-            dz = np.diff(self.Z)
+            dz = np.full(self.NZ, (self.ZMAX - self.ZMIN) / self.NZ)
             zz = slice(0, self.NZ)
         else:
             z = self.z
@@ -390,15 +390,15 @@ class RoutinesMixin:
         if self.use_mpi:
             if self.rank == 0:
                 hf = h5py.File(self.Ez_file, "w")
-                hf["x"], hf["y"], hf["z"] = self.x[xx], self.y[yy], z[zz]
+                hf["x"], hf["y"], hf["z"] = self.grid.x[xx], self.grid.y[yy], z[zz]
                 hf["dx"], hf["dy"], hf["dz"] = self.grid.dx, self.grid.dy, dz
                 hf["t"] = np.arange(0, Nt * self.dt, self.dt)
 
                 if save_J:
                     hfJ = h5py.File("Jz.h5", "w")
                     hfJ["x"], hfJ["y"], hfJ["z"] = (
-                        self.x[xx],
-                        self.y[yy],
+                        self.grid.x[xx],
+                        self.grid.y[yy],
                         z[zz],
                     )
                     hfJ["dx"], hfJ["dy"], hfJ["dz"] = (
@@ -409,7 +409,7 @@ class RoutinesMixin:
                     hfJ["t"] = np.arange(0, Nt * self.dt, self.dt)
         else:
             hf = h5py.File(self.Ez_file, "w")
-            hf["x"], hf["y"], hf["z"] = self.x[xx], self.y[yy], z[zz]
+            hf["x"], hf["y"], hf["z"] = self.grid.x[xx], self.grid.y[yy], z[zz]
             hf["dx"], hf["dy"], hf["dz"] = (
                 self.grid.dx,
                 self.grid.dy,
@@ -419,7 +419,7 @@ class RoutinesMixin:
 
             if save_J:
                 hfJ = h5py.File("Jz.h5", "w")
-                hfJ["x"], hfJ["y"], hfJ["z"] = self.x[xx], self.y[yy], z[zz]
+                hfJ["x"], hfJ["y"], hfJ["z"] = self.grid.x[xx], self.grid.y[yy], z[zz]
                 hfJ["dx"], hfJ["dy"], hfJ["dz"] = (
                     self.grid.dx,
                     self.grid.dy,

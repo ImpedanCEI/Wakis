@@ -1,3 +1,4 @@
+import h5py
 import numpy as np
 
 from wakis import GridFIT3D, SolverFIT3D, WakeSolver
@@ -146,8 +147,8 @@ def test_field_monitor_integration_with_wakesolve():
         beta=1.0,
         xsource=0.0,
         ysource=0.0,
-        xtest=0.0,
-        ytest=0.0,
+        xtest=0.5,
+        ytest=0.5,
         Ez_file=ez_file,
         save=False,
         results_folder="results/",
@@ -196,6 +197,11 @@ def test_field_monitor_integration_with_wakesolve():
         assert arr is not None
         assert arr.shape[0] == 1  # one frequency
         assert arr.shape[1:] == (Nx, Ny, Nz)
+
+    # The stored coordinates must describe the grid points used to select Ez.
+    with h5py.File(ez_file, "r") as hf:
+        np.testing.assert_array_equal(hf["x"][()], grid.x[1:4])
+        np.testing.assert_array_equal(hf["y"][()], grid.y[1:4])
 
     # Clean up Ez file created for this test if it exists
     import os
