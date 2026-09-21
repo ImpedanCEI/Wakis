@@ -3,6 +3,7 @@ import sys
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+from scipy.integrate import trapezoid
 
 sys.path.append("../wakis")
 from wakis import WakeSolver as wk
@@ -19,7 +20,7 @@ class TestImpedancesAndWakes:
             wake.calc_lambdas_analytic()
         else:
             profile = np.exp(-0.5 * (s / wake.sigmaz) ** 2)
-            profile /= np.trapz(profile, s)
+            profile /= trapezoid(profile, s)
             wake.z = s
             wake.chargedist = wake.q * profile
             wake.calc_lambdas()
@@ -27,7 +28,7 @@ class TestImpedancesAndWakes:
         header = (tmp_path / "lambda.txt").read_text().splitlines()[0]
         assert "s [m]" in header
         assert "Normalized charge distribution [1/m]" in header
-        assert np.trapz(wake.lambdas, s) == pytest.approx(1.0, rel=1e-10)
+        assert trapezoid(wake.lambdas, s) == pytest.approx(1.0, rel=1e-10)
 
     def test_dimensionless_spectrum_preserves_impedances(self, tmp_path):
         wake = wk(results_folder=str(tmp_path), save=True, verbose=0)

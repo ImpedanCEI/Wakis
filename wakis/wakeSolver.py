@@ -11,6 +11,7 @@ import time
 import h5py
 import numpy as np
 from scipy.constants import c as c_light
+from scipy.integrate import trapezoid
 from tqdm import tqdm
 
 from .logger import Logger
@@ -921,7 +922,7 @@ class WakeSolver:
         if not np.all(np.diff(s) > 0):
             raise ValueError("s must be strictly increasing")
 
-        integral = np.trapz(profile, s)
+        integral = trapezoid(profile, s)
         if not np.isfinite(integral) or integral <= 0:
             raise ValueError("lambdas must have a positive integral")
 
@@ -954,7 +955,7 @@ class WakeSolver:
 
         s, profile = self._factor_profile()
         wake = self._factor_wake(self.WP, s, "WP")
-        self.k_loss = float(np.trapz(wake * profile, s))
+        self.k_loss = float(trapezoid(wake * profile, s))
 
         save_result = self.save if save is None else save
         if save_result:
@@ -983,11 +984,11 @@ class WakeSolver:
         self.kx = self.ky = None
         if x_offset != 0:
             wake = self._factor_wake(self.WPx, s, "WPx")
-            self.kx = float(np.trapz(wake * profile, s) / x_offset)
+            self.kx = float(trapezoid(wake * profile, s) / x_offset)
 
         if y_offset != 0:
             wake = self._factor_wake(self.WPy, s, "WPy")
-            self.ky = float(np.trapz(wake * profile, s) / y_offset)
+            self.ky = float(trapezoid(wake * profile, s) / y_offset)
 
         save_result = self.save if save is None else save
         if save_result:

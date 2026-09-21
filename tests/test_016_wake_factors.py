@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 import pyvista as pv
+from scipy.integrate import trapezoid
 
 from wakis import GridFIT3D, SolverFIT3D, WakeSolver
 
@@ -71,14 +72,14 @@ def test_016_wake_factors(tmp_path):
 
     loss = wake.calc_loss_factor()
     kick_x, kick_y = wake.calc_kick_factors()
-    weighted = np.trapz(wake.lambdas, wake.s)
+    weighted = trapezoid(wake.lambdas, wake.s)
 
     assert np.isfinite(loss)
-    assert loss == pytest.approx(np.trapz(wake.WP * wake.lambdas, wake.s) / weighted)
+    assert loss == pytest.approx(trapezoid(wake.WP * wake.lambdas, wake.s) / weighted)
     assert kick_x is None  # The source is centered in x.
     assert np.isfinite(kick_y)
     assert kick_y == pytest.approx(
-        np.trapz(wake.WPy * wake.lambdas, wake.s) / weighted / wake.ysource
+        trapezoid(wake.WPy * wake.lambdas, wake.s) / weighted / wake.ysource
     )
     assert (tmp_path / "loss_factor.txt").is_file()
     assert (tmp_path / "kick_factors.txt").is_file()
