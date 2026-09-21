@@ -157,7 +157,7 @@ class TestMPILossyCavity:
 
         print(f"Using mpi: {use_mpi}")
 
-    def test_mpi_simulation(self, use_gpu):
+    def test_mpi_simulation(self, use_gpu, plot_comparison):
         # ---------- Domain setup ---------
 
         # Geometry & Materials
@@ -252,6 +252,7 @@ class TestMPILossyCavity:
                 # print(Ez)
                 # print(len(Ez))
                 assert len(Ez) == NZ, "Electric field Ez samples length mismatch"
+                plot_comparison(Ez[::5], self.Ez, "Electric field Ez (MPI)")
                 assert np.allclose(Ez[np.s_[::5]], self.Ez, **self.tol), (
                     "Electric field Ez samples MPI failed"
                 )
@@ -266,6 +267,7 @@ class TestMPILossyCavity:
             assert len(solver.E[int(Nx / 2), int(Ny / 2), :, "z"]) == NZ, (
                 "Electric field Ez samples length mismatch"
             )
+            plot_comparison(Ez, self.Ez, "Electric field Ez")
             assert np.allclose(Ez, self.Ez, **self.tol), (
                 "Electric field Ez samples failed"
             )
@@ -391,7 +393,7 @@ class TestMPILossyCavity:
         # Run simulation
         solver.wakesolve(wakelength=wakelength, wake=wake)
 
-    def test_long_wake_potential(self):
+    def test_long_wake_potential(self, plot_comparison):
         global wake
         global solver
         if use_mpi:
@@ -401,6 +403,7 @@ class TestMPILossyCavity:
                 assert len(wake.WP) == 5195, (
                     "Wake potential MPI samples length mismatch"
                 )
+                plot_comparison(wake.WP[::50], self.WP, "Wake potential (MPI)")
                 assert np.allclose(wake.WP[::50], self.WP, **tol), (
                     "Wake potential MPI samples failed"
                 )
@@ -409,6 +412,7 @@ class TestMPILossyCavity:
                 ), "Wake potential cumsum MPI failed"
         else:
             assert len(wake.WP) == 5195, "Wake potential samples length mismatch"
+            plot_comparison(wake.WP[::50], self.WP, "Wake potential")
             assert np.allclose(wake.WP[::50], self.WP, **self.tol), (
                 "Wake potential samples failed"
             )
@@ -416,18 +420,29 @@ class TestMPILossyCavity:
                 184.43818552913254, 0.1
             ), "Wake potential cumsum MPI failed"
 
-    def test_long_impedance(self):
+    def test_long_impedance(self, plot_comparison):
         global wake
         global solver
         if use_mpi:
             if solver.rank == 0:
                 tol = dict(rtol=0.1)
                 assert len(wake.Z) == 998, "Impedance samples length mismatch"
+                plot_comparison(
+                    np.abs(wake.Z)[::20], np.abs(self.Z), "Impedance magnitude (MPI)"
+                )
                 assert np.allclose(np.abs(wake.Z)[::20], np.abs(self.Z), **tol), (
                     "Abs Impedance samples MPI failed"
                 )
+                plot_comparison(
+                    np.real(wake.Z)[::20], np.real(self.Z), "Impedance real part (MPI)"
+                )
                 assert np.allclose(np.real(wake.Z)[::20], np.real(self.Z), **tol), (
                     "Real Impedance samples MPI failed"
+                )
+                plot_comparison(
+                    np.imag(wake.Z)[::20],
+                    np.imag(self.Z),
+                    "Impedance imaginary part (MPI)",
                 )
                 assert np.allclose(np.imag(wake.Z)[::20], np.imag(self.Z), **tol), (
                     "Imag Impedance samples MPI failed"
@@ -438,11 +453,18 @@ class TestMPILossyCavity:
         else:
             # print(wake.Z[::20])
             assert len(wake.Z) == 998, "Impedance samples length mismatch"
+            plot_comparison(np.abs(wake.Z)[::20], np.abs(self.Z), "Impedance magnitude")
             assert np.allclose(np.abs(wake.Z)[::20], np.abs(self.Z), **self.tol), (
                 "Abs Impedance samples failed"
             )
+            plot_comparison(
+                np.real(wake.Z)[::20], np.real(self.Z), "Impedance real part"
+            )
             assert np.allclose(np.real(wake.Z)[::20], np.real(self.Z), **self.tol), (
                 "Real Impedance samples failed"
+            )
+            plot_comparison(
+                np.imag(wake.Z)[::20], np.imag(self.Z), "Impedance imaginary part"
             )
             assert np.allclose(np.imag(wake.Z)[::20], np.imag(self.Z), **self.tol), (
                 "Imag Impedance samples failed"

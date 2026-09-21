@@ -150,9 +150,10 @@ class TestPecCubicCavity:
         solver.wakesolve(wakelength=wakelength, save_J=False)
         os.remove("tests/001_Ez.h5")
 
-    def test_long_wake_potential(self):
+    def test_long_wake_potential(self, plot_comparison):
         global wake
-        tol = dict(rtol=50 * 1e-4, atol=50 * 1e-4)
+        tol = dict(rtol=50 * 1e-6, atol=50 * 1e-6)
+        plot_comparison(wake.WP[::50], self.WP, "Wake potential")
         assert np.allclose(wake.WP[::50], self.WP, **tol), (
             "Wake potential samples failed"
         )
@@ -160,14 +161,19 @@ class TestPecCubicCavity:
             1325.6968037037557, 0.1
         ), "Wake potential cumsum failed"
 
-    def test_long_impedance(self):
+    def test_long_impedance(self, plot_comparison):
         global wake
-        tol = dict(rtol=50 * 1e-4, atol=50 * 1e-4)
+        tol = dict(rtol=50 * 1e-5, atol=50 * 1e-5)
+        plot_comparison(np.abs(wake.Z)[::20], np.abs(self.Z), "Impedance magnitude")
         assert np.allclose(np.abs(wake.Z)[::20], np.abs(self.Z), **tol), (
             "Abs Impedance samples failed"
         )
+        plot_comparison(np.real(wake.Z)[::20], np.real(self.Z), "Impedance real part")
         assert np.allclose(np.real(wake.Z)[::20], np.real(self.Z), **tol), (
             "Real Impedance samples failed"
+        )
+        plot_comparison(
+            np.imag(wake.Z)[::20], np.imag(self.Z), "Impedance imaginary part"
         )
         assert np.allclose(np.imag(wake.Z)[::20], np.imag(self.Z), **tol), (
             "Imag Impedance samples failed"

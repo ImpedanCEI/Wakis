@@ -198,7 +198,7 @@ class TestGridFIT3DMeshing:
             f"Volume of the shell mask is {vol}, expected {vol_expected}"
         )
 
-    def test_long_wake_potential_and_impedance(self, use_gpu):
+    def test_long_wake_potential_and_impedance(self, use_gpu, plot_comparison):
         global grid
         # ------------ Beam source ----------------
         # Beam parameters
@@ -253,6 +253,7 @@ class TestGridFIT3DMeshing:
         # print(wake.WP[::50])
         np.cumsum(np.abs(wake.WP))[-1]
         assert len(wake.WP) == 5195, "Wake potential mesh samples length mismatch"
+        plot_comparison(wake.WP[::50], self.WP, "Wake potential")
         assert np.allclose(wake.WP[::50], self.WP, **self.tol), (
             "Wake potential mesh samples failed"
         )
@@ -261,11 +262,16 @@ class TestGridFIT3DMeshing:
         ), "Wake potential cumsum mesh failed"
 
         assert len(wake.Z) == 998, "Impedance samples length mismatch"
+        plot_comparison(np.abs(wake.Z)[::20], np.abs(self.Z), "Impedance magnitude")
         assert np.allclose(np.abs(wake.Z)[::20], np.abs(self.Z), **self.tol), (
             "Abs Impedance samples mesh failed"
         )
+        plot_comparison(np.real(wake.Z)[::20], np.real(self.Z), "Impedance real part")
         assert np.allclose(np.real(wake.Z)[::20], np.real(self.Z), **self.tol), (
             "Real Impedance samples mesh failed"
+        )
+        plot_comparison(
+            np.imag(wake.Z)[::20], np.imag(self.Z), "Impedance imaginary part"
         )
         assert np.allclose(np.imag(wake.Z)[::20], np.imag(self.Z), **self.tol), (
             "Imag Impedance samples mesh failed"
