@@ -26,6 +26,8 @@ jobs:
       with:
         miniforge-version: latest
         python-version: "3.10"
+    - name: Setup headless display
+      uses: pyvista/setup-headless-display-action@v3
     - name: Checkout wakis
       uses: actions/checkout@v4
       with:
@@ -35,8 +37,6 @@ jobs:
         cd wakis
         pip install .
         pip install pytest pytest-cov
-        pip uninstall vtk -y
-        pip install --extra-index-url https://wheels.vtk.org vtk-osmesa
 
     - name: Print versions
       run: conda list

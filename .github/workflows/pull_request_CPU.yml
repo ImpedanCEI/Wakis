@@ -32,12 +32,13 @@ jobs:
           miniforge-version: latest
           python-version: "3.11"
 
+      - name: Setup headless display
+        uses: pyvista/setup-headless-display-action@v3
+
       - name: Install wakis
         run: |
           cd wakis
           pip install .
-          pip uninstall vtk -y
-          pip install --extra-index-url https://wheels.vtk.org vtk-osmesa
           pip install pytest pytest-cov
 
       - name: Print installed packages
