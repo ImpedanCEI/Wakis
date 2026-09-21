@@ -776,6 +776,20 @@ class WakeSolver:
             level=2,
         )
 
+        # setup charge distribution in s
+        if self.lambdas is None and self.chargedist is not None:
+            self.calc_lambdas()
+        elif self.lambdas is None and self.chargedist is None:
+            self.calc_lambdas_analytic()
+            try:
+                self.log(
+                    "[!] Using analytic charge distribution λ(s) since no data was provided"
+                )
+            except Exception:  # ascii encoder error handling
+                self.log(
+                    "[!] Using analytic charge distribution since no data was provided"
+                )
+
         # Obtain DFTs
 
         # Normalized charge distribution λ(w)
@@ -1000,6 +1014,23 @@ class WakeSolver:
                 output.write(f"y_offset [m] = {y_offset}\n")
 
         return self.kx, self.ky
+
+    def reset(self):
+        # Reset all calculated wake and factor attributes
+        self.s = None
+        self.WP = None
+        self.WPx = None
+        self.WPy = None
+        self.k_loss = None
+        self.kx = None
+        self.ky = None
+        self.Z = None
+        self.Zx = None
+        self.Zy = None
+        self.lambdas = None
+        self.f = None
+        self.fx = None
+        self.fy = None
 
     def get_SmartBounds(
         self,
