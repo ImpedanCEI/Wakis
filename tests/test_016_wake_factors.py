@@ -45,7 +45,7 @@ def test_016_wake_factors(tmp_path):
         10,
         30,
         stl_solids={name: str(path) for name, path in solids.items()},
-        stl_materials={"cavity": "vacuum", "shell": [1.0, 1.0, 30.0]},
+        stl_materials={"cavity": "vacuum", "shell": "pec"},
         stl_method="implicit_distance",
         verbose=0,
     )
@@ -68,7 +68,11 @@ def test_016_wake_factors(tmp_path):
         dtype=np.float64,
         verbose=0,
     )
+    assert np.all(np.isfinite(solver.ieps.toarray()))
+
     solver.wakesolve(wakelength=0.03, plot=False)
+
+    assert np.all(np.isfinite(solver.E.toarray()))
 
     loss = wake.calc_loss_factor()
     kick_x, kick_y = wake.calc_kick_factors()
