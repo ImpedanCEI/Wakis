@@ -271,61 +271,47 @@ At the boundary, the curl operator is modified to add or subtract the incident f
 ### 🧊🔚 Boundary Conditions
 
 Wakis supports several boundary condition (BC) types:
-- **PEC (Perfect Electric Conductor)**: enforces $\vec{E}_{\parallel} = 0$
-- **PMC (Perfect Magnetic Conductor)**: enforces $\vec{H}_{\parallel} = 0$
-- **Periodic BCs**: implemented with synchronized ghost cells
-- **PML (Perfectly Matched Layers)**: often referred to open or absorbing BC, are made of matched ($\varepsilon = \mu$) layers using graded conductivity $\sigma$ profiles for reflection-free truncation of the computational domain
+- **PEC (Perfect Electric Conductor)**: masks tangential electric-field degrees of freedom, enforcing $\vec{E}_{\parallel} = 0$ at the selected face.
+- **PMC (Perfect Magnetic Conductor)**: masks tangential magnetic-field degrees of freedom, enforcing $\vec{H}_{\parallel} = 0$.
+- **Periodic**: pairs the low and high faces of an axis and closes the corresponding FIT derivative stencil (`Px`, `Py`, or `Pz`) across that seam. The curl matrix is then rebuilt from the corrected derivative matrices and the periodic dual metrics are updated. A periodic face must be paired with the opposite face. Serial periodic boundaries are available in all three directions; longitudinal periodic MPI requires cyclic ghost exchange and is intentionally not enabled yet.
+- **ABC**: a first-order absorbing boundary update using stored field values at the outer layer.
+- **PML**: a finite, graded, electrically lossy layer terminated by the usual electric boundary mask.
+- **CPML**: a convolutional absorbing layer that adds auxiliary curl-correction fields.
 
 #### PML implementation
-PMLs follow the formulation by Berenger [1994] and are ramped using smooth profiles [Oskooi et al., 2008] to reach adiabatic reflection.
 
-Perfectly matched layers (PML) represent one of the most widely used absorbing boundary conditions due to their ability to achieve, in theory, reflectionless absorption of outgoing electromagnetic waves [Berenger, 1994]. The fundamental idea of the PML can be understood from the reflection coefficient at an interface between two media \cite{sullivan},
+An ideal PML is impedance matched to the adjacent medium while attenuating outgoing waves. For an interface between media A and B, the reflection coefficient is
 
-\begin{equation}
+$$
 \Gamma = \frac{\eta_B - \eta_A}{\eta_B + \eta_A},
-\label{eq:reflection}
-\end{equation}
+$$
 
-where $\eta = \sqrt{\mu/\varepsilon}$ denotes the wave impedance. For vanishing reflections ($\Gamma = 0$), the impedances of both media must be identical. This condition forms the basis of the PML concept: an artificial absorbing medium is constructed such that its impedance matches that of the adjacent physical domain, while simultaneously introducing attenuation.
+where $\eta = \sqrt{\mu/\varepsilon}$ is the wave impedance. In a matched electric-and-magnetic lossy medium, the damping rates satisfy
 
-To achieve this, loss is incorporated into the medium through complex-valued, generally anisotropic material parameters [Berenger, 2007]. For a medium matched to vacuum, the effective permittivity and permeability can be written as
+$$
+\frac{\sigma_{\mathrm{el}}}{\varepsilon}
+= \frac{\sigma_{\mathrm{mag}}}{\mu}.
+$$
 
-\begin{equation}
-\varepsilon^* = \varepsilon_0 \left( 1 + \frac{\sigma_{\mathrm{el}}}{j\omega \varepsilon_0} \right),
-\qquad
-\mu^* = \mu_0 \left( 1 + \frac{\sigma_{\mathrm{mag}}}{j\omega \mu_0} \right),
-\label{eq:materials}
-\end{equation}
+This preserves the impedance while introducing attenuation. Equivalently, a PML can be formulated through complex coordinate stretching [Gedney et al., 2000]:
 
-where $\sigma_{\mathrm{el}}$ and $\sigma_{\mathrm{mag}}$ denote the electric and magnetic conductivities, respectively. In the general case, these quantities are tensorial, resulting in anisotropic absorption. To maintain impedance matching at the interface, the conductivities must satisfy the condition
+$$
+s = 1 + \frac{\sigma}{j\omega\varepsilon_0}.
+$$
 
-\begin{equation}
-\frac{\sigma_{\mathrm{el}}}{\varepsilon_0} = \frac{\sigma_{\mathrm{mag}}}{\mu_0}.
-\label{eq:matching}
-\end{equation}
-
-This ensures that the ratio $\mu^*/\varepsilon^*$ remains unchanged, preserving the wave impedance and thereby eliminating reflections at the boundary, while the fields are attenuated within the PML region [Berenger, 2007].
-
-An alternative and widely used interpretation of the PML is based on complex coordinate stretching [Gedney et al., 2000]. In this framework, spatial coordinates are analytically continued into the complex plane, resulting in exponentially decaying wave solutions. The stretching variable $s$ can be expressed as
-
-\begin{equation}
-s = 1 + \frac{\sigma}{j\omega \varepsilon_0}.
-\end{equation}
-
-
+The current Wakis `pml` boundary is a deliberately simple adiabatic absorber rather than a complete matched, stretched-coordinate PML. It adds a geometrically graded artificial electric conductivity to the PML cells and uses the regular electric-current update. The inverse permittivity in those cells is set to the vacuum value, and no corresponding artificial magnetic conductivity is applied. Consequently, its effectiveness depends on layer thickness and the low-conductivity ramp; it is not expected to be reflectionless, especially for oblique incidence, broadband pulses, or non-vacuum material at the interface.
 
 #### CPML implementation
-The Convolutional Perfectly Matched Layers are an advanced version of PML with improved absorption of grazing angle incidence, low frequency waves and evanescent fields [Gedney et al., 2000].
-The stretching variable can be extended to
 
-\begin{equation}
-s = \kappa + \frac{\sigma}{\alpha + j\omega \varepsilon_0},
-\label{eq:cfs}
-\end{equation}
+Convolutional PML (CPML) improves absorption of grazing-incidence, low-frequency, and evanescent fields by using a complex-frequency-shifted coordinate stretch [Gedney et al., 2000]:
 
-where $\kappa \geq 1$ is a scaling parameter and $\alpha$ is a positive real-valued frequency-shift parameter. In time-domain simulations, this formulation results in convolutional perfectly matched layers (CPML), which provide improved broadband absorption performance.
+$$
+s = \kappa + \frac{\sigma}{\alpha + j\omega\varepsilon_0}.
+$$
 
-It should be noted that the PML medium is an artificial construct that does not correspond to a physical material. Instead, it represents a mathematical transformation of Maxwell's equations designed to minimize reflections and efficiently absorb outgoing waves.
+Here $\kappa \geq 1$ scales the coordinate stretch, $\sigma$ is the graded conductivity, and $\alpha$ is a non-negative frequency-shift parameter. Wakis constructs $\sigma$, $\kappa$, and $\alpha$ on both primal and dual field locations with a polynomial distance profile. It converts them into recursion coefficients and stores only the CPML auxiliary fields needed to correct curl terms inside each boundary layer.
+
+CPML is therefore distinct from the scalar `pml` path: it does not modify the bulk material conductivity tensor to absorb waves, and its auxiliary convolution fields make it the preferred absorbing boundary for the beam and TF/SF workflows. As with all finite layers, its practical reflection level still depends on the number of cells and the selected profile parameters.
 
 
 ### 📥🗿 Geometry Importing & Embedded Boundaries
