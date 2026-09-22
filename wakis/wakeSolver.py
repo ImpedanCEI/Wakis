@@ -12,6 +12,7 @@ import h5py
 import numpy as np
 from scipy.constants import c as c_light
 from scipy.fft import ihfft
+from scipy.integrate import trapezoid
 from tqdm import tqdm
 
 from .logger import Logger
@@ -115,9 +116,14 @@ class WakeSolver:
         Zy : ndarray
             Transverse impedance in y-dir Zy(f) [Ohm]
         lambdas : ndarray
-            Linear charge distribution of the passing beam λ(s) [C/m]
+            Charge-normalized bunch profile λ(s) [1/m]
         lambdaf : ndarray
-            Charge distribution spectrum λ(f) [C]
+            Fourier transform of the normalized bunch profile [dimensionless]
+        k_loss : float or None
+            Signed longitudinal bunch loss factor [V/pC]
+        kx, ky : float or None
+            Signed transverse bunch kick factors [V/pC/m]. None when the
+            corresponding source offset is zero.
         dx : float
             Ez field mesh step in transverse plane, x-dir [m]
         dy : float
@@ -132,7 +138,7 @@ class WakeSolver:
         """
 
         self.verbose = verbose
-        print("Initializing Wakefield parameters...")
+        self.log("Initializing Wakefield parameters...")
         t0 = time.time()
 
         # beam
@@ -153,14 +159,21 @@ class WakeSolver:
         self.DE_model = None
 
         self.log(
-            f"* Beam longitudinal sigma sigmaz={self.sigmaz * 1e3} mm, sigmat={self.sigmaz / self.v * 1e9} ns"
+            f"    * Beam longitudinal sigma sigmaz={self.sigmaz * 1e3} mm, sigmat={self.sigmaz / self.v * 1e9} ns",
+            level=2,
         )
-        self.log(f"* Maximum frequency of interest fmax={self.fmax / 1e9} GHz")
+        self.log(
+            f"    * Maximum frequency of interest fmax={self.fmax / 1e9} GHz",
+            level=2,
+        )
         self.counter_moving = counter_moving
 
         if add_space is not None:  # legacy support for add_space
             self.skip_cells = add_space
-        self.log(f"* Field values skipped from boundaries: {self.skip_cells} cells")
+        self.log(
+            f"    * Field values skipped from boundaries: {self.skip_cells} cells",
+            level=2,
+        )
 
         # Injection time
         if ti is not None:
@@ -171,7 +184,10 @@ class WakeSolver:
                 8.548921333333334 * self.sigmaz / (np.sqrt(self.beta) * self.v)
             )  # injection time as in CST for beta <=1
             self.ti = ti
-        self.log(f"* Beam source injection time ti={self.ti} s")
+        self.log(
+            f"    * Beam source injection time ti={self.ti} s",
+            level=2,
+        )
 
         # field
         self.Ez_file = Ez_file
@@ -193,6 +209,8 @@ class WakeSolver:
         self.Z = None
         self.Zx, self.Zy = None, None
         self.lambdaf = None
+        self.k_loss = None
+        self.kx, self.ky = None, None
 
         # user
         self.logger = Logger()
@@ -439,10 +457,6 @@ class WakeSolver:
         **kwargs
             Additional parameters to set as attributes.
         """
-        self.log("\n")
-        self.log("Longitudinal wake potential")
-        self.log("-" * 24)
-
         for key, val in kwargs.items():
             setattr(self, key, val)
 
@@ -478,8 +492,14 @@ class WakeSolver:
         s = np.arange(-self.ti * self.v, wakelength, dt * self.v)
 
         if self.verbose > 1:
-            self.log(f"* Max simulated time = {np.max(self.t)} s")
-            self.log(f"* Wakelength = {wakelength} m")
+            self.log(
+                f"    * Max simulated time = {np.max(self.t)} s",
+                level=2,
+            )
+            self.log(
+                f"    * Wakelength = {wakelength} m",
+                level=2,
+            )
 
         # field subvolume in No.cells for x, y
         i0, j0 = self.n_transverse_cells, self.n_transverse_cells
@@ -641,7 +661,8 @@ class WakeSolver:
         s : ndarray
             Wakelength vector s=c*t-z.
         lambdas : ndarray
-            Charge distribution λ(s) interpolated to s axis, normalized by the beam charge.
+            Charge distribution λ(s) interpolated to s axis and normalized by
+            the beam charge [1/m].
         chargedist : ndarray, optional
             Charge distribution λ(z).
         q : float, optional
@@ -684,12 +705,18 @@ class WakeSolver:
         )  # to obtain a 1000 sample single-sided DFT
 
         self.log(
-            f"* Single sided DFT with number of samples = {samples} and fmax = {fmax}"
+            f"    * Single sided DFT with number of samples = {samples} and fmax = {fmax * 1e-9:.3f} GHz",
+            level=2,
         )
-        self.log(f"* Zero-padding to N = {N} points with ds = {ds} m")
+        self.log(f"    * Zero-padding to N = {N} points with ds = {ds:.3e} m", level=2)
+        self.log(
+            f"    * Frequency resolution df = {self.v / (N * ds) / 1e6:.3f} MHz",
+            level=2,
+        )
 
-        # Obtain DFTs - is it v or c?
-        lambdafft = np.fft.fft(self.lambdas * self.v, n=N)
+        # Transform the spatial, charge-normalized bunch profile. Its spectrum
+        # is dimensionless; velocity enters the impedance conversion below.
+        lambdafft = np.fft.fft(self.lambdas, n=N)
         WPfft = np.fft.fft(self.WP * 1e12, n=N)
         ffft = np.fft.fftfreq(len(WPfft), ds / self.v)
 
@@ -700,7 +727,7 @@ class WakeSolver:
         self.f = ffft[mask]  # Positive frequencies
 
         # Compute the impedance
-        self.Z = -WPf / lambdaf
+        self.Z = -WPf / (self.v * lambdaf)
         self.lambdaf = lambdaf
 
         if self.save:
@@ -714,7 +741,7 @@ class WakeSolver:
                 np.c_[self.f, self.lambdaf],
                 header="   f [Hz]"
                 + " " * 20
-                + "Charge distribution spectrum [C/s]"
+                + "Normalized charge distribution spectrum [dimensionless]"
                 + "\n"
                 + "-" * 48,
             )
@@ -732,7 +759,6 @@ class WakeSolver:
             Maximum frequency of interest.
         """
         print("Calculating transverse impedance Zx, Zy...")
-        self.log(f"Single sided DFT with number of samples = {samples}")
 
         # Set up the DFT computation
         ds = np.mean(self.s[1:] - self.s[:-1])
@@ -742,14 +768,33 @@ class WakeSolver:
         )  # to obtain a 1000 sample single-sided DFT
 
         self.log(
-            f"* Single sided DFT with number of samples = {samples} and fmax = {fmax}"
+            f"    * Single sided DFT with number of samples = {samples} and fmax = {fmax * 1e-9:.3f} GHz",
+            level=2,
         )
-        self.log(f"* Zero-padding to N = {N} points with ds = {ds} m")
+        self.log(f"    * Zero-padding to N = {N} points with ds = {ds:.3e} m", level=2)
+        self.log(
+            f"    * Frequency resolution df = {self.v / (N * ds) / 1e6:.3f} MHz",
+            level=2,
+        )
+
+        # setup charge distribution in s
+        if self.lambdas is None and self.chargedist is not None:
+            self.calc_lambdas()
+        elif self.lambdas is None and self.chargedist is None:
+            self.calc_lambdas_analytic()
+            try:
+                self.log(
+                    "[!] Using analytic charge distribution λ(s) since no data was provided"
+                )
+            except Exception:  # ascii encoder error handling
+                self.log(
+                    "[!] Using analytic charge distribution since no data was provided"
+                )
 
         # Obtain DFTs
 
         # Normalized charge distribution λ(w)
-        lambdafft = np.fft.fft(self.lambdas * self.v, n=N)
+        lambdafft = np.fft.fft(self.lambdas, n=N)
         ffft = np.fft.fftfreq(len(lambdafft), ds / self.v)
         mask = np.logical_and(ffft >= 0, ffft < fmax)
         lambdaf = lambdafft[mask] * ds
@@ -758,13 +803,13 @@ class WakeSolver:
         WPxfft = np.fft.fft(self.WPx * 1e12, n=N)
         WPxf = WPxfft[mask] * ds
 
-        self.Zx = 1j * WPxf / lambdaf
+        self.Zx = 1j * WPxf / (self.v * lambdaf)
 
         # Vertical impedance Zy⊥(w)
         WPyfft = np.fft.fft(self.WPy * 1e12, n=N)
         WPyf = WPyfft[mask] * ds
 
-        self.Zy = 1j * WPyf / lambdaf
+        self.Zy = 1j * WPyf / (self.v * lambdaf)
 
         self.fx = ffft[mask]
         self.fy = ffft[mask]
@@ -829,9 +874,9 @@ class WakeSolver:
             np.savetxt(
                 self.folder + "lambda.txt",
                 np.c_[self.s, self.lambdas],
-                header="   s [Hz]"
+                header="   s [m]"
                 + " " * 20
-                + "Charge distribution [C/m]"
+                + "Normalized charge distribution [1/m]"
                 + "\n"
                 + "-" * 48,
             )
@@ -863,12 +908,130 @@ class WakeSolver:
             np.savetxt(
                 self.folder + "lambda.txt",
                 np.c_[self.s, self.lambdas],
-                header="   s [Hz]"
+                header="   s [m]"
                 + " " * 20
-                + "Charge distribution [C/m]"
+                + "Normalized charge distribution [1/m]"
                 + "\n"
                 + "-" * 48,
             )
+
+    def _factor_profile(self):
+        """Return the longitudinal coordinate and normalized bunch profile."""
+        if self.s is None:
+            raise ValueError("s must be calculated before wake factors")
+        if self.lambdas is None:
+            if self.chargedist is None:
+                self.calc_lambdas_analytic()
+            else:
+                self.calc_lambdas()
+
+        s = np.asarray(self.s)
+        profile = np.asarray(self.lambdas)
+
+        if s.ndim != 1 or profile.ndim != 1 or len(s) < 2 or len(s) != len(profile):
+            raise ValueError(
+                "s and lambdas must be one-dimensional arrays of equal length"
+            )
+        if not np.all(np.isfinite(s)) or not np.all(np.isfinite(profile)):
+            raise ValueError("s and lambdas must contain finite values")
+        if not np.all(np.diff(s) > 0):
+            raise ValueError("s must be strictly increasing")
+
+        integral = trapezoid(profile, s)
+        if not np.isfinite(integral) or integral <= 0:
+            raise ValueError("lambdas must have a positive integral")
+
+        return s, profile / integral
+
+    @staticmethod
+    def _factor_wake(wake, s, name):
+        if wake is None:
+            raise ValueError(f"{name} must be calculated before its wake factor")
+
+        wake = np.asarray(wake)
+        if wake.ndim != 1 or len(wake) != len(s) or not np.all(np.isfinite(wake)):
+            raise ValueError(
+                f"{name} must be a finite one-dimensional array matching s"
+            )
+
+        return wake
+
+    def calc_loss_factor(self, save=None):
+        """Calculate the signed bunch loss factor [V/pC].
+
+        If neither ``s`` nor ``WP`` is available, calculate them from the
+        longitudinal field first. The bunch profile is calculated if needed.
+        The bunch profile is normalized over the available s samples, so a
+        truncated or sampled charge distribution retains its intended weight.
+        ``save`` overrides the solver's ``save`` setting when supplied.
+        """
+        if self.s is None and self.WP is None:
+            self.calc_long_WP()
+
+        s, profile = self._factor_profile()
+        wake = self._factor_wake(self.WP, s, "WP")
+        self.k_loss = float(trapezoid(wake * profile, s))
+
+        save_result = self.save if save is None else save
+        if save_result:
+            os.makedirs(self.folder, exist_ok=True)
+            with open(self.folder + "loss_factor.txt", "w") as output:
+                output.write(f"Loss factor [V/pC] = {self.k_loss:.16e}\n")
+
+        return self.k_loss
+
+    def calc_kick_factors(self, x_offset=None, y_offset=None, save=None):
+        """Calculate signed horizontal and vertical kick factors [V/pC/m].
+
+        Offsets are source displacement from the structure axis [m], defaulting
+        to ``xsource`` and ``ysource``. A zero offset gives ``None`` for that
+        plane because the dipole kick factor is undefined there. A wake array
+        is required only for a plane with a nonzero offset.
+        """
+        s, profile = self._factor_profile()
+        x_offset = self.xsource if x_offset is None else x_offset
+        y_offset = self.ysource if y_offset is None else y_offset
+
+        for name, offset in (("x_offset", x_offset), ("y_offset", y_offset)):
+            if not np.isscalar(offset) or not np.isfinite(offset):
+                raise ValueError(f"{name} must be a finite scalar")
+
+        self.kx = self.ky = None
+        if x_offset != 0:
+            wake = self._factor_wake(self.WPx, s, "WPx")
+            self.kx = float(trapezoid(wake * profile, s) / x_offset)
+
+        if y_offset != 0:
+            wake = self._factor_wake(self.WPy, s, "WPy")
+            self.ky = float(trapezoid(wake * profile, s) / y_offset)
+
+        save_result = self.save if save is None else save
+        if save_result:
+            os.makedirs(self.folder, exist_ok=True)
+            with open(self.folder + "kick_factors.txt", "w") as output:
+                output.write(f"Kick factor x [V/pC/m] = {self.kx}\n")
+                output.write(f"Kick factor y [V/pC/m] = {self.ky}\n")
+                output.write(f"x_offset [m] = {x_offset}\n")
+                output.write(f"y_offset [m] = {y_offset}\n")
+
+        return self.kx, self.ky
+
+    def reset(self):
+        # Reset all calculated wake and factor attributes
+        self.s = None
+        self.WP = None
+        self.WPx = None
+        self.WPy = None
+        self.k_loss = None
+        self.kx = None
+        self.ky = None
+        self.Z = None
+        self.Zx = None
+        self.Zy = None
+        self.lambdas = None
+        self.f = None
+        self.fx = None
+        self.fy = None
 
     def get_SmartBounds(
         self,
@@ -1396,19 +1559,19 @@ class WakeSolver:
         self.Ez_hf = hf
         self.Ez_file = filename
         if "x" in hf.keys():
-            self.xf = np.array(hf["x"])
+            self.xf = hf["x"][()]
         if "y" in hf.keys():
-            self.yf = np.array(hf["y"])
+            self.yf = hf["y"][()]
         if "z" in hf.keys():
-            self.zf = np.array(hf["z"])
+            self.zf = hf["z"][()]
         if "dx" in hf.keys():
-            self.dx = np.array(hf["dx"])
+            self.dx = hf["dx"][()]
         if "dy" in hf.keys():
-            self.dy = np.array(hf["dy"])
+            self.dy = hf["dy"][()]
         if "dz" in hf.keys():
-            self.dz = np.array(hf["dz"])
+            self.dz = hf["dz"][()]
         if "t" in hf.keys():
-            self.t = np.array(hf["t"])
+            self.t = hf["t"][()]
 
         if return_value:
             return hf
@@ -1439,7 +1602,7 @@ class WakeSolver:
                 txt, skiprows=skiprows, delimiter=delimiter, usecols=usecols
             )
         except Exception:
-            self.log(f"[!] Using dtype=np.complex128 to read {txt}")
+            self.log(f"[!] Using dtype=np.complex128 to read {txt}", level=2)
             load = np.loadtxt(
                 txt,
                 skiprows=skiprows,
@@ -1462,7 +1625,7 @@ class WakeSolver:
                 d[header[i] + "]"] = load[:, i]
 
         except Exception:  # keys == int 0, 1, ...
-            self.log("[!] Using integer keys since no header was found")
+            self.log("[!] Using integer keys since no header was found", level=2)
             d = {}
             for i in range(len(load[0, :])):
                 d[i] = load[:, i]
@@ -1573,7 +1736,7 @@ class WakeSolver:
         obj.__dict__.update(self.__dict__)
         return obj
 
-    def log(self, txt, level=0):
+    def log(self, txt, level=1):
         """
         Print a log message if verbose is enabled.
 
@@ -1581,11 +1744,11 @@ class WakeSolver:
         ----------
         txt : str
             Message to print.
+        level : int, optional
+            Verbosity level (1 for main messages, 2 for debug). Default is 1
         """
-        if self.verbose and level == 0:
-            print(txt)
-        elif self.verbose and level == 1:
-            print("\x1b[2;37m" + txt + "\x1b[0m")
+        if level <= self.verbose:
+            print(txt) if level == 1 else print("\x1b[2;37m" + txt + "\x1b[0m")
 
     def read_cst_3d(self, path=None, folder="3d", filename="Ez.h5", units=1e-3):
         """

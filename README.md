@@ -39,7 +39,7 @@
 * For specific needs, please contact the developer 👩‍💻👋: elena.de.la.fuente.garcia@cern.ch
 
 ## How to use
-📖 Documentation, powered by `sphinx`, is available at [wakis.readthedocs.io](https://wakis.readthedocs.io/en/latest/index.html)
+📖 Documentation, powered by `sphinx`, is available at [wakis.readthedocs.io](https://wakis.readthedocs.io)
 
 Check 📁 `examples/` and `notebooks/` for different physical applications:
 * Planewave interacting with a PEC or dielectric sphere
@@ -74,12 +74,6 @@ pip install wakis
 For additional features, including **interactive 3D plots in Jupyter notebooks** and Wakis' satellite packages, use:
 ```bash
 pip install wakis['all']
-```
-To use the *version-frozen* environment specified in `requirements.txt`, with python 3.9-3.11 do:
-```bash
-conda create --name wakis-env python=3.11
-conda activate wakis-env
-pip install wakis['notebook']
 ```
 
 To install Wakis from the source, clone the repository and install it in *editable* mode:

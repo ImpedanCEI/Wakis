@@ -119,10 +119,6 @@ conda activate wakis-env
 pip install wakis                # minimal installation for scripts
 pip install wakis['all']         # complete installation for notebook use w/ jupyter lab
 ```
-Alternativelly, a *legacy* frozen environment with version-pinning is provided via `requirements.txt`, working with numpy<2.0 and Python>=3.9 and <=3.12:
-```
-pip install wakis['notebook'] # uses the content of `requirements.txt`
-```
 
 ## CPU Multithreading
 To achieve multithreading for Wakis `sparse matrix x vector` operations, the Intel-MKL backend has been implemented as an alternative to single-threaded `scipy.sparse.dot`. To install it in your conda environment simply do:
@@ -408,7 +404,7 @@ Within jupyter notebooks, in order to be able to zoom and interact with matplotl
 The package `ipympl`can be easily installed using `pip install ipympl`
 
 ### PyVista interactive plots
-To be able to render 3D interactive plots in Jupyter notebooks, it is recommended to use the `wakis['notebook']` pip installation.
+To be able to render 3D interactive plots in Jupyter notebooks, it is recommended to use the `wakis['all']` pip installation.
 
 Some driver problems may arise depending on pre-installed versions. One way of solving common errors like `MESA-loader` or `libGL error` is installing a new driver within your conda environment with:
 
@@ -421,6 +417,12 @@ If you're in a headless environment (e.g., remote server, openstack machine), fo
 ```python
 import os
 os.environ['PYVISTA_USE_OSMESA'] = 'True'
+```
+
+For SSH tunneled notebooks, these lines must be added after importing pyvista to make interactive plots work:
+```python
+pv.global_theme.trame.server_proxy_enabled = True
+pv.global_theme.trame.server_proxy_prefix = '/proxy/'
 ```
 
 ----

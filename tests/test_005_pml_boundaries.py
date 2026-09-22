@@ -153,7 +153,7 @@ class TestPML:
 
         # Test different eps_r and sigma case
         eps_r = 3.0
-        sigma = 1.0e-3
+        sigma = 1.0
 
         # Solver
         solver = wakis.SolverFIT3D(

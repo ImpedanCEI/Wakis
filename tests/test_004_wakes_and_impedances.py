@@ -3,6 +3,8 @@ import sys
 import matplotlib.pyplot as plt
 from matplotlib.ticker import ScalarFormatter
 import numpy as np
+import pytest
+from scipy.integrate import trapezoid
 
 sys.path.append("../wakis")
 from wakis import WakeSolver as wk

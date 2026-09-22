@@ -260,21 +260,59 @@ with:
 
 This supports both **ultra-relativistic** ($\beta \approx 1$) and **low-beta** scenarios.
 
+To avoid parasitic fields interacting with the Perfect Matched Layer (PML) boundary, particle beams are only injected into the physical domain, excluding the PML region. To mitigate the divergence error fields that arise from this truncation, a Total-Field/Scattered-Field (TF/SF) formulation is applied [M.C. Balk et al., 2006].
+
+The computational domain is divided into total-field and scattered-field regions, with the TF/SF boundary offset by one cell from the CPML interface. The beam is injected strictly within the total-field region, where the total field is defined as:
+
+$$E^t = E^s + E^i$$
+
+At the boundary, the curl operator is modified to add or subtract the incident fields, rendering the boundary transparent to field propagation. For ultrarelativistic beams, incident transverse electric fields are pre-calculated using a 2D Poisson solver and dynamically scaled by the instantaneous longitudinal current density during time integration.
 
 ### 🧊🔚 Boundary Conditions
 
 Wakis supports several boundary condition (BC) types:
-- **PEC (Perfect Electric Conductor)**: enforces $\vec{E}_{\parallel} = 0$
-- **PMC (Perfect Magnetic Conductor)**: enforces $\vec{H}_{\parallel} = 0$
-- **Periodic BCs**: implemented with synchronized ghost cells
-- **PML (Perfectly Matched Layers)**: often referred to open or absorbing BC, are made of matched ($\varepsilon = \mu$) layers using graded conductivity $\sigma$ profiles for reflection-free truncation of the computational domain
+- **PEC (Perfect Electric Conductor)**: masks tangential electric-field degrees of freedom, enforcing $\vec{E}_{\parallel} = 0$ at the selected face.
+- **PMC (Perfect Magnetic Conductor)**: masks tangential magnetic-field degrees of freedom, enforcing $\vec{H}_{\parallel} = 0$.
+- **Periodic**: pairs the low and high faces of an axis and closes the corresponding FIT derivative stencil (`Px`, `Py`, or `Pz`) across that seam. The curl matrix is then rebuilt from the corrected derivative matrices and the periodic dual metrics are updated. A periodic face must be paired with the opposite face. Serial periodic boundaries are available in all three directions; longitudinal periodic MPI requires cyclic ghost exchange and is intentionally not enabled yet.
+- **ABC**: a first-order absorbing boundary update using stored field values at the outer layer.
+- **PML**: a finite, graded, electrically lossy layer terminated by the usual electric boundary mask.
+- **CPML**: a convolutional absorbing layer that adds auxiliary curl-correction fields.
 
 #### PML implementation
-PMLs follow the formulation by Berenger [1994] and are ramped using smooth profiles [Oskooi et al., 2008] to reach adiabatic reflection.
 
-```{warning}
-The PML implementation description is under development!
-```
+An ideal PML is impedance matched to the adjacent medium while attenuating outgoing waves. For an interface between media A and B, the reflection coefficient is
+
+$$
+\Gamma = \frac{\eta_B - \eta_A}{\eta_B + \eta_A},
+$$
+
+where $\eta = \sqrt{\mu/\varepsilon}$ is the wave impedance. In a matched electric-and-magnetic lossy medium, the damping rates satisfy
+
+$$
+\frac{\sigma_{\mathrm{el}}}{\varepsilon}
+= \frac{\sigma_{\mathrm{mag}}}{\mu}.
+$$
+
+This preserves the impedance while introducing attenuation. Equivalently, a PML can be formulated through complex coordinate stretching [Gedney et al., 2000]:
+
+$$
+s = 1 + \frac{\sigma}{j\omega\varepsilon_0}.
+$$
+
+The current Wakis `pml` boundary is a deliberately simple adiabatic absorber rather than a complete matched, stretched-coordinate PML. It adds a geometrically graded artificial electric conductivity to the PML cells and uses the regular electric-current update. The inverse permittivity in those cells is set to the vacuum value, and no corresponding artificial magnetic conductivity is applied. Consequently, its effectiveness depends on layer thickness and the low-conductivity ramp; it is not expected to be reflectionless, especially for oblique incidence, broadband pulses, or non-vacuum material at the interface.
+
+#### CPML implementation
+
+Convolutional PML (CPML) improves absorption of grazing-incidence, low-frequency, and evanescent fields by using a complex-frequency-shifted coordinate stretch [Gedney et al., 2000]:
+
+$$
+s = \kappa + \frac{\sigma}{\alpha + j\omega\varepsilon_0}.
+$$
+
+Here $\kappa \geq 1$ scales the coordinate stretch, $\sigma$ is the graded conductivity, and $\alpha$ is a non-negative frequency-shift parameter. Wakis constructs $\sigma$, $\kappa$, and $\alpha$ on both primal and dual field locations with a polynomial distance profile. It converts them into recursion coefficients and stores only the CPML auxiliary fields needed to correct curl terms inside each boundary layer.
+
+CPML is therefore distinct from the scalar `pml` path: it does not modify the bulk material conductivity tensor to absorb waves, and its auxiliary convolution fields make it the preferred absorbing boundary for the beam and TF/SF workflows. As with all finite layers, its practical reflection level still depends on the number of cells and the selected profile parameters.
+
 
 ### 📥🗿 Geometry Importing & Embedded Boundaries
 
@@ -371,85 +409,176 @@ Wakis supports heterogeneous architecture computing thanks to open-source packag
 - Includes **CI/CD**, with end-to-end tests running nightly on GitHub actions, tagged **versioned releases**, and numerous **ready-to-run examples** in both Python scripts and notebooks, inluding a dedicated [playground](https://github.com/ImpedanCEI/CEI-logo) repository.
 ```
 
-## 3. Wake Potential and Impedance calculation
+## 4. Wake potential, impedance, and wake factors
 
 Wakis computes beam coupling impedance from time-domain electromagnetic field simulations by evaluating the wakefields generated by a moving charged particle (or bunch) as it traverses an accelerator structure.
 
-### 📚 Physical Definition: Wake function and Impedance
+### 📚 Wake function and wake potential
 
-The longitudinal **wake function** $w(\vec{r_s}, \vec{r_t}, s)$ of an accelerator component can be defined as a Green function in the time domain (i.e., the component electromagnetic response to a pulse excitation):
+Wakis uses $s>0$ for a test particle behind the source and $v=\beta c$ for
+the beam velocity. The transverse source and test positions are
+$\mathbf r_s=(x_s,y_s)$ and $\mathbf r_t=(x_t,y_t)$.
 
-$$
-w(\vec{r_s}, \vec{r_t}, s) = \frac{1}{q_s q_t} \int_{-\infty}^{\infty} \vec{F}_{\text{Lorentz}} \ d\vec{z} = \frac{1}{q_s q_t} \int_{-\infty}^{\infty} E_z(z, t) + \beta c \, \vec{e}_z \times \vec{B}(z, t) \ d\vec{z}
-$$
-
-With:
-- $\vec{r_s} = (x_s, y_s, z_s)$ be the position of a **source particle** -or pulse excitation.
-- $\vec{r_t} = (x_t, y_t, z_t)$ the **test particle** position -or integration point.
-- $s = z_{min} - \beta c t$ the **catch-up distance**, with $s_{max}$ beign the desired wakefield's length.
-
-The wake function is the input to beam-dynamics simulations. Its Fourier transform yields the **longitudinal impedance**, in frequency domain:
+The **wake function** $\mathbf w(\mathbf r_s,\mathbf r_t,s)$ is the response
+of the structure to a point source. It is a Green function normalized by the
+source charge $q_s$:
 
 $$
-Z_{\parallel}(\omega) = \int_{-\infty}^{\infty} w_{\parallel}(s) \, e^{-i \omega s / c} \frac{ds}{c}
+\mathbf w(\mathbf r_s,\mathbf r_t,s)
+=\frac{1}{q_s}\int_{-\infty}^{\infty}
+\left[\mathbf E(\mathbf r_t,z,t)
++v\,\mathbf e_z\times\mathbf B(\mathbf r_t,z,t)\right]
+_{t=(z+s)/v}\,dz .
 $$
 
-In practice, since a beam is a **distributed source**, the wake function is not directly accessible through wakefield simulations, where the excitation is a gaussian-shaped current. Instead, in wakefield simulations we compute the **wake potential** $W(s)$ generated by the full bunch distribution.
-
-### 📈 Wake Potential from 3D electromganetic simulations
-
-The **wake potential**, expressed in $\text{V/pC}$, is calculated by integrating the electric and magnetic fields seen by a test particle as it follows behind the source:
+Its longitudinal component contains only $E_z$,
 
 $$
-W(s) = \frac{1}{q_s} \int_{-\infty}^{\infty} \left[ E_z(z, t) + \beta c \, \vec{e}_z \times \vec{B}(z, t) \right]_{t = (s + z)/c} \, dz
+w_\parallel(\mathbf r_s,\mathbf r_t,s)
+=\frac{1}{q_s}\int_{-\infty}^{\infty}
+E_z(\mathbf r_t,z,t=(z+s)/v)\,dz ,
 $$
 
-For ultra-relativistic beams, the transverse component vanishes, and the expression simplifies to:
+while the transverse component contains the transverse Lorentz force. Both
+are quoted in $\mathrm{V/C}$, or more commonly $\mathrm{V/pC}$. A test charge
+$q_t$ receives an integrated voltage $q_s w$ and an energy change proportional
+to $q_tq_s w$; the sign depends on the charge and wake conventions.
+
+A simulation uses a finite bunch rather than a point source. Let
+$\lambda(s)$ be its **charge-normalized longitudinal profile**,
 
 $$
-W_\parallel(s) = \frac{1}{q_s} \int_{-\infty}^{\infty} E_z(z, t = (s + z)/c) \, dz
+\int_{-\infty}^{\infty}\lambda(s)\,ds=1,
+\qquad [\lambda]=\mathrm{m}^{-1}.
 $$
 
-The **transverse wake potential** is recovered via the **Panofsky-Wenzel theorem**:
+The resulting **wake potential** is the convolution
 
 $$
-W_{\perp,\alpha}(s) = \frac{\partial}{\partial \alpha} \int_{-\infty}^{s} W_\parallel(s') \, ds', \quad \alpha = x, y
+W_{\parallel,\perp}(s)
+=\int_{-\infty}^{\infty}
+w_{\parallel,\perp}(s-s')\lambda(s')\,ds'.
 $$
 
-Wakis implements this gradient using second-order finite differences.
+Thus $w$ denotes the point-charge response and $W$ the response to the bunch
+profile. `WakeSolver.WP`, `WPx`, and `WPy` store the latter in
+$\mathrm{V/pC}$. This distinction follows the definitions in
+[Teofili et al., *Phys. Rev. Accel. Beams* **24**, 041001 (2021)](https://doi.org/10.1103/PhysRevAccelBeams.24.041001).
 
-#### Transverse Decomposition
+Wakis obtains the transverse wake potential from the 3D longitudinal wake
+potential using the Panofsky--Wenzel relation. With the $s$ and force signs
+used in Wakis,
+
+$$
+\frac{\partial\mathbf W_\perp}{\partial s}
+=-\nabla_\perp W_\parallel,
+$$
+
+and therefore
+
+$$
+W_{\perp,\alpha}(s)
+=-\frac{\partial}{\partial\alpha}
+\int_{-\infty}^{s}W_\parallel(s')\,ds',
+\qquad \alpha=x,y.
+$$
+
+The transverse gradient is evaluated with second-order finite differences.
+
+#### Transverse decomposition
 
 Wakis supports transverse wake analysis:
 
 $$
-W_{\perp,x}(x, y, s) = W_C(s) + W_D(s) \Delta x_s + W_Q(s) \Delta x_t + \mathcal{O}(x^2)
+W_{\perp,\alpha}(\mathbf r_s,\mathbf r_t,s)
+=W_{C,\alpha}(s)
++W_{D,\alpha}(s)\Delta\alpha_s
++W_{Q,\alpha}(s)\Delta\alpha_t
++\mathcal O(\lVert\mathbf r\rVert^2),
+\qquad \alpha=x,y.
 $$
 
 - $W_D$: **dipolar wake**, linear in source offset
 - $W_Q$: **quadrupolar wake**, linear in test offset
 - $W_C$: **coherent term**, for asymmetric geometries
 
-These are extracted by sampling field responses at multiple $(x_s, y_s, x_t, y_t)$ combinations, either by displacing the beam source ($x_s, y_s$) or the integration path ($x_t, y_t$).
+They can be separated by sampling field responses at multiple
+$(x_s,y_s,x_t,y_t)$ combinations, either by displacing the beam source or the
+integration path.
 
 
 ### 🔁 From Wake to Impedance
 
-Given the bunch profile $\lambda(s)$ and the wake potential $W(s)$, the beam coupling impedance is computed in Fourier space ia a deconvolution:
+Given the bunch profile $\lambda(s)$ and wake potential $W(s)$, Wakis obtains
+the point-charge impedance by deconvolution. Define the spatial Fourier
+transform
+
+$$
+\widetilde g(f)=\int_{-\infty}^{\infty}
+g(s)e^{-i2\pi f s/v}\,ds .
+$$
+
+The charge-normalized bunch spectrum $\widetilde\lambda(f)$ is dimensionless.
+With the Wakis sign convention, the impedances are
 
 - **Longitudinal impedance** in $\Omega$:
 
 $$
-Z_\parallel(\omega) = \beta c \cdot \frac{\mathcal{F}[W_\parallel(s)]}{\mathcal{F}[\lambda(s)]}
+Z_\parallel(f)=-\frac{\widetilde W_\parallel(f)}
+{v\,\widetilde\lambda(f)}
 $$
 
-- **Transverse impedance** in $\Omega/m$:
+- **Transverse impedance of the simulated offset** in $\Omega$:
 
 $$
-Z_\perp(\omega) = -i \beta c \cdot \frac{\mathcal{F}[W_\perp(s)]}{\mathcal{F}[\lambda(s)]}
+Z_{\perp,\alpha}(f)=i\frac{\widetilde W_{\perp,\alpha}(f)}
+{v\,\widetilde\lambda(f)},
+\qquad \alpha=x,y.
 $$
 
-where $\mathcal{F}$ denotes the Fourier transform. Wakis uses `numpy.fft` with a Hanning window and zero-padding for smooth frequency analysis.
+`WakeSolver.Zx` and `Zy` contain this offset-dependent transverse impedance.
+For a purely dipolar wake, division by the corresponding nonzero source
+offset gives the commonly quoted dipolar impedance,
+
+$$
+Z_{\perp,\alpha}^{\mathrm{dip}}(f)
+=\frac{Z_{\perp,\alpha}(f)}{\Delta\alpha_s},
+\qquad [Z_{\perp}^{\mathrm{dip}}]=\Omega/\mathrm m.
+$$
+
+Wakis uses `numpy.fft` and zero-padding. No window is applied automatically.
+
+### ⚖️ Loss and kick factors
+
+The bunch **loss factor** is the bunch-profile-weighted longitudinal wake
+potential:
+
+$$
+k_\parallel
+=\frac{\displaystyle\int W_\parallel(s)\lambda(s)\,ds}
+{\displaystyle\int\lambda(s)\,ds}.
+$$
+
+Because `WakeSolver.lambdas` is normalized, the denominator is ideally one;
+it is retained in the numerical implementation to account for sampling or a
+truncated profile. `calc_loss_factor()` returns the signed value in
+$\mathrm{V/pC}$.
+
+For a source offset $\Delta\alpha_s\ne0$, the dipolar **kick factor** is
+
+$$
+k_{\perp,\alpha}
+=\frac{1}{\Delta\alpha_s}
+\frac{\displaystyle\int W_{\perp,\alpha}(s)\lambda(s)\,ds}
+{\displaystyle\int\lambda(s)\,ds},
+\qquad \alpha=x,y.
+$$
+
+`calc_kick_factors()` returns signed $k_x$ and $k_y$ in
+$\mathrm{V/(pC\,m)}$. A kick factor is undefined for a zero source offset, so
+the corresponding result is `None`. In asymmetric structures, a coherent or
+quadrupolar contribution may also be present; a single-offset division should
+then not be interpreted as a pure dipolar coefficient.
 
 
 ```{admonition} Modularity

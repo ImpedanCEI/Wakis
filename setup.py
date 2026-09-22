@@ -17,10 +17,6 @@ __version__ = dd["__version__"]
 # read long_description
 long_description = (Path(__file__).parent / "README.md").read_text(encoding="utf-8")
 
-# read requirements.txt for extras_require
-with open("requirements.txt") as f:
-    notebook_required = f.read().splitlines()
-
 setup(
     name="wakis",
     version=__version__,
@@ -55,14 +51,13 @@ setup(
     install_requires=[
         "numpy",
         "scipy",
-        "pyvista",
+        "pyvista>=0.47.0",
         "h5py",
         "tqdm",
     ],
     extras_require={
         "gpu": ["cupy"],
-        "all": ["pyvista[jupyter]", "jupyterlab", "ipympl", "bihc", "iddefix"],
-        "notebook": notebook_required,
+        "all": ["pyvista[jupyter]>=0.47.0", "jupyterlab", "ipympl", "bihc", "iddefix"],
     },
     tests_require=["pytest", "pytest-cov"],
 )

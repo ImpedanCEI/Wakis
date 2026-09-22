@@ -230,12 +230,12 @@ class RoutinesMixin:
 
     def wakesolve(
         self,
-        wakelength,
+        wakelength=None,
         wake=None,
         callback=None,
         compute_plane="both",
         plot=False,
-        plot_func=PlotMixin.plot2D,
+        plot_func=None,
         plot_from=None,
         plot_every=1,
         plot_until=None,
@@ -253,10 +253,15 @@ class RoutinesMixin:
         The `Ez` field is saved every timestep in a subdomain (xtest, ytest, z) around
         the beam trajectory in HDF5 format file `Ez.h5`.
 
-        The computed results are available as Solver class attributes:
+        The computed results are available as attributes of the WakeSolver object:
             - wake potential: WP (longitudinal), WPx, WPy (transverse) [V/pC]
             - impedance: Z (longitudinal), Zx, Zy (transverse) [Ohm]
-            - beam charge distribution: lambdas (distance) [C/m], lambdaf (spectrum) [C]
+            - normalized bunch profile: lambdas (distance) [1/m],
+              lambdaf (spectrum) [dimensionless]
+
+        By default, these results are also saved as `.txt` files in the
+        WakeSolver results folder. Set `WakeSolver(save=False)` to disable
+        txt output.
 
         Parameters
         ----------
@@ -326,10 +331,15 @@ class RoutinesMixin:
                 "Wake solver information not passed to the solver instantiation"
             )
 
+        if wakelength is None:
+            wakelength = self.wake.wakelength
+
         if add_space is not None:  # legacy support
             self.wake.skip_cells = add_space
 
         # plot params defaults
+        if plot_func is None:
+            plot_func = self.plot2D  # default plotting function
         if plot:
             plotkw = self.get_plotting_kwargs(plot_func.__name__)
             plotkw.update(kwargs)
@@ -337,8 +347,8 @@ class RoutinesMixin:
         # integration path (test position)
         self.xtest, self.ytest = self.wake.xtest, self.wake.ytest
         self.ixt, self.iyt = (
-            np.abs(self.x - self.xtest).argmin(),
-            np.abs(self.y - self.ytest).argmin(),
+            np.abs(self.grid.x - self.xtest).argmin(),
+            np.abs(self.grid.y - self.ytest).argmin(),
         )
         if compute_plane.lower() == "longitudinal":
             xx, yy = self.ixt, self.iyt
@@ -352,9 +362,9 @@ class RoutinesMixin:
         self.wake.wakelength = wakelength
         self.ti = self.wake.ti
         self.v = self.wake.v
-        if self.use_mpi:  # E- should it be zmin, zmax instead?
+        if self.use_mpi:
             z = self.Z  # use global coords
-            dz = np.diff(self.Z)
+            dz = np.full(self.NZ, (self.ZMAX - self.ZMIN) / self.NZ)
             zz = slice(0, self.NZ)
         else:
             z = self.z
@@ -369,6 +379,7 @@ class RoutinesMixin:
             q=self.wake.q,
             sigmaz=self.wake.sigmaz,
             beta=self.wake.beta,
+            ti=self.wake.ti,
             xsource=self.wake.xsource,
             ysource=self.wake.ysource,
         )
@@ -379,15 +390,15 @@ class RoutinesMixin:
         if self.use_mpi:
             if self.rank == 0:
                 hf = h5py.File(self.Ez_file, "w")
-                hf["x"], hf["y"], hf["z"] = self.x[xx], self.y[yy], z[zz]
+                hf["x"], hf["y"], hf["z"] = self.grid.x[xx], self.grid.y[yy], z[zz]
                 hf["dx"], hf["dy"], hf["dz"] = self.grid.dx, self.grid.dy, dz
                 hf["t"] = np.arange(0, Nt * self.dt, self.dt)
 
                 if save_J:
                     hfJ = h5py.File("Jz.h5", "w")
                     hfJ["x"], hfJ["y"], hfJ["z"] = (
-                        self.x[xx],
-                        self.y[yy],
+                        self.grid.x[xx],
+                        self.grid.y[yy],
                         z[zz],
                     )
                     hfJ["dx"], hfJ["dy"], hfJ["dz"] = (
@@ -398,7 +409,7 @@ class RoutinesMixin:
                     hfJ["t"] = np.arange(0, Nt * self.dt, self.dt)
         else:
             hf = h5py.File(self.Ez_file, "w")
-            hf["x"], hf["y"], hf["z"] = self.x[xx], self.y[yy], z[zz]
+            hf["x"], hf["y"], hf["z"] = self.grid.x[xx], self.grid.y[yy], z[zz]
             hf["dx"], hf["dy"], hf["dz"] = (
                 self.grid.dx,
                 self.grid.dy,
@@ -408,7 +419,7 @@ class RoutinesMixin:
 
             if save_J:
                 hfJ = h5py.File("Jz.h5", "w")
-                hfJ["x"], hfJ["y"], hfJ["z"] = self.x[xx], self.y[yy], z[zz]
+                hfJ["x"], hfJ["y"], hfJ["z"] = self.grid.x[xx], self.grid.y[yy], z[zz]
                 hfJ["dx"], hfJ["dy"], hfJ["dz"] = (
                     self.grid.dx,
                     self.grid.dy,
@@ -490,6 +501,10 @@ class RoutinesMixin:
                 "pos": [0.8, 0.6, 0.5, 0.4, 0.2],
                 "xscale": "linear",
                 "yscale": "linear",
+                "xlim": None,
+                "ylim": None,
+                "figsize": [8, 4],
+                "title": "plot1D",
                 "off_screen": True,
                 "colors": [
                     "#5ccfe6",
@@ -499,7 +514,6 @@ class RoutinesMixin:
                     "#ffd580",
                     "#a2aabc",
                 ],
-                "title": "plot1D",
             }
 
         elif name == "plot2D":
@@ -508,43 +522,64 @@ class RoutinesMixin:
                 "component": "z",
                 "plane": "ZY",
                 "pos": 0.5,
+                "norm": None,
+                "vmin": None,
+                "vmax": None,
+                "figsize": [8, 4],
                 "cmap": "rainbow",
+                "patch_alpha": 0.1,
                 "patch_reverse": True,
+                "add_patch": False,
+                "title": "plot2D",
                 "off_screen": True,
                 "interpolation": "spline36",
-                "title": "plot2D",
+                "dpi": 100,
+                "return_handles": False,
             }
         elif name == "plot3D":
             plotkw = {
                 "field": "E",
                 "component": "z",
+                "clim": None,
+                "hide_solids": None,
+                "show_solids": None,
                 "add_stl": None,
                 "stl_opacity": 0.0,
                 "stl_colors": "white",
+                "title": "plot3D",
                 "cmap": "jet",
-                "clip_box": False,
+                "clip_interactive": True,
                 "clip_normal": "-y",
+                "clip_box": False,
+                "clip_bounds": None,
                 "off_screen": True,
                 "zoom": 1.0,
+                "camera_position": None,
                 "nan_opacity": 1.0,
-                "title": "plot3D",
             }
         elif name == "plot3DonSTL":
             plotkw = {
                 "field": "E",
                 "component": "z",
+                "clim": None,
                 "cmap": "rainbow",
+                "log_scale": False,
                 "stl_with_field": list(self.grid.stl_solids.keys())[0],
                 "field_opacity": 1.0,
+                "tolerance": None,
                 "stl_transparent": list(self.grid.stl_solids.keys()),
                 "stl_opacity": 0.1,
                 "stl_colors": list(self.grid.stl_colors.values()),
                 "clip_plane": True,
+                "clip_interactive": False,
                 "clip_normal": "-y",
                 "clip_origin": [0, 0, 0],
+                "clip_box": False,
+                "clip_bounds": None,
+                "title": "plot3DonSTL",
                 "off_screen": True,
                 "zoom": 1.2,
-                "title": "plot3DonSTL",
+                "camera_position": None,
             }
 
         else:

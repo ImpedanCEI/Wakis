@@ -133,16 +133,20 @@ class Test3Dplotting:
     def test_grid_stl_mask(self, flag_offscreen):
         # Plot STL solid masks in the grid
         global solver
-        solver.grid.plot_stl_mask(
+        pl = solver.grid.plot_stl_mask(
             stl_solid="cavity",
             cmap="viridis",
-            add_stl="all",
-            stl_opacity=0.5,
-            smooth_shading=False,
+            bounding_box=True,
+            clip_plane="x",
+            add_stl=True,
+            stl_opacity=0.1,
+            stl_colors=None,
             anti_aliasing="ssaa",
-            ymax=0.0,
+            smooth_shading=False,
             off_screen=flag_offscreen,
         )
+        if flag_offscreen:
+            pl.close()
 
     def test_grid_stl_mask_slice(self, flag_offscreen):
         # Plot STL solid masks in the grid
@@ -187,6 +191,20 @@ class Test3Dplotting:
         if flag_offscreen:
             pl.screenshot(self.img_folder + "sigma_inspect3d_x.png")
         pl.close()
+
+    def test_field_inspect_pyvista(self, flag_offscreen):
+        global solver
+        pl = solver.E.inspect(
+            plane="YZ",
+            backend="pyvista",
+            component="z",
+            grid=solver.grid,
+            off_screen=flag_offscreen,
+        )
+        if flag_offscreen:
+            assert pl.off_screen
+            pl.screenshot(self.img_folder + "E_inspect_yz.png")
+            pl.close()
 
     def test_plot3D(self, flag_offscreen):
         # Plot Abs Electric field on domain
