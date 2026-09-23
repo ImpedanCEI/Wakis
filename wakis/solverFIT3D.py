@@ -305,6 +305,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         if self.activate_pml:
             if verbose:
                 print("Filling PML sigmas...")
+            if self.source_type != "tfsf":
+                self.source_type = "tfsf"  # Force Total-Field/Scattered-Field injection for PML
+                print("[!] PML works better with Total-Field/Scattered-Field injection, setting source_type='tfsf'")
             self.n_pml = n_pml
             self._initialize_PML()
             self.update_logger(["n_pml"])
@@ -394,19 +397,12 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.itDaiDepsDstC = self.iDeps * self.itDa * self.C.transpose() * self.tDs
 
         if self.source_type.lower() == "tfsf":
-            if not self.activate_cpml:
-                raise ValueError(
-                    "Total-Field/Scattered-Field injection requires CPML boundary conditions. Please set `bc_low` and `bc_high` to 'cpml' in the z-direction."
-                )
-            self.E_trans = Field(
-                self.Nx, self.Ny, self.Nz, dtype=self.dtype, use_gpu=self.use_gpu
-            )
-            self.H_trans = Field(
-                self.Nx, self.Ny, self.Nz, dtype=self.dtype, use_gpu=self.use_gpu
-            )
+            self.E_trans = Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype, use_gpu=self.use_gpu)
+            self.H_trans = Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype, use_gpu=self.use_gpu)
             self.injection_done = True
-        self.tdx = self.tL[:, 0, 0, "x"]
-        self.tdy = self.tL[0, :, 0, "y"]
+            self._initialize_tfsf()
+        self.tdx = self.tL[:, 0, 0, 'x']
+        self.tdy = self.tL[0, :, 0, 'y']
 
         if imported_mkl and not self.use_gpu:  # MKL backend for CPU
             if verbose:
@@ -420,6 +416,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.one_step = (
                     self._mpi_one_step_mkl if self.use_mpi else self._one_step_mkl
                 )
+            if self.source_type == "tfsf":
+                self._move_tfsf_to_mkl()
 
         # Move to GPU
         if use_gpu:
@@ -433,6 +431,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 else:
                     self.tDsiDmuiDaC = gpu_sparse_mat(self.tDsiDmuiDaC)
                     self.itDaiDepsDstC = gpu_sparse_mat(self.itDaiDepsDstC)
+                if self.source_type == "tfsf":
+                    self._move_tfsf_to_gpu()
             else:
                 raise ImportError(
                     "[!] cupyx could not be imported, please check CUDA installation"
@@ -457,12 +457,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.dtyx = mkl_sparse_mat(self.dtyx)
         self.dtzx = mkl_sparse_mat(self.dtzx)
         self.dtzy = mkl_sparse_mat(self.dtzy)
-
-        if self.source_type.lower() == "tfsf":
-            self.tf_dxz = mkl_sparse_mat(self.tf_dxz)
-            self.tf_dyz = mkl_sparse_mat(self.tf_dyz)
-            self.tf_dtxz = mkl_sparse_mat(self.tf_dtxz)
-            self.tf_dtyz = mkl_sparse_mat(self.tf_dtyz)
 
     def _move_CPML_to_gpu(self):
         self.imu.to_gpu()
@@ -541,11 +535,19 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.pml_c_H_z_high = cp.asarray(self.pml_c_H_z_high)
             self.idx_z_high = cp.asarray(self.idx_z_high)
 
-        if self.source_type == "tfsf":
-            self.tf_dxz = gpu_sparse_mat(self.tf_dxz)
-            self.tf_dyz = gpu_sparse_mat(self.tf_dyz)
-            self.tf_dtxz = gpu_sparse_mat(self.tf_dtxz)
-            self.tf_dtyz = gpu_sparse_mat(self.tf_dtyz)
+    def _move_tfsf_to_mkl(self):
+        self.tf_dxz = mkl_sparse_mat(self.tf_dxz)
+        self.tf_dyz = mkl_sparse_mat(self.tf_dyz)
+        self.tf_dtxz = mkl_sparse_mat(self.tf_dtxz)
+        self.tf_dtyz = mkl_sparse_mat(self.tf_dtyz)
+
+    def _move_tfsf_to_gpu(self):
+        if not self.activate_cpml:
+            self.imu.to_gpu()
+        self.tf_dxz = gpu_sparse_mat(self.tf_dxz)
+        self.tf_dyz = gpu_sparse_mat(self.tf_dyz)
+        self.tf_dtxz = gpu_sparse_mat(self.tf_dtxz)
+        self.tf_dtyz = gpu_sparse_mat(self.tf_dtyz)
 
     def update_tensors(self, tensor="all"):
         """
@@ -714,6 +716,11 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.H.toarray() - self.dt * self.tDsiDmuiDaC * self.E.toarray()
         )
 
+        if self.source_type == "tfsf":
+            if not self.injection_done:
+                self.H.field_x -= self.dt * self.imu.field_x * self.tf_dxz * self.E_trans.field_y
+                self.H.field_y -= self.dt * self.imu.field_y * - self.tf_dyz * self.E_trans.field_x
+
         # include current computation
         if self.use_conductivity:
             Jtemp = self.sigma.toarray() * self.E.toarray()
@@ -729,6 +736,11 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 - self.ieps.toarray() * self.J.toarray()
             )
         )
+
+        if self.source_type == "tfsf":
+            if not self.injection_done:
+                self.E.field_x += self.dt * self.ieps.field_x * - self.tf_dtxz * self.H_trans.field_y
+                self.E.field_y += self.dt * self.ieps.field_y * self.tf_dtyz * self.H_trans.field_x
 
     def _one_step_cpml(self):
         # Including the convolutional terms for the CPML update equations
@@ -869,6 +881,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             dJ = Jtemp - self.J_old
             self.J.fromarray(self.J.toarray() + dJ)
             self.J_old = Jtemp
+
+            if self.use_mpi:
+                self._mpi_communicate(self.J)
 
         # Compute the curl of H fields
         dtxyHz = self.dtxy * self.H.field_z
@@ -1014,6 +1029,11 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             - self.dt * dot_product_mkl(self.tDsiDmuiDaC, self.E.toarray())
         )
 
+        if self.source_type == "tfsf":
+            if not self.injection_done:
+                self.H.field_x -= self.dt * self.imu.field_x * dot_product_mkl(self.tf_dxz, self.E_trans.field_y)
+                self.H.field_y -= self.dt * self.imu.field_y * - dot_product_mkl(self.tf_dyz, self.E_trans.field_x)
+
         # include current computation
         if self.use_conductivity:
             Jtemp = self.sigma.toarray() * self.E.toarray()
@@ -1029,6 +1049,11 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 - self.ieps.toarray() * self.J.toarray()
             )
         )
+
+        if self.source_type == "tfsf":
+            if not self.injection_done:
+                self.E.field_x += self.dt * self.ieps.field_x * - dot_product_mkl(self.tf_dtxz, self.H_trans.field_y)
+                self.E.field_y += self.dt * self.ieps.field_y * dot_product_mkl(self.tf_dtyz, self.H_trans.field_x)
 
     def _one_step_cpml_mkl(self):
         if self.step_0:
@@ -1166,6 +1191,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.dJ = Jtemp - self.J_old
             self.J.fromarray(self.J.toarray() + self.dJ)
             self.J_old = Jtemp
+
+            if self.use_mpi:
+                self._mpi_communicate(self.J)
 
         # Compute the curl of H fields using MKL dot products
         dtxyHz = dot_product_mkl(self.dtxy, self.H.field_z)
@@ -1313,12 +1341,17 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
-            if self.source_type == "direct":
+            if self.source_type == "direct" or self.use_conductivity:
                 self.J_old = np.zeros_like(self.J.toarray())
 
         self.H.fromarray(
             self.H.toarray() - self.dt * self.tDsiDmuiDaC * self.E.toarray()
         )
+
+        if self.source_type == "tfsf":
+            if not self.injection_done:
+                self.H.field_x -= self.dt * self.imu.field_x * self.tf_dxz * self.E_trans.field_y
+                self.H.field_y -= self.dt * self.imu.field_y * - self.tf_dyz * self.E_trans.field_x
 
         self._mpi_communicate(self.H)
         # include current computation
@@ -1337,6 +1370,11 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             )
         )
 
+        if self.source_type == "tfsf":
+            if not self.injection_done:
+                self.E.field_x += self.dt * self.ieps.field_x * - self.tf_dtxz * self.H_trans.field_y
+                self.E.field_y += self.dt * self.ieps.field_y * self.tf_dtyz * self.H_trans.field_x
+
         self._mpi_communicate(self.E)
 
     def _mpi_one_step_mkl(self):
@@ -1344,13 +1382,18 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
-            if self.source_type == "direct":
+            if self.source_type == "direct" or self.use_conductivity:
                 self.J_old = np.zeros_like(self.J.toarray())
 
         self.H.fromarray(
             self.H.toarray()
             - self.dt * dot_product_mkl(self.tDsiDmuiDaC, self.E.toarray())
         )
+
+        if self.source_type == "tfsf":
+            if not self.injection_done:
+                self.H.field_x -= self.dt * self.imu.field_x * dot_product_mkl(self.tf_dxz, self.E_trans.field_y)
+                self.H.field_y -= self.dt * self.imu.field_y * - dot_product_mkl(self.tf_dyz, self.E_trans.field_x)
 
         self._mpi_communicate(self.H)
         # include current computation
@@ -1369,6 +1412,11 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 - self.ieps.toarray() * self.J.toarray()
             )
         )
+
+        if self.source_type == "tfsf":
+            if not self.injection_done:
+                self.E.field_x += self.dt * self.ieps.field_x * - dot_product_mkl(self.tf_dtxz, self.H_trans.field_y)
+                self.E.field_y += self.dt * self.ieps.field_y * dot_product_mkl(self.tf_dtyz, self.H_trans.field_x)
 
         self._mpi_communicate(self.E)
 

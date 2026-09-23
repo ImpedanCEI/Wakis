@@ -660,12 +660,6 @@ class BCsMixin:
             self.itAz * self.ikapy * self.Dbc_z * -self.Py.transpose() * self.tLx
         )
 
-        if self.source_type.lower() == "tfsf":
-            self.tf_dxz = self.iAx * self.itkapz * self.Ly
-            self.tf_dyz = self.iAy * self.itkapz * self.Lx
-            self.tf_dtxz = self.itAx * self.ikapz * self.tLy
-            self.tf_dtyz = self.itAy * self.ikapz * self.tLx
-
         del (
             self.iAx,
             self.iAy,
@@ -948,6 +942,48 @@ class BCsMixin:
             )
 
         del self.pml_b_E, self.pml_c_E, self.pml_b_H, self.pml_c_H
+
+    def _initialize_tfsf(self):
+        """
+        Initialize the Total-Field/Scattered-Field (TFSF) boundary conditions.
+
+        This method sets up the TFSF boundary conditions by defining the
+        necessary parameters and arrays for the TFSF interface. It prepares
+        the simulation to handle incident fields and scattered fields
+        appropriately.
+        """
+
+        N = self.N
+        tLx = diags(
+            self.tL.field_x, shape=(N, N), dtype=self.dtype
+        )
+        tLy = diags(
+            self.tL.field_y, shape=(N, N), dtype=self.dtype
+        )
+        iAx = diags(
+            self.iA.field_x, shape=(N, N), dtype=self.dtype
+        )
+        iAy = diags(
+            self.iA.field_y, shape=(N, N), dtype=self.dtype
+        )
+        Lx = diags(
+            self.L.field_x, shape=(N, N), dtype=self.dtype
+        )
+        Ly = diags(
+            self.L.field_y, shape=(N, N), dtype=self.dtype
+        )
+        itAx = diags(
+            self.itA.field_x, shape=(N, N), dtype=self.dtype
+        )
+        itAy = diags(
+            self.itA.field_y, shape=(N, N), dtype=self.dtype
+        )
+
+        # In case of CPML the kappa stretching is not needed at the TFSF interface, since it is never inside the PML region.
+        self.tf_dxz = iAx * Ly
+        self.tf_dyz = iAy * Lx
+        self.tf_dtxz = itAx * tLy
+        self.tf_dtyz = itAy * tLx
 
     def get_abc(self):
         """
