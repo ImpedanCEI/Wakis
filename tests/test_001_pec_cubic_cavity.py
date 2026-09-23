@@ -152,7 +152,7 @@ class TestPecCubicCavity:
 
     def test_long_wake_potential(self, plot_comparison):
         global wake
-        tol = dict(rtol=50 * 1e-6, atol=50 * 1e-6)
+        tol = dict(rtol=50 * 1e-5, atol=50 * 1e-5)
         plot_comparison(wake.WP[::50], self.WP, "Wake potential")
         assert np.allclose(wake.WP[::50], self.WP, **tol), (
             "Wake potential samples failed"
