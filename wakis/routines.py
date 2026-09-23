@@ -111,7 +111,7 @@ class RoutinesMixin:
 
         Notes
         -----
-        - If `activate_abc` is True, absorbing boundary conditions are updated each step.
+        - First-order extrapolating ABC faces are applied within each field update.
         - If `callback` is provided, it is called as `callback(self, t)` at each step.
         - The plotting keyword arguments are merged with defaults for 2D/3D plotting.
         """
@@ -180,11 +180,6 @@ class RoutinesMixin:
 
             plotkw.update(kwargs)
 
-        # get ABC values
-        if self.activate_abc:
-            E_abc_2, H_abc_2 = self.get_abc()
-            E_abc_1, H_abc_1 = self.get_abc()
-
         # Time loop
         for n in tqdm(range(Nt)):
             if source is not None:
@@ -212,12 +207,6 @@ class RoutinesMixin:
 
             if plot3d and n % plot_every == 0:
                 self.plot3D(n=n, **plotkw)
-
-            # ABC BCs
-            if self.activate_abc:
-                self.update_abc(E_abc_2, H_abc_2)  # n-2
-                E_abc_2, H_abc_2 = E_abc_1, H_abc_1  # n-1
-                E_abc_1, H_abc_1 = self.get_abc()  # n
 
             # Callback func(solver, t)
             if callback is not None:
