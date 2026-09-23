@@ -399,7 +399,7 @@ class WakeSolver:
 
         elif len(Ez.shape) == 1:
             for n in range(nt):
-                Ezt[:, n] = self.Ez_hf[keys[n]]
+                Ezt[:, n] = self.Ez_hf[keys[n]][zz]
         self.Ezt = Ezt
 
         # integral of (Ez(xtest, ytest, z, t=(s+z)/c))dz
