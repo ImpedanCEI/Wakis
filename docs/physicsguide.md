@@ -274,56 +274,59 @@ Wakis supports several boundary condition (BC) types:
 - **PEC (Perfect Electric Conductor)**: masks tangential electric-field degrees of freedom, enforcing $\vec{E}_{\parallel} = 0$ at the selected face.
 - **PMC (Perfect Magnetic Conductor)**: masks tangential magnetic-field degrees of freedom, enforcing $\vec{H}_{\parallel} = 0$.
 - **Periodic**: pairs the low and high faces of an axis and closes the corresponding FIT derivative stencil (`Px`, `Py`, or `Pz`) across that seam. The curl matrix is then rebuilt from the corrected derivative matrices and the periodic dual metrics are updated. A periodic face must be paired with the opposite face. Serial periodic boundaries are available in all three directions; longitudinal periodic MPI requires cyclic ghost exchange and is intentionally not enabled yet.
-- **ABC**: a first-order Mur radiation condition for longitudinal faces.
+- **ABC**: a first-order Mur radiation condition for selected domain faces.
 - **PML**: a finite, graded, electrically lossy layer terminated by the usual electric boundary mask.
 - **CPML**: a convolutional absorbing layer that adds auxiliary curl-correction fields.
 
 #### Mur ABC implementation
 
 The `abc` boundary applies the first-order Mur radiation condition to the
-tangential electric field on a longitudinal (`z-` or `z+`) face. It approximates
-the one-way wave equation
+tangential electric field on any selected low or high face. It approximates the
+one-way wave equation normal to that face,
 
 $$
 \frac{\partial E_t}{\partial t} + v\frac{\partial E_t}{\partial n} = 0,
 $$
 
-where $E_t$ is either $E_x$ or $E_y$, $n$ is the outward longitudinal
-coordinate, and the wave speed is taken from the homogeneous background
-material,
+where $E_t$ is a tangential electric-field component, $n$ is the outward face
+normal, and the wave speed is taken from the homogeneous background material,
 
 $$
 v = \frac{1}{\sqrt{\varepsilon_{\mathrm{bg}}\mu_{\mathrm{bg}}}}.
 $$
 
-For the low `z-` face, Wakis updates the boundary plane after the usual
-electric and magnetic field step as
+For a low face, Wakis updates the boundary plane after the usual electric and
+magnetic field step as
 
 $$
 E_t^{n+1}(0) = E_t^n(1) + r_{\mathrm{lo}}
 \left[E_t^{n+1}(1) - E_t^n(0)\right],
 $$
 
-and, for the high `z+` face,
+and, for the corresponding high face,
 
 $$
 E_t^{n+1}(N_z-1) = E_t^n(N_z-2) + r_{\mathrm{hi}}
 \left[E_t^{n+1}(N_z-2) - E_t^n(N_z-1)\right].
 $$
 
-The face-local coefficient uses the adjacent cell spacing,
+The face-local coefficient uses the adjacent normal cell spacing, $\Delta x$,
+$\Delta y$, or $\Delta z$ as appropriate,
 
 $$
 r = \frac{v\Delta t - \Delta z}{v\Delta t + \Delta z}.
 $$
 
-Only the previous boundary and adjacent-interior $E_x$/$E_y$ planes are stored,
-so the additional memory scales with the active boundary area rather than the
-domain volume. This implementation leaves the FIT curl topology and metric
-operators unchanged. It currently supports longitudinal faces only and is most
-appropriate for waves close to normal incidence in a homogeneous background.
-CPML remains the preferred absorber for oblique, broadband, low-frequency, or
-evanescent fields.
+Only the previous boundary and adjacent-interior tangential-electric-field
+planes are stored, so the additional memory scales with the active boundary
+area rather than the domain volume. This implementation leaves the FIT curl
+topology and metric operators unchanged. It assumes a homogeneous background
+material at the absorbing boundary and cannot be combined with PML or CPML
+faces. When ABC faces are selected on more than one axis, they share edges;
+Wakis emits a warning because those edge values currently follow the explicit
+`x`, `y`, then `z` face-update order. It is most appropriate for waves close to
+normal incidence. CPML remains the preferred absorber for oblique, broadband,
+low-frequency, or evanescent fields.
 
 #### PML implementation
 

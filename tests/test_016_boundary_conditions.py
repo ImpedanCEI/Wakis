@@ -88,10 +88,21 @@ def test_longitudinal_harris_pulse_boundary_signatures():
     assert traces["periodic"][220:275].max() > 0.6
 
 
-def test_abc_pairs_apply_mur_to_tangential_electric_field():
-    """Both z faces use their current interior and prior-time E planes."""
+@pytest.mark.parametrize(
+    "axis,components,low_coeff,high_coeff",
+    [
+        (0, "yz", "abc_x_low_coeff", "abc_x_high_coeff"),
+        (1, "xz", "abc_y_low_coeff", "abc_y_high_coeff"),
+        (2, "xy", "abc_z_low_coeff", "abc_z_high_coeff"),
+    ],
+)
+def test_abc_applies_mur_to_tangential_electric_field(
+    axis, components, low_coeff, high_coeff
+):
+    """Both faces of each axis use current interiors and prior E planes."""
     grid = GridFIT3D(0, 1, 0, 1, 0, 1, 4, 5, 6, verbose=0)
-    bc = ["periodic", "periodic", "abc"]
+    bc = ["periodic", "periodic", "periodic"]
+    bc[axis] = "abc"
     solver = SolverFIT3D(grid, bc_low=bc.copy(), bc_high=bc.copy(), verbose=0)
 
     rng = np.random.default_rng(42)
@@ -100,16 +111,28 @@ def test_abc_pairs_apply_mur_to_tangential_electric_field():
     old_E = {d: solver.E.to_matrix(d).copy() for d in "xyz"}
     solver.one_step()
 
-    for d in "xy":
+    for d in components:
         values = solver.E.to_matrix(d)
-        expected_low = old_E[d][:, :, 1] + solver.abc_low_coeff * (
-            values[:, :, 1] - old_E[d][:, :, 0]
+        low_boundary = [slice(None)] * 3
+        low_interior = [slice(None)] * 3
+        high_boundary = [slice(None)] * 3
+        high_interior = [slice(None)] * 3
+        low_boundary[axis] = 0
+        low_interior[axis] = 1
+        high_boundary[axis] = -1
+        high_interior[axis] = -2
+        low_boundary = tuple(low_boundary)
+        low_interior = tuple(low_interior)
+        high_boundary = tuple(high_boundary)
+        high_interior = tuple(high_interior)
+        expected_low = old_E[d][low_interior] + getattr(solver, low_coeff) * (
+            values[low_interior] - old_E[d][low_boundary]
         )
-        expected_high = old_E[d][:, :, -2] + solver.abc_high_coeff * (
-            values[:, :, -2] - old_E[d][:, :, -1]
+        expected_high = old_E[d][high_interior] + getattr(solver, high_coeff) * (
+            values[high_interior] - old_E[d][high_boundary]
         )
-        np.testing.assert_allclose(values[:, :, 0], expected_low)
-        np.testing.assert_allclose(values[:, :, -1], expected_high)
+        np.testing.assert_allclose(values[low_boundary], expected_low)
+        np.testing.assert_allclose(values[high_boundary], expected_high)
 
 
 def test_abc_does_not_modify_metric_operators():
@@ -132,14 +155,16 @@ def test_abc_does_not_modify_metric_operators():
     np.testing.assert_array_equal(abc.itDa.diagonal(), reference.itDa.diagonal())
 
 
-@pytest.mark.parametrize("axis", [0, 1])
-def test_transverse_abc_is_rejected(axis):
-    """The first Mur implementation is deliberately longitudinal only."""
+def test_abc_warns_when_faces_share_edges():
+    """Multi-axis Mur faces report that their shared edges are order dependent."""
     grid = GridFIT3D(0, 1, 0, 1, 0, 1, 4, 4, 4, verbose=0)
-    bc = ["periodic", "periodic", "periodic"]
-    bc[axis] = "abc"
-    with pytest.raises(NotImplementedError, match="longitudinal z faces"):
-        SolverFIT3D(grid, bc_low=bc.copy(), bc_high=bc.copy(), verbose=0)
+    with pytest.warns(RuntimeWarning, match="share edges"):
+        SolverFIT3D(
+            grid,
+            bc_low=["abc", "abc", "periodic"],
+            bc_high=["abc", "abc", "periodic"],
+            verbose=0,
+        )
 
 
 @pytest.mark.parametrize("axis", [0, 1, 2])
