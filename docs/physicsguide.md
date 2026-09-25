@@ -4,7 +4,7 @@ This section provides the theoretical foundations behind Wakis, offering a clear
 
 We begin by revisiting Maxwell’s equations in their integral form and explaining how they are discretized using the Finite Integration Technique (FIT) on a structured Cartesian grid. The formulation naturally leads to Maxwell Grid Equations (MGEs), which are solved in time using a leapfrog scheme. The fields and material properties are represented on a Yee-type staggered lattice, and anisotropic or spatially varying materials are handled via sparse metric tensors.
 
-Boundary conditions (PEC, PMC, periodic, PML) are discussed along with the treatment of sources and initial conditions. We also highlight how the solver supports geometry import and sub-pixel smoothing for embedded CAD models.
+Boundary conditions (PEC, PMC, periodic, Mur ABC, PML, and CPML) are discussed along with the treatment of sources and initial conditions. We also highlight how the solver supports geometry import and sub-pixel smoothing for embedded CAD models.
 
 Finally, we cover the implementation aspects, including GPU acceleration with CuPy and parallelization with mpi4py, enabling high-resolution 3D simulations across multiple devices.
 
@@ -274,9 +274,59 @@ Wakis supports several boundary condition (BC) types:
 - **PEC (Perfect Electric Conductor)**: masks tangential electric-field degrees of freedom, enforcing $\vec{E}_{\parallel} = 0$ at the selected face.
 - **PMC (Perfect Magnetic Conductor)**: masks tangential magnetic-field degrees of freedom, enforcing $\vec{H}_{\parallel} = 0$.
 - **Periodic**: pairs the low and high faces of an axis and closes the corresponding FIT derivative stencil (`Px`, `Py`, or `Pz`) across that seam. The curl matrix is then rebuilt from the corrected derivative matrices and the periodic dual metrics are updated. A periodic face must be paired with the opposite face. Serial periodic boundaries are available in all three directions; longitudinal periodic MPI requires cyclic ghost exchange and is intentionally not enabled yet.
-- **ABC**: a first-order absorbing boundary update using stored field values at the outer layer.
+- **ABC**: a first-order Mur radiation condition for selected domain faces.
 - **PML**: a finite, graded, electrically lossy layer terminated by the usual electric boundary mask.
 - **CPML**: a convolutional absorbing layer that adds auxiliary curl-correction fields.
+
+#### Mur ABC implementation
+
+The `abc` boundary applies the first-order Mur radiation condition to the
+tangential electric field on any selected low or high face. It approximates the
+one-way wave equation normal to that face,
+
+$$
+\frac{\partial E_t}{\partial t} + v\frac{\partial E_t}{\partial n} = 0,
+$$
+
+where $E_t$ is a tangential electric-field component, $n$ is the outward face
+normal, and the wave speed is taken from the homogeneous background material,
+
+$$
+v = \frac{1}{\sqrt{\varepsilon_{\mathrm{bg}}\mu_{\mathrm{bg}}}}.
+$$
+
+For a low face, Wakis updates the boundary plane after the usual electric and
+magnetic field step as
+
+$$
+E_t^{n+1}(0) = E_t^n(1) + r_{\mathrm{lo}}
+\left[E_t^{n+1}(1) - E_t^n(0)\right],
+$$
+
+and, for the corresponding high face,
+
+$$
+E_t^{n+1}(N_z-1) = E_t^n(N_z-2) + r_{\mathrm{hi}}
+\left[E_t^{n+1}(N_z-2) - E_t^n(N_z-1)\right].
+$$
+
+The face-local coefficient uses the adjacent normal cell spacing, $\Delta x$,
+$\Delta y$, or $\Delta z$ as appropriate,
+
+$$
+r = \frac{v\Delta t - \Delta z}{v\Delta t + \Delta z}.
+$$
+
+Only the previous boundary and adjacent-interior tangential-electric-field
+planes are stored, so the additional memory scales with the active boundary
+area rather than the domain volume. This implementation leaves the FIT curl
+topology and metric operators unchanged. It assumes a homogeneous background
+material at the absorbing boundary and cannot be combined with PML or CPML
+faces. When ABC faces are selected on more than one axis, they share edges;
+Wakis emits a warning because those edge values currently follow the explicit
+`x`, `y`, then `z` face-update order. It is most appropriate for waves close to
+normal incidence. CPML remains the preferred absorber for oblique, broadband,
+low-frequency, or evanescent fields.
 
 #### PML implementation
 

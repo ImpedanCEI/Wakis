@@ -66,8 +66,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         3D time-domain electromagnetic solver based on the Finite Integration
         Technique (FIT).
 
-        Handles mesh and geometry, material assignment, boundary conditions and
-        time-stepping. Supports CPU, optional GPU acceleration (cupyx) and MPI
+        Using GridFIT3D's mesh and geometry, it handles the material assignment,
+        boundary conditions and time-stepping.
+        Supports CPU, optional GPU acceleration (cupyx) and MPI
         domain decomposition. Provides utilities for importing conductors and
         STL solids, applying PML/ABC boundaries, and saving/restoring solver
         state.
@@ -438,6 +439,11 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                     "[!] cupyx could not be imported, please check CUDA installation"
                 )
 
+        if self.activate_abc:
+            self._initialize_abc()
+            self._one_step_backend = self.one_step
+            self.one_step = self._one_step_with_abc
+
         if verbose:
             print(f"Total solver initialization time: {time.time() - t0} s")
 
@@ -701,6 +707,12 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.sigma += mask * sigma_eff
         self.ieps += self.ieps * (-1.0 * mask)
         self.ieps += mask * 1.0 / eps_eff
+
+    def _one_step_with_abc(self):
+        """Wrap the selected backend timestep with the longitudinal Mur ABC."""
+        self._capture_abc()
+        self._one_step_backend()
+        self._apply_abc()
 
     def _one_step(self):
         if self.step_0:
