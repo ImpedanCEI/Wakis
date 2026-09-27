@@ -1412,7 +1412,11 @@ class WakeSolver:
                 raise ValueError("fmax must be positive")
             dt = 1.0 / (2.0 * fmax)
             if samples is None:
-                n = max(3, int(np.ceil(tmax_source / dt)) + 1)
+                intervals = tmax_source / dt
+                nearest = np.rint(intervals)
+                if np.isclose(intervals, nearest, rtol=1e-12, atol=1e-12):
+                    intervals = nearest
+                n = max(3, int(np.ceil(intervals)) + 1)
             else:
                 n = int(samples)
                 if n < 3:
@@ -1459,7 +1463,11 @@ class WakeSolver:
             if tmax <= 0:
                 raise ValueError("tmax must be positive")
             # Make the intrinsic DCT-I time window at least as long as requested.
-            n = max(3, int(np.ceil(2.0 * fmax * tmax)) + 1)
+            intervals = 2.0 * fmax * tmax
+            nearest = np.rint(intervals)
+            if np.isclose(intervals, nearest, rtol=1e-12, atol=1e-12):
+                intervals = nearest
+            n = max(3, int(np.ceil(intervals)) + 1)
 
         f_grid = np.linspace(0.0, fmax, n)
         if np.iscomplexobj(values):
@@ -1522,9 +1530,12 @@ class WakeSolver:
     ):
         """Calculate point-charge impedance with DCT-I/DST-I.
 
+        ``samples`` is the number of returned points from 0 to ``fmax``.
+        ``gamma`` is used only when converting ``s`` to time.
+
         Set ``separate=True`` to transform ``main`` and ``residual`` separately.
         If ``residual`` is omitted it is calculated as ``wake - main``.
-        This is useful for simulated data when a weak residual coexists
+	This is useful for simulated data when a weak residual coexists
 	with a much larger dominant component, since the two can otherwise have very
 	different numerical scales.
         """
@@ -1626,9 +1637,17 @@ class WakeSolver:
     ):
         """Calculate point-charge wake with DCT-I/DST-I.
 
+	DCT-I gives the matched spacing ``dt = 1/(2*fmax)``; ``tmax``
+        adjusts the frequency grid and ``samples`` adjusts the returned time grid.
+        ``pad`` extends the impedance with zero-valued high-frequency bins at
+        the original ``df``. This increases the assumed bandwidth and decreases
+        the intrinsic time step while leaving the native time window unchanged.
+        It does not add physical high-frequency information, so it is most useful
+        when the impedance is already small near the original frequency cutoff.
+
         Set ``separate=True`` to transform ``main`` and ``residual`` separately.
         If ``residual`` is omitted it is calculated as ``impedance - main``.
-        This is useful for simulated data when a weak residual coexists
+	This is useful for simulated data when a weak residual coexists
 	with a much larger dominant component, since the two can otherwise have very
 	different numerical scales.
         """
@@ -1642,6 +1661,8 @@ class WakeSolver:
             f = np.asarray(f, dtype=float)
             Z = np.asarray(impedance)
 
+        # gamma is retained for API consistency. The frequency/time transform
+        # grid is independent of beta; beta is used only for s <-> t conversion.
         beta = WakeSolver._conversion_beta(gamma)
         f_grid, Z_grid = WakeSolver._uniform_frequency_grid(f, Z, tmax=tmax)
 
@@ -1669,8 +1690,18 @@ class WakeSolver:
         if pad:
             df0 = f_grid[1] - f_grid[0]
             f_grid = np.arange(len(f_grid) + pad, dtype=float) * df0
+
+            # The old upper-frequency endpoint becomes an interior DCT/DST point
+            # after padding. Halve it before zero-extension so its trapezoidal
+            # quadrature weight is preserved on the enlarged grid.
+            Z_grid = Z_grid.copy()
+            Z_grid[-1] *= 0.5
             Z_grid = np.pad(Z_grid, (0, pad), mode="constant")
             if separate:
+                Z_main_grid = Z_main_grid.copy()
+                Z_residual_grid = Z_residual_grid.copy()
+                Z_main_grid[-1] *= 0.5
+                Z_residual_grid[-1] *= 0.5
                 Z_main_grid = np.pad(Z_main_grid, (0, pad), mode="constant")
                 Z_residual_grid = np.pad(Z_residual_grid, (0, pad), mode="constant")
 
