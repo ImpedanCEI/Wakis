@@ -11,10 +11,15 @@ from wakis import WakeSolver as wk
 
 
 def analytic_impedance_from_sine_cosine_wake(f, fr, A, T):
-    return -0.5 * A * (
-        (np.exp(-1j * 2*np.pi*(f + fr)*T) - 1) / (-1j * 2*np.pi*(f + fr)) -
-        (np.exp(-1j * 2*np.pi*(f - fr)*T) - 1) / (-1j * 2*np.pi*(f - fr))
-    )
+    def integral_term(freq):
+        out = np.empty_like(freq, dtype=complex)
+        zero = np.isclose(freq, 0.0, rtol=0.0, atol=1e-15)
+        out[zero] = T
+        x = 2 * np.pi * freq[~zero]
+        out[~zero] = (np.exp(-1j * x * T) - 1) / (-1j * x)
+        return out
+
+    return -0.5 * A * (integral_term(f + fr) - integral_term(f - fr))
 
 
 # Parameters
@@ -48,6 +53,61 @@ ttt_t, wwwake_t = wk.calc_wake_from_impedance([ff_t, Zz_t], plane="transverse")
 
 # Same analytical formula applies
 Z_analytical_t = analytic_impedance_from_sine_cosine_wake(f_t, fr, A, T)
+
+
+# Regression tests
+
+def test_longitudinal_round_trip():
+    # DCT-I keeps the matched one-sided grid: dt = 1 / (2*fmax).
+    assert len(tt_l) == len(f_l)
+    assert np.isclose(np.mean(np.diff(tt_l)), 1.0 / (2.0 * f_l[-1]))
+    np.testing.assert_allclose(tt_l, t, rtol=0.0, atol=1e-18)
+    np.testing.assert_allclose(wwake_l, wake_l, rtol=1e-10, atol=1e-10)
+
+
+def test_transverse_round_trip():
+    assert len(tt_t) == len(f_t)
+    assert np.isclose(np.mean(np.diff(tt_t)), 1.0 / (2.0 * f_t[-1]))
+    np.testing.assert_allclose(tt_t, t, rtol=0.0, atol=1e-18)
+    np.testing.assert_allclose(wwake_t, wake_t, rtol=1e-10, atol=1e-10)
+
+
+def test_main_residual_separation():
+    main = 0.9 * wake_l
+    f_sep, Z_sep = wk.calc_impedance_from_wake(
+        [t, wake_l], separate=True, main=main, verbose=False
+    )
+    np.testing.assert_allclose(f_sep, f_l, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(Z_sep, Z_l, rtol=1e-12, atol=1e-12)
+
+
+def test_finite_gamma_distance_input():
+    gamma = 3.0
+    beta = np.sqrt(1.0 - 1.0 / gamma**2)
+    c_light = 299792458.0
+    s = beta * c_light * t
+    f_s, Z_s = wk.calc_impedance_from_wake(
+        wake_l, s=s, gamma=gamma, verbose=False
+    )
+    f_time, Z_time = wk.calc_impedance_from_wake(
+        [t, wake_l], gamma=gamma, verbose=False
+    )
+    np.testing.assert_allclose(f_s, f_time, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(Z_s, Z_time, rtol=1e-12, atol=1e-12)
+
+
+def test_legacy_positional_arguments():
+    f_pos, Z_pos = wk.calc_impedance_from_wake(
+        [t, wake_l], None, None, None, None, False
+    )
+    np.testing.assert_allclose(f_pos, f_l, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(Z_pos, Z_l, rtol=1e-12, atol=1e-12)
+
+    t_pos, wake_pos = wk.calc_wake_from_impedance(
+        [f_l, Z_l], None, None, None, 0, False
+    )
+    np.testing.assert_allclose(t_pos, tt_l, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(wake_pos, wwake_l, rtol=1e-12, atol=1e-12)
 
 
 # Plot: Longitudinal
@@ -122,4 +182,5 @@ axs[3].legend()
 
 fig2.tight_layout()
 
-plt.show()
+if __name__ == "__main__":
+    plt.show()
