@@ -97,14 +97,7 @@ class Beam:
                 self.Jold = np.zeros_like(solver.J[self.ixs, self.iys, :, "z"])
             if solver.source_type == "tfsf":
                 solver.injection_done = False
-                self.j_start = (
-                    solver.n_pml + 1 if not solver.use_mpi or solver.rank == 0 else 1
-                )
-                self.j_stop = (
-                    solver.Nz - solver.n_pml - 2
-                    if not solver.use_mpi or solver.rank == solver.size - 1
-                    else solver.Nz - 1
-                )
+                self._set_tfsf_planes(solver)
                 self.Jold = np.zeros_like(
                     solver.J[self.ixs, self.iys, self.j_start : self.j_stop, "z"]
                 )
@@ -113,19 +106,19 @@ class Beam:
                     * self.v
                     / solver.tdx[self.ixs]
                     / solver.tdy[self.iys]
-                    / (np.sqrt(2 * np.pi * self.sigmaz**2))
+                    / np.sqrt(2 * np.pi * self.sigmaz**2)
                 )
                 if solver.verbose > 1:
                     print(
                         f"[!] Total-Field/Scattered-Field injection started at t={t:.3e}s, Jmax={solver.J_max:.3e} Cm/s"
                     )
-                if not solver.use_mpi or solver.rank == 0:
+                if self.at_low_boundary:
                     self._calculate_injected_fields(
-                        solver, z_pos=solver.n_pml + 1, side="low"
+                        solver, z_pos=self.j_start, side="low"
                     )
-                if not solver.use_mpi or solver.rank == solver.size - 1:
+                if self.at_high_boundary:
                     self._calculate_injected_fields(
-                        solver, z_pos=-solver.n_pml - 2, side="high"
+                        solver, z_pos=self.j_stop, side="high"
                     )
             self.is_first_update = False
             if hasattr(solver, "ZMIN"):  # support for MPI
@@ -155,45 +148,37 @@ class Beam:
             solver.J[self.ixs, self.iys, self.j_start : self.j_stop, "z"] += dJ
             self.Jold = Jprofile
 
-            if solver.injection_done == False:
+            if not solver.injection_done:
                 # Update the transverse E and H fields on the injection planes using the pre-calculated 2D templates
-                if not solver.use_mpi or solver.rank == 0:
+                if self.at_low_boundary:
                     Einj_x, Einj_y, _, _ = self.get_injected_2D_slice(
-                        solver, solver.grid.z[solver.n_pml + 1], t, side="low"
+                        solver, solver.grid.z[self.j_start], t, side="low"
                     )
-                    solver.E_trans[:, :, solver.n_pml + 1, "x"] = Einj_x
-                    solver.E_trans[:, :, solver.n_pml + 1, "y"] = Einj_y
+                    solver.E_trans[:, :, self.j_start, "x"] = Einj_x
+                    solver.E_trans[:, :, self.j_start, "y"] = Einj_y
                     _, _, Hinj_x, Hinj_y = self.get_injected_2D_slice(
-                        solver,
-                        solver.z[solver.n_pml + 1],
-                        t + solver.dt / 2,
-                        side="low",
+                        solver, solver.z[self.j_start], t + solver.dt / 2, side="low"
                     )
-                    solver.H_trans[:, :, solver.n_pml + 1, "x"] = -Hinj_x
-                    solver.H_trans[:, :, solver.n_pml + 1, "y"] = -Hinj_y
+                    solver.H_trans[:, :, self.j_start, "x"] = -Hinj_x
+                    solver.H_trans[:, :, self.j_start, "y"] = -Hinj_y
 
-                if not solver.use_mpi or solver.rank == solver.size - 1:
+                if self.at_high_boundary:
                     Einj_x, Einj_y, _, _ = self.get_injected_2D_slice(
-                        solver, solver.grid.z[-solver.n_pml - 3], t, side="high"
+                        solver, solver.grid.z[self.j_stop], t, side="high"
                     )
-                    solver.E_trans[:, :, -solver.n_pml - 2, "x"] = -Einj_x
-                    solver.E_trans[:, :, -solver.n_pml - 2, "y"] = -Einj_y
+                    solver.E_trans[:, :, self.j_stop, "x"] = -Einj_x
+                    solver.E_trans[:, :, self.j_stop, "y"] = -Einj_y
                     _, _, Hinj_x, Hinj_y = self.get_injected_2D_slice(
-                        solver,
-                        solver.z[-solver.n_pml - 2],
-                        t + solver.dt / 2,
-                        side="high",
+                        solver, solver.z[self.j_stop], t + solver.dt / 2, side="high"
                     )
-                    solver.H_trans[:, :, -solver.n_pml - 2, "x"] = Hinj_x
-                    solver.H_trans[:, :, -solver.n_pml - 2, "y"] = Hinj_y
+                    solver.H_trans[:, :, self.j_stop, "x"] = Hinj_x
+                    solver.H_trans[:, :, self.j_stop, "y"] = Hinj_y
 
                 # Truncate the injection after the beam has passed the injection plane by 5 sigma
-                high_plane = (
-                    solver.Z[-solver.n_pml - 2]
-                    if solver.use_mpi
-                    else solver.z[-solver.n_pml - 2]
-                )
-                if s0 - (high_plane - self.v * (t + solver.dt / 2)) > 5 * self.sigmaz:
+                if (
+                    s0 - (self.high_plane - self.v * (t + solver.dt / 2))
+                    > 5 * self.sigmaz
+                ):
                     solver.injection_done = True
                     del solver.E_trans, solver.H_trans
                     for side in ("low", "high"):
@@ -204,7 +189,7 @@ class Beam:
                     del solver.tf_dxz, solver.tf_dyz, solver.tf_dtxz, solver.tf_dtyz
                     if solver.verbose > 1:
                         print(
-                            f"[!] Total-Field/Scattered-Field injection done at t={t:.3e}s, switching to regular CPML updating scheme"
+                            f"[!] Total-Field/Scattered-Field injection done at t={t:.3e}s, switching to regular field updates"
                         )
 
         elif solver.source_type == "direct":
@@ -214,6 +199,29 @@ class Beam:
             dJ = Jprofile - self.Jold
             solver.J[self.ixs, self.iys, :, "z"] += dJ
             self.Jold = Jprofile
+
+    def _set_tfsf_planes(self, solver):
+        """Set local current limits and the physical injection planes."""
+        self.at_low_boundary = not solver.use_mpi or solver.rank == 0
+        self.at_high_boundary = not solver.use_mpi or solver.rank == solver.size - 1
+        low_pml = solver.bc_low[2].lower() in ("cpml", "pml")
+        high_pml = solver.bc_high[2].lower() in ("cpml", "pml")
+
+        # Apply the PML offset only on the corresponding physical z face.
+        self.j_start = solver.n_pml + 1 if self.at_low_boundary and low_pml else 1
+        high_offset = solver.n_pml + 2 if high_pml else 2
+        if self.at_high_boundary:
+            self.j_stop = solver.Nz - high_offset
+        else:
+            # Current slices exclude the stop; Nz - 1 includes the last physical cell.
+            self.j_stop = solver.Nz - 1
+
+        # All MPI ranks use the same global high plane to end injection together.
+        if solver.use_mpi:
+            global_stop = solver.NZ - high_offset
+            self.high_plane = solver.Z[global_stop]
+        else:
+            self.high_plane = solver.z[self.j_stop]
 
     def _calculate_injected_fields(self, solver, z_pos, side):
         """
