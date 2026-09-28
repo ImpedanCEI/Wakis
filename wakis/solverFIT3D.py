@@ -306,8 +306,12 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             if verbose:
                 print("Filling PML sigmas...")
             if self.source_type != "tfsf":
-                self.source_type = "tfsf"  # Force Total-Field/Scattered-Field injection for PML
-                print("[!] PML works better with Total-Field/Scattered-Field injection, setting source_type='tfsf'")
+                self.source_type = (
+                    "tfsf"  # Force Total-Field/Scattered-Field injection for PML
+                )
+                print(
+                    "[!] PML works better with Total-Field/Scattered-Field injection, setting source_type='tfsf'"
+                )
                 self.update_logger(["source_type"])
             self.n_pml = n_pml
             self._initialize_PML()
@@ -399,12 +403,16 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.itDaiDepsDstC = self.iDeps * self.itDa * self.C.transpose() * self.tDs
 
         if self.source_type.lower() == "tfsf":
-            self.E_trans = Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype, use_gpu=self.use_gpu)
-            self.H_trans = Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype, use_gpu=self.use_gpu)
+            self.E_trans = Field(
+                self.Nx, self.Ny, self.Nz, dtype=self.dtype, use_gpu=self.use_gpu
+            )
+            self.H_trans = Field(
+                self.Nx, self.Ny, self.Nz, dtype=self.dtype, use_gpu=self.use_gpu
+            )
             self.injection_done = True
             self._initialize_tfsf()
-        self.tdx = self.tL[:, 0, 0, 'x']
-        self.tdy = self.tL[0, :, 0, 'y']
+        self.tdx = self.tL[:, 0, 0, "x"]
+        self.tdy = self.tL[0, :, 0, "y"]
 
         if imported_mkl and not self.use_gpu:  # MKL backend for CPU
             if verbose:
@@ -720,8 +728,12 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         if self.source_type == "tfsf":
             if not self.injection_done:
-                self.H.field_x -= self.dt * self.imu.field_x * self.tf_dxz * self.E_trans.field_y
-                self.H.field_y -= self.dt * self.imu.field_y * - self.tf_dyz * self.E_trans.field_x
+                self.H.field_x -= (
+                    self.dt * self.imu.field_x * self.tf_dxz * self.E_trans.field_y
+                )
+                self.H.field_y -= (
+                    self.dt * self.imu.field_y * -self.tf_dyz * self.E_trans.field_x
+                )
 
         # include current computation
         if self.use_conductivity:
@@ -741,8 +753,12 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         if self.source_type == "tfsf":
             if not self.injection_done:
-                self.E.field_x += self.dt * self.ieps.field_x * - self.tf_dtxz * self.H_trans.field_y
-                self.E.field_y += self.dt * self.ieps.field_y * self.tf_dtyz * self.H_trans.field_x
+                self.E.field_x += (
+                    self.dt * self.ieps.field_x * -self.tf_dtxz * self.H_trans.field_y
+                )
+                self.E.field_y += (
+                    self.dt * self.ieps.field_y * self.tf_dtyz * self.H_trans.field_x
+                )
 
     def _one_step_cpml(self):
         # Including the convolutional terms for the CPML update equations
@@ -1033,8 +1049,16 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         if self.source_type == "tfsf":
             if not self.injection_done:
-                self.H.field_x -= self.dt * self.imu.field_x * dot_product_mkl(self.tf_dxz, self.E_trans.field_y)
-                self.H.field_y -= self.dt * self.imu.field_y * - dot_product_mkl(self.tf_dyz, self.E_trans.field_x)
+                self.H.field_x -= (
+                    self.dt
+                    * self.imu.field_x
+                    * dot_product_mkl(self.tf_dxz, self.E_trans.field_y)
+                )
+                self.H.field_y -= (
+                    self.dt
+                    * self.imu.field_y
+                    * -dot_product_mkl(self.tf_dyz, self.E_trans.field_x)
+                )
 
         # include current computation
         if self.use_conductivity:
@@ -1054,8 +1078,16 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         if self.source_type == "tfsf":
             if not self.injection_done:
-                self.E.field_x += self.dt * self.ieps.field_x * - dot_product_mkl(self.tf_dtxz, self.H_trans.field_y)
-                self.E.field_y += self.dt * self.ieps.field_y * dot_product_mkl(self.tf_dtyz, self.H_trans.field_x)
+                self.E.field_x += (
+                    self.dt
+                    * self.ieps.field_x
+                    * -dot_product_mkl(self.tf_dtxz, self.H_trans.field_y)
+                )
+                self.E.field_y += (
+                    self.dt
+                    * self.ieps.field_y
+                    * dot_product_mkl(self.tf_dtyz, self.H_trans.field_x)
+                )
 
     def _one_step_cpml_mkl(self):
         if self.step_0:
@@ -1352,8 +1384,12 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         if self.source_type == "tfsf":
             if not self.injection_done:
-                self.H.field_x -= self.dt * self.imu.field_x * self.tf_dxz * self.E_trans.field_y
-                self.H.field_y -= self.dt * self.imu.field_y * - self.tf_dyz * self.E_trans.field_x
+                self.H.field_x -= (
+                    self.dt * self.imu.field_x * self.tf_dxz * self.E_trans.field_y
+                )
+                self.H.field_y -= (
+                    self.dt * self.imu.field_y * -self.tf_dyz * self.E_trans.field_x
+                )
 
         self._mpi_communicate(self.H)
         # include current computation
@@ -1374,8 +1410,12 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         if self.source_type == "tfsf":
             if not self.injection_done:
-                self.E.field_x += self.dt * self.ieps.field_x * - self.tf_dtxz * self.H_trans.field_y
-                self.E.field_y += self.dt * self.ieps.field_y * self.tf_dtyz * self.H_trans.field_x
+                self.E.field_x += (
+                    self.dt * self.ieps.field_x * -self.tf_dtxz * self.H_trans.field_y
+                )
+                self.E.field_y += (
+                    self.dt * self.ieps.field_y * self.tf_dtyz * self.H_trans.field_x
+                )
 
         self._mpi_communicate(self.E)
 
@@ -1394,8 +1434,16 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         if self.source_type == "tfsf":
             if not self.injection_done:
-                self.H.field_x -= self.dt * self.imu.field_x * dot_product_mkl(self.tf_dxz, self.E_trans.field_y)
-                self.H.field_y -= self.dt * self.imu.field_y * - dot_product_mkl(self.tf_dyz, self.E_trans.field_x)
+                self.H.field_x -= (
+                    self.dt
+                    * self.imu.field_x
+                    * dot_product_mkl(self.tf_dxz, self.E_trans.field_y)
+                )
+                self.H.field_y -= (
+                    self.dt
+                    * self.imu.field_y
+                    * -dot_product_mkl(self.tf_dyz, self.E_trans.field_x)
+                )
 
         self._mpi_communicate(self.H)
         # include current computation
@@ -1417,8 +1465,16 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         if self.source_type == "tfsf":
             if not self.injection_done:
-                self.E.field_x += self.dt * self.ieps.field_x * - dot_product_mkl(self.tf_dtxz, self.H_trans.field_y)
-                self.E.field_y += self.dt * self.ieps.field_y * dot_product_mkl(self.tf_dtyz, self.H_trans.field_x)
+                self.E.field_x += (
+                    self.dt
+                    * self.ieps.field_x
+                    * -dot_product_mkl(self.tf_dtxz, self.H_trans.field_y)
+                )
+                self.E.field_y += (
+                    self.dt
+                    * self.ieps.field_y
+                    * dot_product_mkl(self.tf_dtyz, self.H_trans.field_x)
+                )
 
         self._mpi_communicate(self.E)
 

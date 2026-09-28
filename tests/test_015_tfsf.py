@@ -42,11 +42,11 @@ def test_serial_tfsf_injection_and_lifecycle(
     assert beam.high_plane == solver.z[expected_stop]
 
     # Initially E and H are zero, so the first H update isolates the TF/SF correction.
-    expected_hx = -solver.dt * solver.imu.field_x * (
-        solver.tf_dxz * solver.E_trans.field_y
+    expected_hx = (
+        -solver.dt * solver.imu.field_x * (solver.tf_dxz * solver.E_trans.field_y)
     )
-    expected_hy = solver.dt * solver.imu.field_y * (
-        solver.tf_dyz * solver.E_trans.field_x
+    expected_hy = (
+        solver.dt * solver.imu.field_y * (solver.tf_dyz * solver.E_trans.field_x)
     )
     assert np.any(expected_hx) or np.any(expected_hy)
     solver.one_step()
@@ -182,9 +182,7 @@ def test_007_geometry_with_tfsf_across_mpi_boundaries(request):
         mpi_beam.update(mpi_solver, n * mpi_solver.dt)
         if n == 0 and comm.Get_rank() < comm.Get_size() - 1:
             assert mpi_beam.j_stop == mpi_solver.Nz - 1
-            assert mpi_solver.J[
-                mpi_beam.ixs, mpi_beam.iys, mpi_solver.Nz - 2, "z"
-            ] != 0
+            assert mpi_solver.J[mpi_beam.ixs, mpi_beam.iys, mpi_solver.Nz - 2, "z"] != 0
         mpi_solver.one_step()
 
     mpi_ez = mpi_solver.mpi_gather("Ez", x=x_probe, y=y_probe)
@@ -192,8 +190,13 @@ def test_007_geometry_with_tfsf_across_mpi_boundaries(request):
         # plot2D gathers on every rank; only rank 0 receives figure handles.
         local_bounds = comm.gather((mpi_grid.zmin, mpi_grid.zmax), root=0)
         handles = mpi_solver.plot2D(
-            field="Ez", plane="ZY", pos=0.5, cmap="RdBu_r",
-            interpolation="nearest", return_handles=True, figsize=(10, 6),
+            field="Ez",
+            plane="ZY",
+            pos=0.5,
+            cmap="RdBu_r",
+            interpolation="nearest",
+            return_handles=True,
+            figsize=(10, 6),
         )
         if comm.Get_rank() == 0:
             import matplotlib.pyplot as plt
@@ -201,7 +204,9 @@ def test_007_geometry_with_tfsf_across_mpi_boundaries(request):
             fig, ax = handles
             for rank, (z_start, z_end) in enumerate(local_bounds):
                 color = f"C{rank}"
-                ax.axvline(z_start, color=color, linestyle="--", label=f"rank {rank} start")
+                ax.axvline(
+                    z_start, color=color, linestyle="--", label=f"rank {rank} start"
+                )
                 ax.axvline(z_end, color=color, linestyle=":", label=f"rank {rank} end")
             ax.legend(loc="upper right")
             plt.show()

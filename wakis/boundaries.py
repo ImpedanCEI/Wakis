@@ -954,30 +954,14 @@ class BCsMixin:
         """
 
         N = self.N
-        tLx = diags(
-            self.tL.field_x, shape=(N, N), dtype=self.dtype
-        )
-        tLy = diags(
-            self.tL.field_y, shape=(N, N), dtype=self.dtype
-        )
-        iAx = diags(
-            self.iA.field_x, shape=(N, N), dtype=self.dtype
-        )
-        iAy = diags(
-            self.iA.field_y, shape=(N, N), dtype=self.dtype
-        )
-        Lx = diags(
-            self.L.field_x, shape=(N, N), dtype=self.dtype
-        )
-        Ly = diags(
-            self.L.field_y, shape=(N, N), dtype=self.dtype
-        )
-        itAx = diags(
-            self.itA.field_x, shape=(N, N), dtype=self.dtype
-        )
-        itAy = diags(
-            self.itA.field_y, shape=(N, N), dtype=self.dtype
-        )
+        tLx = diags(self.tL.field_x, shape=(N, N), dtype=self.dtype)
+        tLy = diags(self.tL.field_y, shape=(N, N), dtype=self.dtype)
+        iAx = diags(self.iA.field_x, shape=(N, N), dtype=self.dtype)
+        iAy = diags(self.iA.field_y, shape=(N, N), dtype=self.dtype)
+        Lx = diags(self.L.field_x, shape=(N, N), dtype=self.dtype)
+        Ly = diags(self.L.field_y, shape=(N, N), dtype=self.dtype)
+        itAx = diags(self.itA.field_x, shape=(N, N), dtype=self.dtype)
+        itAy = diags(self.itA.field_y, shape=(N, N), dtype=self.dtype)
 
         # In case of CPML the kappa stretching is not needed at the TFSF interface, since it is never inside the PML region.
         self.tf_dxz = iAx * Ly
