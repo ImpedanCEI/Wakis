@@ -323,6 +323,15 @@ class RoutinesMixin:
         if wakelength is None:
             wakelength = self.wake.wakelength
 
+        beam_wavelength = self.wake.v / self.wake.fmax
+        cells_per_wavelength = beam_wavelength / np.max(self.grid.dz)
+        if cells_per_wavelength < 20 and (not self.use_mpi or self.rank == 0):
+            if self.verbose:
+                print(
+                    f"[!] Beam wavelength spans only {cells_per_wavelength:.1f} longitudinal "
+                    "cells; at least 20 are recommended."
+                )
+
         if add_space is not None:  # legacy support
             self.wake.skip_cells = add_space
 
