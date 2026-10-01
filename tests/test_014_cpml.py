@@ -2,7 +2,6 @@ import os
 import sys
 
 import numpy as np
-import pytest
 import pyvista as pv
 from scipy.constants import c, mu_0
 from tqdm import tqdm
@@ -274,10 +273,10 @@ class TestCPML:
         solver.wakesolve(wakelength=wakelength, save_J=False)
         os.remove("tests/014_Ez.h5")
 
-    def test_long_impedance(self):
+    def test_long_impedance(self, plot_comparison):
         global wake
         tol = dict(rtol=50 * 1e-5, atol=50 * 1e-5)
-        print(np.abs(wake.Z)[::20])
+        plot_comparison(np.abs(wake.Z)[::20], self.Zabs, "CPML impedance magnitude")
         assert np.allclose(np.abs(wake.Z)[::20], self.Zabs, **tol), (
             "Abs Impedance samples failed"
         )
