@@ -1337,7 +1337,7 @@ class WakeSolver:
         impedance = self.DE_model.get_impedance(
             frequency_data=f,
             use_minimization=use_minimization,
-            wakelength=wakelength,
+            wake_length=wakelength,
         )
         return f, impedance
 
