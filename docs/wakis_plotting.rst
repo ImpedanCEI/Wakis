@@ -1,5 +1,5 @@
 plotting module
-==============
+===============
 
 .. automodule:: wakis.plotting
    :members:
