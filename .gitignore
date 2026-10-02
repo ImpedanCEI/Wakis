@@ -16,7 +16,7 @@ ECT_*
 *.log
 *.dat
 */hdf5*
-*/results*/*
+*/*results*/*
 *.txt
 *.PNG
 _build/

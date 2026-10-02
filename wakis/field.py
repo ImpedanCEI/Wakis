@@ -19,7 +19,8 @@ except ImportError:
 class Field:
     """
     Class to handle 3D vector fields stored in a flattened 1D array.
-    Uses lexicographic numbering:
+    Uses lexicographic numbering::
+
         n = 1 + (i-1) + (j-1)*Nx + (k-1)*Nx*Ny
         len(n) = Nx*Ny*Nz
 
@@ -600,7 +601,7 @@ class Field:
         Parameters
         ----------
         plane : {'XY', 'XZ', 'YZ', 'ZX', 'ZY'}, optional
-            Plane to visualize. Default is 'YZ'.
+            Plane to visualize. Default is 'ZY'.
         cmap : str, optional
             Colormap for the plot. Default is 'Reds' for positive values and
             "bwr" for positive/negative values.
@@ -945,7 +946,9 @@ class Field:
         Visualize 3D field data on the structured grid using either Matplotlib
         (voxel rendering) or PyVista (interactive clipping and slicing).
 
+
         This method provides two complementary visualization backends:
+
         - **Matplotlib**: static voxel plots of the field components (x, y, z)
           or all combined, useful for quick inspection, but memory intensive.
         - **PyVista**: interactive 3D visualization with sliders to dynamically
@@ -954,15 +957,15 @@ class Field:
         Parameters
         ----------
         field : {'x', 'y', 'z', 'abs', 'all'}, optional
-            Which field component(s) to visualize. Default is 'abs'.
+            Which field component(s) to visualize. Default is 'all'.
             The 'all' option creates separate subplots for each component (only with
             Matplotlib backend).
         backend : {'matplotlib', 'pyvista'}, optional
-            Visualization backend to use. Default is 'pyvista'.
+            Visualization backend to use. Pass this explicitly.
         grid : object, optional
             Structured grid object to use for visualization. If None, a grid is
             constructed from the solver's internal dimensions.
-        x, y, z : int or float, optional
+        xmax, ymax, zmax : int or float, optional
             Maximum extents in each direction for visualization. Defaults to the
             full grid dimensions if not specified.
         bounding_box : bool, optional

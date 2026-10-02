@@ -3,6 +3,8 @@
 # Copyright (c) CERN, 2026.                   #
 # ########################################### #
 
+import warnings
+
 import numpy as np
 from scipy.constants import c
 from scipy.constants import epsilon_0 as eps_0
@@ -14,6 +16,12 @@ from .field import Field
 
 
 class BCsMixin:
+    """Configure and apply boundary conditions for ``SolverFIT3D``.
+
+    Provides the internal PEC, PMC, periodic, ABC, PML, CPML, and TFSF setup
+    routines used when the solver initializes and advances its fields.
+    """
+
     def _apply_bc_to_C(self):
         """
         Apply boundary conditions by modifying curl and metric matrices.
@@ -257,35 +265,14 @@ class BCsMixin:
             # Update C (rows)
             self.C = self.Dbc * self.C
 
-        # Absorbing boundary conditions ABC
+        # First-order Mur absorbing boundary conditions (ABC)
         if any(True for x in self.bc_low if x.lower() == "abc") or any(
             True for x in self.bc_high if x.lower() == "abc"
         ):
-            if self.bc_high[0].lower() == "abc":
-                self.tL[-1, :, :, "x"] = self.L[0, :, :, "x"]
-                self.itA[-1, :, :, "y"] = self.iA[0, :, :, "y"]
-                self.itA[-1, :, :, "z"] = self.iA[0, :, :, "z"]
-
-            if self.bc_high[1].lower() == "abc":
-                self.tL[:, -1, :, "y"] = self.L[:, 0, :, "y"]
-                self.itA[:, -1, :, "x"] = self.iA[:, 0, :, "x"]
-                self.itA[:, -1, :, "z"] = self.iA[:, 0, :, "z"]
-
-            if self.bc_high[2].lower() == "abc":
-                self.tL[:, :, -1, "z"] = self.L[:, :, 0, "z"]
-                self.itA[:, :, -1, "x"] = self.iA[:, :, 0, "x"]
-                self.itA[:, :, -1, "y"] = self.iA[:, :, 0, "y"]
-
-            self.tDs = diags(
-                self.tL.toarray(),
-                shape=(3 * self.N, 3 * self.N),
-                dtype=self.dtype,
-            )
-            self.itDa = diags(
-                self.itA.toarray(),
-                shape=(3 * self.N, 3 * self.N),
-                dtype=self.dtype,
-            )
+            if any(
+                bc.lower() in ("pml", "cpml") for bc in (*self.bc_low, *self.bc_high)
+            ):
+                raise ValueError("ABC cannot be combined with PML or CPML faces.")
             self.activate_abc = True
 
         # Perfect Matching Layers (PML)
@@ -660,12 +647,6 @@ class BCsMixin:
             self.itAz * self.ikapy * self.Dbc_z * -self.Py.transpose() * self.tLx
         )
 
-        if self.source_type.lower() == "tfsf":
-            self.tf_dxz = self.iAx * self.itkapz * self.Ly
-            self.tf_dyz = self.iAy * self.itkapz * self.Lx
-            self.tf_dtxz = self.itAx * self.ikapz * self.tLy
-            self.tf_dtyz = self.itAy * self.ikapz * self.tLx
-
         del (
             self.iAx,
             self.iAy,
@@ -949,101 +930,185 @@ class BCsMixin:
 
         del self.pml_b_E, self.pml_c_E, self.pml_b_H, self.pml_c_H
 
-    def get_abc(self):
+    def _initialize_tfsf(self):
         """
-        Save boundary field snapshots needed by the Absorbing Boundary
-        Condition (ABC) update.
+        Initialize the Total-Field/Scattered-Field (TFSF) boundary conditions.
 
-        Extracts the necessary boundary layers for electric and magnetic
-        fields for those faces configured with ABC and returns two
-        dictionaries holding the saved arrays. Those dictionaries are later
-        consumed by ``update_abc`` to restore boundary values.
-        """
-        E_abc, H_abc = {}, {}
-
-        if self.bc_low[0].lower() == "abc":
-            E_abc[0] = {}
-            H_abc[0] = {}
-            for d in ["x", "y", "z"]:
-                E_abc[0][d + "lo"] = self.E[1, :, :, d]
-                H_abc[0][d + "lo"] = self.H[1, :, :, d]
-
-        if self.bc_low[1].lower() == "abc":
-            E_abc[1] = {}
-            H_abc[1] = {}
-            for d in ["x", "y", "z"]:
-                E_abc[1][d + "lo"] = self.E[:, 1, :, d]
-                H_abc[1][d + "lo"] = self.H[:, 1, :, d]
-
-        if self.bc_low[2].lower() == "abc":
-            E_abc[2] = {}
-            H_abc[2] = {}
-            for d in ["x", "y", "z"]:
-                E_abc[2][d + "lo"] = self.E[:, :, 1, d]
-                H_abc[2][d + "lo"] = self.H[:, :, 1, d]
-
-        if self.bc_high[0].lower() == "abc":
-            E_abc[0] = {}
-            H_abc[0] = {}
-            for d in ["x", "y", "z"]:
-                E_abc[0][d + "hi"] = self.E[-1, :, :, d]
-                H_abc[0][d + "hi"] = self.H[-1, :, :, d]
-
-        if self.bc_high[1].lower() == "abc":
-            E_abc[1] = {}
-            H_abc[1] = {}
-            for d in ["x", "y", "z"]:
-                E_abc[1][d + "hi"] = self.E[:, -1, :, d]
-                H_abc[1][d + "hi"] = self.H[:, -1, :, d]
-
-        if self.bc_high[2].lower() == "abc":
-            E_abc[2] = {}
-            H_abc[2] = {}
-            for d in ["x", "y", "z"]:
-                E_abc[2][d + "hi"] = self.E[:, :, -1, d]
-                H_abc[2][d + "hi"] = self.H[:, :, -1, d]
-
-        return E_abc, H_abc
-
-    def update_abc(self, E_abc, H_abc):
-        """
-        Apply the Absorbing Boundary Condition (ABC) using previously saved
-        snapshots.
-
-        Parameters
-        ----------
-        E_abc, H_abc : dict
-            Dictionaries produced by ``get_abc`` that contain boundary-layer
-            field arrays. Each dictionary maps face indices to arrays used to
-            overwrite the exterior cell values after a timestep.
+        This method sets up the TFSF boundary conditions by defining the
+        necessary parameters and arrays for the TFSF interface. It prepares
+        the simulation to handle incident fields and scattered fields
+        appropriately.
         """
 
-        if self.bc_low[0].lower() == "abc":
-            for d in ["x", "y", "z"]:
-                self.E[0, :, :, d] = E_abc[0][d + "lo"]
-                self.H[0, :, :, d] = H_abc[0][d + "lo"]
+        N = self.N
+        tLx = diags(self.tL.field_x, shape=(N, N), dtype=self.dtype)
+        tLy = diags(self.tL.field_y, shape=(N, N), dtype=self.dtype)
+        iAx = diags(self.iA.field_x, shape=(N, N), dtype=self.dtype)
+        iAy = diags(self.iA.field_y, shape=(N, N), dtype=self.dtype)
+        Lx = diags(self.L.field_x, shape=(N, N), dtype=self.dtype)
+        Ly = diags(self.L.field_y, shape=(N, N), dtype=self.dtype)
+        itAx = diags(self.itA.field_x, shape=(N, N), dtype=self.dtype)
+        itAy = diags(self.itA.field_y, shape=(N, N), dtype=self.dtype)
 
-        if self.bc_low[1].lower() == "abc":
-            for d in ["x", "y", "z"]:
-                self.E[:, 0, :, d] = E_abc[1][d + "lo"]
-                self.H[:, 0, :, d] = H_abc[1][d + "lo"]
+        # In case of CPML the kappa stretching is not needed at the TFSF interface, since it is never inside the PML region.
+        self.tf_dxz = iAx * Ly
+        self.tf_dyz = iAy * Lx
+        self.tf_dtxz = itAx * tLy
+        self.tf_dtyz = itAy * tLx
 
-        if self.bc_low[2].lower() == "abc":
-            for d in ["x", "y", "z"]:
-                self.E[:, :, 0, d] = E_abc[2][d + "lo"]
-                self.H[:, :, 0, d] = H_abc[2][d + "lo"]
+    def _initialize_abc(self):
+        """Initialize plane-local state for first-order Mur ABC."""
+        abc_axes = [
+            axis
+            for axis in range(3)
+            if self.bc_low[axis].lower() == "abc" or self.bc_high[axis].lower() == "abc"
+        ]
+        if (
+            self.bc_low[0].lower() == "abc" or self.bc_high[0].lower() == "abc"
+        ) and self.Nx < 2:
+            raise ValueError("x-normal ABC requires at least two x cells.")
+        if (
+            self.bc_low[1].lower() == "abc" or self.bc_high[1].lower() == "abc"
+        ) and self.Ny < 2:
+            raise ValueError("y-normal ABC requires at least two y cells.")
+        if (
+            self.bc_low[2].lower() == "abc" or self.bc_high[2].lower() == "abc"
+        ) and self.Nz < 2:
+            raise ValueError("z-normal ABC requires at least two z cells.")
 
-        if self.bc_high[0].lower() == "abc":
-            for d in ["x", "y", "z"]:
-                self.E[-1, :, :, d] = E_abc[0][d + "hi"]
-                self.H[-1, :, :, d] = H_abc[0][d + "hi"]
+        if len(abc_axes) > 1:
+            axes = ", ".join("xyz"[axis] for axis in abc_axes)
+            warnings.warn(
+                "Mur ABC faces share edges across the "
+                f"{axes} axes; edge values currently follow the x, y, z "
+                "face-update order.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
-        if self.bc_high[1].lower() == "abc":
-            for d in ["x", "y", "z"]:
-                self.E[:, -1, :, d] = E_abc[1][d + "hi"]
-                self.H[:, -1, :, d] = H_abc[1][d + "hi"]
+        wave_speed = 1.0 / np.sqrt(self.eps_bg * self.mu_bg)
 
-        if self.bc_high[2].lower() == "abc":
-            for d in ["x", "y", "z"]:
-                self.E[:, :, -1, d] = E_abc[2][d + "hi"]
-                self.H[:, :, -1, d] = H_abc[2][d + "hi"]
+        # x-normal faces: tangential Ey and Ez.
+        self.abc_x_low_coeff = (wave_speed * self.dt - self.dx[0]) / (
+            wave_speed * self.dt + self.dx[0]
+        )
+        self.abc_x_high_coeff = (wave_speed * self.dt - self.dx[-1]) / (
+            wave_speed * self.dt + self.dx[-1]
+        )
+
+        # y-normal faces: tangential Ex and Ez.
+        self.abc_y_low_coeff = (wave_speed * self.dt - self.dy[0]) / (
+            wave_speed * self.dt + self.dy[0]
+        )
+        self.abc_y_high_coeff = (wave_speed * self.dt - self.dy[-1]) / (
+            wave_speed * self.dt + self.dy[-1]
+        )
+
+        # z-normal faces: tangential Ex and Ey.
+        self.abc_z_low_coeff = (wave_speed * self.dt - self.dz[0]) / (
+            wave_speed * self.dt + self.dz[0]
+        )
+        self.abc_z_high_coeff = (wave_speed * self.dt - self.dz[-1]) / (
+            wave_speed * self.dt + self.dz[-1]
+        )
+        self.abc_E_previous = {}
+
+    def _capture_abc(self):
+        """Save tangential E planes from time level n for the Mur update."""
+
+        # x-normal faces: save Ey and Ez planes.
+        if self.bc_low[0].lower() == "abc" or self.bc_high[0].lower() == "abc":
+            for d in ("y", "z"):
+                values = self.E.to_matrix(d)
+                if self.bc_low[0].lower() == "abc":
+                    self.abc_E_previous[("xlo", d)] = (
+                        values[0, :, :].copy(),
+                        values[1, :, :].copy(),
+                    )
+                if self.bc_high[0].lower() == "abc":
+                    self.abc_E_previous[("xhi", d)] = (
+                        values[-1, :, :].copy(),
+                        values[-2, :, :].copy(),
+                    )
+
+        # y-normal faces: save Ex and Ez planes.
+        if self.bc_low[1].lower() == "abc" or self.bc_high[1].lower() == "abc":
+            for d in ("x", "z"):
+                values = self.E.to_matrix(d)
+                if self.bc_low[1].lower() == "abc":
+                    self.abc_E_previous[("ylo", d)] = (
+                        values[:, 0, :].copy(),
+                        values[:, 1, :].copy(),
+                    )
+                if self.bc_high[1].lower() == "abc":
+                    self.abc_E_previous[("yhi", d)] = (
+                        values[:, -1, :].copy(),
+                        values[:, -2, :].copy(),
+                    )
+
+        # z-normal faces: save Ex and Ey planes.
+        if self.bc_low[2].lower() == "abc" or self.bc_high[2].lower() == "abc":
+            for d in ("x", "y"):
+                values = self.E.to_matrix(d)
+                if self.bc_low[2].lower() == "abc":
+                    self.abc_E_previous[("low", d)] = (
+                        values[:, :, 0].copy(),
+                        values[:, :, 1].copy(),
+                    )
+                if self.bc_high[2].lower() == "abc":
+                    self.abc_E_previous[("high", d)] = (
+                        values[:, :, -1].copy(),
+                        values[:, :, -2].copy(),
+                    )
+
+    def _apply_abc(self):
+        """Apply a first-order Mur radiation condition to tangential E faces.
+
+        The update is applied once after the complete E/H step by
+        ``_one_step_with_abc``.
+        """
+
+        # x-normal faces: update Ey and Ez.
+        if self.bc_low[0].lower() == "abc" or self.bc_high[0].lower() == "abc":
+            for d in ("y", "z"):
+                values = self.E.to_matrix(d)
+                if self.bc_low[0].lower() == "abc":
+                    boundary, interior = self.abc_E_previous[("xlo", d)]
+                    values[0, :, :] = interior + self.abc_x_low_coeff * (
+                        values[1, :, :] - boundary
+                    )
+                if self.bc_high[0].lower() == "abc":
+                    boundary, interior = self.abc_E_previous[("xhi", d)]
+                    values[-1, :, :] = interior + self.abc_x_high_coeff * (
+                        values[-2, :, :] - boundary
+                    )
+
+        # y-normal faces: update Ex and Ez.
+        if self.bc_low[1].lower() == "abc" or self.bc_high[1].lower() == "abc":
+            for d in ("x", "z"):
+                values = self.E.to_matrix(d)
+                if self.bc_low[1].lower() == "abc":
+                    boundary, interior = self.abc_E_previous[("ylo", d)]
+                    values[:, 0, :] = interior + self.abc_y_low_coeff * (
+                        values[:, 1, :] - boundary
+                    )
+                if self.bc_high[1].lower() == "abc":
+                    boundary, interior = self.abc_E_previous[("yhi", d)]
+                    values[:, -1, :] = interior + self.abc_y_high_coeff * (
+                        values[:, -2, :] - boundary
+                    )
+
+        # z-normal faces: update Ex and Ey.
+        if self.bc_low[2].lower() == "abc" or self.bc_high[2].lower() == "abc":
+            for d in ("x", "y"):
+                values = self.E.to_matrix(d)
+                if self.bc_low[2].lower() == "abc":
+                    boundary, interior = self.abc_E_previous[("low", d)]
+                    values[:, :, 0] = interior + self.abc_z_low_coeff * (
+                        values[:, :, 1] - boundary
+                    )
+                if self.bc_high[2].lower() == "abc":
+                    boundary, interior = self.abc_E_previous[("high", d)]
+                    values[:, :, -1] = interior + self.abc_z_high_coeff * (
+                        values[:, :, -2] - boundary
+                    )

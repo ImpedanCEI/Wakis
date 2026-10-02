@@ -58,6 +58,7 @@ autodoc_preserve_defaults = True  # preserves default args as in source code
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
 myst_enable_extensions = ["dollarmath", "html_admonition", "colon_fence"]
+myst_heading_anchors = 3
 # myst_enable_extensions = ["deflist", "dollarmath"]
 
 # The suffix of source filenames.
@@ -93,7 +94,6 @@ html_static_path = ["img"]
 html_logo = "img/wakis-logo-pinkwhite.png"
 html_theme_options = {
     "logo_only": True,
-    "home_page_in_toc": True,
     "display_version": False,
     "collapse_navigation": False,
     "navigation_depth": 1,

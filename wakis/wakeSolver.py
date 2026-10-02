@@ -408,7 +408,7 @@ class WakeSolver:
 
         elif len(Ez.shape) == 1:
             for n in range(nt):
-                Ezt[:, n] = self.Ez_hf[keys[n]]
+                Ezt[:, n] = self.Ez_hf[keys[n]][zz]
         self.Ezt = Ezt
 
         # integral of (Ez(xtest, ytest, z, t=(s+z)/c))dz
@@ -1338,7 +1338,7 @@ class WakeSolver:
         impedance = self.DE_model.get_impedance(
             frequency_data=f,
             use_minimization=use_minimization,
-            wakelength=wakelength,
+            wake_length=wakelength,
         )
         return f, impedance
 
@@ -1947,7 +1947,7 @@ class WakeSolver:
         Notes
         -----
         - The data is saved in a two-column format where `x_data` and `y_data`
-        are combined column-wise.
+          are combined column-wise.
         - If `x_data` or `y_data` is missing, the function prints a warning and does not save a file.
 
         Examples
@@ -1958,7 +1958,7 @@ class WakeSolver:
         >>> y = np.sin(x)
         >>> save_txt("data", x, y, x_name="Time [s]", y_name="Amplitude")
 
-        The saved file will look like:
+        The saved file will look like::
 
             Time [s]               Amplitude
             --------------------------------

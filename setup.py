@@ -31,7 +31,7 @@ setup(
     project_urls={
         "Bug Tracker": "https://github.com/ImpedanCEI/wakis/issues",
         "Documentation": "https://wakis.readthedocs.io/en/latest/index.html",
-        "Source Code": "https://github.com/ImpedanCEI/wakis/wakis",
+        "Source Code": "https://github.com/ImpedanCEI/wakis",
     },
     packages=find_packages(),
     include_package_data=True,
@@ -58,6 +58,6 @@ setup(
     extras_require={
         "gpu": ["cupy"],
         "all": ["pyvista[jupyter]>=0.47.0", "jupyterlab", "ipympl", "bihc", "iddefix"],
+        "test": ["pytest", "pytest-cov"],
     },
-    tests_require=["pytest", "pytest-cov"],
 )

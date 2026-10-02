@@ -14,6 +14,12 @@ from wakis.sources import Beam
 
 
 class RoutinesMixin:
+    """Run electromagnetic and wakefield simulations for ``SolverFIT3D``.
+
+    Provides the time-stepping routines for field output, plotting, and wake
+    calculations, along with their plotting defaults.
+    """
+
     def emsolve(
         self,
         Nt,
@@ -67,38 +73,8 @@ class RoutinesMixin:
         **kwargs
             Keyword arguments to be passed to the Plot2D or Plot3D function.
 
-            * Default kwargs used for 2D plotting:
-            ```
-            plotkw = {
-                "field": "E",
-                "component": "z",
-                "plane": "ZY",
-                "pos": 0.5,
-                "cmap": "rainbow",
-                "patch_reverse": True,
-                "title": "Ez",
-                "off_screen": True,
-                "interpolation": "spline36",
-            }
-            ```
-
-            * Default kwargs used for 3D plotting:
-            ```
-            plotkw = {
-                "field": "E",
-                "component": "z",
-                "add_stl": None,
-                "stl_opacity": 0.0,
-                "stl_colors": "white",
-                "title": "Ez",
-                "cmap": "jet",
-                "clip_box": False,
-                "clip_normal": "-y",
-                "off_screen": True,
-                "zoom": 1.0,
-                "nan_opacity": 1.0,
-            }
-            ```
+            Default keyword arguments are provided by
+            :meth:`get_plotting_kwargs` for 2D and 3D plots.
 
         Raises
         ------
@@ -111,7 +87,7 @@ class RoutinesMixin:
 
         Notes
         -----
-        - If `activate_abc` is True, absorbing boundary conditions are updated each step.
+        - First-order extrapolating ABC faces are applied within each field update.
         - If `callback` is provided, it is called as `callback(self, t)` at each step.
         - The plotting keyword arguments are merged with defaults for 2D/3D plotting.
         """
@@ -180,11 +156,6 @@ class RoutinesMixin:
 
             plotkw.update(kwargs)
 
-        # get ABC values
-        if self.activate_abc:
-            E_abc_2, H_abc_2 = self.get_abc()
-            E_abc_1, H_abc_1 = self.get_abc()
-
         # Time loop
         for n in tqdm(range(Nt)):
             if source is not None:
@@ -212,12 +183,6 @@ class RoutinesMixin:
 
             if plot3d and n % plot_every == 0:
                 self.plot3D(n=n, **plotkw)
-
-            # ABC BCs
-            if self.activate_abc:
-                self.update_abc(E_abc_2, H_abc_2)  # n-2
-                E_abc_2, H_abc_2 = E_abc_1, H_abc_1  # n-1
-                E_abc_1, H_abc_1 = self.get_abc()  # n
 
             # Callback func(solver, t)
             if callback is not None:
@@ -268,8 +233,12 @@ class RoutinesMixin:
         wakelength : float
             Desired length of the wake in [m] to be computed.
 
-            Maximum simulation time in [s] can be computed from the wakelength parameter as:
-            .. math::    t_{max} = t_{inj} + (wakelength + (z_{max}-z_{min}))/c
+            Maximum simulation time in [s] can be computed from the wakelength
+            parameter as:
+
+            .. math::
+
+               t_{max} = t_{inj} + (wakelength + (z_{max}-z_{min}))/c
         wake : object, optional
             `WakeSolver` object containing the information needed to run the wake solver
             calculation. See Wake docstring for more information. Can be passed at
@@ -301,10 +270,7 @@ class RoutinesMixin:
             Deprecated. If True, use exponential time differencing.
         **kwargs
             Keyword arguments to be passed to the Plot2D function.
-            Default kwargs used:
-                {'plane':'ZY', 'pos':0.5, 'title':'Ez',
-                'cmap':'rainbow', 'patch_reverse':True,
-                'off_screen': True, 'interpolation':'spline36'}
+            Defaults are provided by :meth:`get_plotting_kwargs`.
 
         Raises
         ------
@@ -333,6 +299,15 @@ class RoutinesMixin:
 
         if wakelength is None:
             wakelength = self.wake.wakelength
+
+        beam_wavelength = self.wake.v / self.wake.fmax
+        cells_per_wavelength = beam_wavelength / np.max(self.grid.dz)
+        if cells_per_wavelength < 20 and (not self.use_mpi or self.rank == 0):
+            if self.verbose:
+                print(
+                    f"[!] Beam wavelength spans only {cells_per_wavelength:.1f} longitudinal "
+                    "cells; at least 20 are recommended."
+                )
 
         if add_space is not None:  # legacy support
             self.wake.skip_cells = add_space

@@ -11,7 +11,7 @@
 ![PyPI - Version](https://img.shields.io/pypi/v/wakis?style=flat-square&color=fuchsia)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/wakis)
 ![PyPI - License](https://img.shields.io/pypi/l/wakis?style=flat-square&color=orange)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15527405.svg)](https://doi.org/10.5281/zenodo.15527405)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.14988676.svg)](https://doi.org/10.5281/zenodo.14988676)
 
 
 `wakis` is a **3D Time-domain Electromagnetic solver** that solves the Integral form of Maxwell's equations using the Finite Integration Technique (FIT) numerical method. It computes the longitudinal and transverse **wake potential and beam-coupling impedance** from the simulated electric and magnetic fields. It is also a multi-purpose solver, capable of simulating planewaves interaction with nano-structures, optical diffraction, and much more!
@@ -20,32 +20,33 @@
 🚀 Some of `wakis` features:
 * Wake potential and impedance calculations for particle beams with different relativistic $\beta$
 * Material tensors: permittivity $\varepsilon$, permeability $\mu$, conductivity $\sigma$. Possibility of anisotropy.
-* CAD geometry importer (`STL` & `STEP` format) for definition of embedded boundaries and material regions, based on [`pyvista`](https://github.com/pyvista/pyvista)
-* Boundary conditions: PEC, PMC, Periodic, ABC-FOEXTRAP, Perfect Matched Layers (PML)
+* CAD geometry importer (`STL` & `STEP` format) for definition of embedded boundaries and material regions, based on [`pyvista`](https://github.com/pyvista/pyvista), with sub-cell smoothing added in [v0.8.0](https://github.com/ImpedanCEI/wakis/releases/tag/v0.8.0).
+* Snappy Smart mesh added in [v0.6.2](https://github.com/ImpedanCEI/wakis/releases/tag/v0.6.2)
+* Boundary conditions: PEC, PMC, periodic, first-order Mur absorbing boundaries (`abc`), PML and CPML, added in [v0.8.0](https://github.com/ImpedanCEI/wakis/releases/tag/v0.8.0)
 * Different time-domain sources: particle beam, planewave, gaussian wavepacket
-* 100% python, fully exposed API (material tensors, fields $E$, $H$, $J$). Matrix operators based on `numpy` and `scipy.sparse` routines ensure multithreaded calculations using Intel's `mkl-service`.
+* 100% Python, fully exposed API (material tensors and fields $E$, $H$, $J$), with matrix operations based on `numpy` and `scipy.sparse`. Routines ensure multithreaded calculations using Intel's `mkl-service`.
 * 1d, 2d, 3d built-in plotting on-the-fly
-* Optimized memory consumption & GPU acceleration using `cupy/cupyx` on double and *single* precision: added in[#v0.6.1](https://github.com/ImpedanCEI/wakis/releases/tag/v0.6.1)
-* CUDA-aware MPI parallelization with `mpi4py` and `ipyparallel`: added in[#v0.6.0](https://github.com/ImpedanCEI/wakis/releases/tag/v0.6.0)
-* Snappy Smart mesh added in [#v0.6.2](https://github.com/ImpedanCEI/wakis/releases/tag/v0.6.2)
+* Optimized memory consumption & GPU acceleration using `cupy/cupyx` on double and *single* precision: added in [v0.6.1](https://github.com/ImpedanCEI/wakis/releases/tag/v0.6.1)
+* CUDA-aware MPI parallelization with `mpi4py` and `ipyparallel`: added in [v0.6.0](https://github.com/ImpedanCEI/wakis/releases/tag/v0.6.0)
+
 
 🧩 Other complementary tools in the ecosystem:
 * Wakefield extrapolation via broadband resonator fitting with PIML [`iddefix`](https://github.com/ImpedanCEI/IDDEFIX) evolutionary algorithms
 * Non-equidistant Filon Fourier integration with [`neffint`](https://github.com/ImpedanCEI/neffint)
 * Beam-induced heating estimation due to impedance with [`bihc`](https://github.com/ImpedanCEI/BIHC)
 
-📣 Tag and version changes are decribed in each Wakis [Github Release](https://github.com/ImpedanCEI/wakis/releases)
+📣 Tag and version changes are described in each Wakis [GitHub release](https://github.com/ImpedanCEI/wakis/releases).
 
 * For specific needs, please contact the developer 👩‍💻👋: elena.de.la.fuente.garcia@cern.ch
 
 ## How to use
 📖 Documentation, powered by `sphinx`, is available at [wakis.readthedocs.io](https://wakis.readthedocs.io)
 
-Check 📁 `examples/` and `notebooks/` for different physical applications:
+Check 📁 [`examples/`](https://github.com/ImpedanCEI/wakis/tree/main/examples) and [`notebooks/`](https://github.com/ImpedanCEI/wakis/tree/main/notebooks) for different physical applications:
 * Planewave interacting with a PEC or dielectric sphere
 * Gaussian wavepacket travelling through vacuum / dielectric
 * Custom perturbation interacting with PEC geometry
-* Wakefield simulation of accelerator cavity on CPU, GPU and with MPI
+* And of course, **full Wakefield simulation** of different accelerator components on CPU, GPU and with MPI.
 
 Check 🌐📁 [`SWAN_tutorial/`](https://github.com/ImpedanCEI/SWAN_tutorial) for hands-on notebook examples ready to run on CERN's SWAN service's GPUs (A100, Tesla T4):
 
@@ -59,7 +60,7 @@ Check 🌐📁 [`wakis-benchmarks/`](https://github.com/ImpedanCEI/wakis-benchma
 * Lossy pillbox cavity (cylindrical) above cutoff
 * Simulations using beams with different relativistic $\beta$
 
-Check 🌐📁 [`BE-Seminar-demo/`](https://github.com/ImpedanCEI/CEI-logo) for a complete demonstration of Wakis usage.
+Check 🌐📁 [`BE-Seminar-demo/`](https://github.com/ImpedanCEI/BE-Seminar-demo) for a complete live demonstration of Wakis usage.
 
 ## Installation
 Wakis supports `Python 3.9 - 3.14` and can be installed in any `conda` or `venv` environment.
@@ -75,6 +76,8 @@ For additional features, including **interactive 3D plots in Jupyter notebooks**
 ```bash
 pip install wakis['all']
 ```
+
+GPU execution also requires a CuPy build compatible with your CUDA or ROCm installation, and MPI execution requires `mpi4py` plus an MPI runtime. See the [GPU and MPI installation instructions](https://wakis.readthedocs.io/en/latest/installation.html) before running those examples.
 
 To install Wakis from the source, clone the repository and install it in *editable* mode:
 ```bash
@@ -107,9 +110,9 @@ These effects can be characterized through the beam coupling impedance in the fr
 * 🌸 A dedicated contribution was presented at **IPAC'25: The 16th International Particle Accelerator Conference**: https://inspirehep.net/literature/3101186
 
 ## Citing `Wakis`
-🔖 Each Wakis release is linked to a [Zenodo](https://zenodo.org/records/15011421) publication under a unique [DOI](https://doi.org/10.5281/zenodo.15011421). If you are using Wakis in your scientific research, please help our scientific visibility by citing this work:
+🔖 Each Wakis release is archived on [Zenodo](https://zenodo.org/records/14988676) with a version-specific DOI. For a citation that points to the latest archived version, use the [concept DOI](https://doi.org/10.5281/zenodo.14988676):
 
-> [1] E. de la Fuente Garcia et. al., “Wakis”. Zenodo, 2025. doi: https://doi.org/10.5281/zenodo.15527405
+> E. de la Fuente Garcia et al., “Wakis”. Zenodo. https://doi.org/10.5281/zenodo.14988676
 
 ---
 ### Tests badges

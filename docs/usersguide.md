@@ -1,6 +1,6 @@
 # 🕹️ User's Guide
 
-This section aims to showcase `wakis`capabilities together with useful recipes to use in the simulation scripts.
+This section shows how to use `wakis` in a simulation script.
 
 Since `wakis` has been developed for computing beam-coupling impedance for particle accelerator components, the example that will serve as a conductive thread for the explanation is a **pillbox cavity with a passing proton beam**.
 
@@ -22,24 +22,23 @@ The first part of a python script always includes importing external sources of 
 * `tqdm`: This package is used for displaying progress bars in loops.
 * `pyvista`: For handling and visualizing 3D CAD geometries and vtk-based 3D plotting.
 
-Optionally, one can use `os` or `sys` packages to handle the PATH and directory creations. The first part of any simulaiton script could look similar to:
+Optionally, one can use `pathlib` to work with file paths. The first part of a simulation script could look similar to:
 
 ```python
-import numpy as np               # for handling arrays
-import matplotlib.pyplot as plt  # for plotting
-import os, sys                   # for path handling
-import pyvista as pv             # for geometry modelling and 3D visualization
-import h5py                      # for data save/import
-from tqdm import tqdm            # for time loop prpgress bar
-from scipy.constants import c as c_light    # speed of light constant
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pyvista as pv
+from scipy.constants import c as c_light
+from tqdm import tqdm
 ```
 
 Next step is to import the `wakis` classes that will allow to run the electromagnetic simulations:
 
 ```python
-from wakis import GridFIT3D       # Grid generation
-from wakis import SolverFIT3D     # EM field simulation
-from wakis import WakeSolver      # Wake and Impedance calculation
+from wakis import GridFIT3D, SolverFIT3D, WakeSolver
+from wakis.sources import Beam
 ```
 
 ### Simulation domain, geometry and materials setup
@@ -66,10 +65,11 @@ Note that the number of cells will heavily affect the simulation time (in partic
 In beam-coupling impedance simulations one is usually interested in the geometric impedance, together with the impedance coming from material properties. In `wakis`, the geometry to simulate (sometimes referred as Embedded boundaries) can be imported from a `.stl` file containing a CAD model, and the units should be meters [m].
 
 ```python
-# stl geometry files (add path to them if necessary)
-stl_cavity = 'cavity.stl'
-stl_shell = 'shell.stl'
-stl_solids = {'cavity': stl_cavity, 'shell': stl_shell}
+# Run from the root of a cloned Wakis repository.
+data_dir = Path('notebooks/data')
+stl_cavity = data_dir / '001_vacuum_cavity.stl'
+stl_shell = data_dir / '001_lossymetal_shell.stl'
+stl_solids = {'cavity': str(stl_cavity), 'shell': str(stl_shell)}
 
 # Optional: plot the geometry imported using PyVista
 geometry = pv.read(stl_shell) + pv.read(stl_cavity)
@@ -99,13 +99,7 @@ surf.save('geometry.stl', binary=False)
 Check [PyVista's documentation](https://docs.pyvista.org/version/stable/user-guide/simple.html#plotting) for more advanced 3d plotting
 ```
 
-Imported `.stl` files can also be translated, rotated and scaled in x, y, z by providing a list. E.g., `stl_scale['cavity'] = [1., 2, 1.]` will duplicate the y dimension of the imported cavity.stl.
-
-```python
-stl_scale = {'cavity': [1., 1., 2.], 'shell': [1., 1., 2.]} # scale factor
-stl_rotate = {'cavity': [1., 1., 90.], 'shell': [1., 1., 90.]}  # rotate angle (degrees)
-stl_translate = {'cavity': [1., 0, 0], 'shell': [1., 0, 0]} # displacement in [m]
-```
+Imported `.stl` files can also be transformed with the `stl_scale`, `stl_rotate`, and `stl_translate` arguments to `GridFIT3D`. Each accepts a value applied to all solids or a dictionary keyed by solid name. When transforming solids, choose domain bounds that enclose the transformed geometry.
 
 ### Associating a material to each solid
 Each `stl` solid can be associated with a material by indicating `[eps, mu, conductivity]`. In `materials.py`, the most used materials are available in the material library. The user can specify a value for the relative permittivity $\varepsilon$, the relative permeability $\mu$ and the value for the conductivity $\sigma$ in [S/m] or use the material name from the library:
@@ -114,8 +108,7 @@ Each `stl` solid can be associated with a material by indicating `[eps, mu, cond
 # Indicate relative permittivity, relative permeability and conductivity [S/m]
 # [eps_r, mu_r, conductivity]
 # or the material name from the library:
-stl_materials = {'cavity': 'vacuum',       # equivalent to [1.0, 1.0, 0]
-                'shell': [1e3, 1.0, 1e3]}  # equivalent to a 'lossy metal'
+stl_materials = {'cavity': 'vacuum', 'shell': 'pec'}
 ```
 
 ### Defining the `grid` object
@@ -135,23 +128,22 @@ grid = GridFIT3D(xmin, xmax, ymin, ymax, zmin, zmax,
                 Nx, Ny, Nz,
                 stl_solids=stl_solids,
                 stl_materials=stl_materials,
-                stl_translate=stl_translate,
-                stl_scale=stl_scale,
-                stl_rotate=stl_rotate,
                 )
 ```
 
 Optionally, the `grid` of the simulation can be inspected interactively in 3D (thanks to PyVista):
 
 ```python
-grid.inspect(add_stl=['cavity', 'shell'] #default is all stl solids
-             stl_opacity=0.5             #default is 0.5
-             stl_colors=['blue', 'red']) #default is `white`
+grid.inspect(
+    add_stl=['cavity', 'shell'],
+    stl_opacity=0.5,
+    stl_colors=['blue', 'red'],
+)
 ```
 
  ![Gif showing how the grid.inspect() method works](img/grid_inspect.gif)
 
-`wakis` API is fully exposed, so all the `grid` class parameters relevant for the simulation can be accessed as class attributes and modified once the class has been instantiated. E.g., `grid.dx` gives the mesh step size in x direction, `grid.N` gives the total number of cells. Attributes can be checked by typing `grid.` and then pressing `TAB` when running on `ipython`.
+The grid coordinates and cell sizes are available as attributes. For example, `grid.dx` contains the cell widths in $x$, while `grid.Nx * grid.Ny * grid.Nz` gives the total cell count.
 
 ```{tip}
 Thanks to a fully exposed python API, all (relevant) class attributes can be checked by typing the class instance (e.g., `grid` or `solver`) followed a dot `.` and the name of the attribute.
@@ -164,24 +156,21 @@ When running on `ipython` all attributes and functions() can be viewed by typing
 Once the simulation domain has been defined through the geometry and the grid, the electromagnetic (EM) solver can be created. The solver implemented in `wakis` uses the Finite Integration Technique (FIT) [^1]. The recipe on how to instantiate the `SolverFIT3D` class is given below:
 
 ```python
-solver = SolverFIT3D(grid=grid,     # pass grid object
-                     dt=dt,         # (OPTIONAL) define timestep
-                     cfl=0.5,       # Default if no dt is defined
-                     bc_low=bc_low,
-                     bc_high=bc_high,
-                     use_stl=True,     # Enables or disables geometry import
-                     bg='vacuum',      # Background material
-                     )
+bc_low = ['pec', 'pec', 'pec']
+bc_high = ['pec', 'pec', 'pec']
+solver = SolverFIT3D(
+    grid=grid,
+    cfln=0.5,
+    bc_low=bc_low,
+    bc_high=bc_high,
+    use_stl=True,
+    bg='vacuum',
+)
 
 ```
 
 #### Simulation timestep
-The simulation timestep is calculated following the CFL condition, that mainly depends on the cell size. A default value of 0.5 ensures simulation stability:
-```python
-# Extract of SolverFIT3D __init__
-self.dt = cfln / (c_light * np.sqrt(1 / self.grid.dx ** 2 + 1 / self.grid.dy ** 2 +
-                                            1 / self.grid.dz ** 2))
-```
+The solver calculates `solver.dt` from the smallest cell width in each direction and the CFL number. Conductivity can impose a smaller timestep. To specify a timestep explicitly, pass `dt=...` when constructing `SolverFIT3D`.
 
 ### Boundary conditions
 The required parameters `bc_low` and `bc_high` allow to choose the 6 boundary conditions for our simulation box. For the lower-end boundaries bc_low = [x-, y-, z-] and for the high-end boundaries bc_high = [x+, y+, z+] is used. The supported values to give for -/+ boundaries are:
@@ -189,21 +178,23 @@ The required parameters `bc_low` and `bc_high` allow to choose the 6 boundary co
 * `pec` stands for Perfect Electric Conductor: it is a Dirichlet boundary conditions that forces the tangent electric $E$ field at the boundary to be 0.
 * `pmc` stands for Perfect Magnetic Conductor: similarly to pec, it is a Dirichlet boundary conditions that forces the tangent magnetic $H$ field at the boundary to be 0.
 * `periodic`: The field values of the high-end boundary are passed to the lower-end boundary, simulating a periodic structure where the fields re-enter the simulation domain.
-* `abc` First order extrapolation (FOEXTRAP) absorbing boundary condition (ABC)[^2]: a type of Dirichlet absorbing boundary condition that allows to absorb longitudinally propagating fields when they reach the boundary. Only works under specific circumstances.
-* `pml` Perfect Matching Layer: A more advanced type of ABC, capable of absorbing electromagnetic waves propagating in a wider range of propagation angles [^3]. This boundary conditions are needed e.g., for simulating accelerator beampipe transitions and RF cavities above beampipe cutoff. *Currently under development*
+* `abc`: First-order Mur absorbing boundary condition (ABC)[^2], suited to waves approaching the boundary near normal incidence.
+* `pml`: Graded conductive absorbing layer. Its reflection depends on layer thickness and the conductivity profile; see the [physics guide](physicsguide.md).
+* `cpml`: Convolutional perfectly matched layer, the preferred absorbing boundary for broadband and oblique waves [^3].
 
 An example of the boundary conditions that are typically used for the pillbox cavity example are:
 
 ```python
-# boundary conditions
-bc_low=['pec', 'pec', 'pml']  #or z=`pec` if below cutoff
-bc_high=['pec', 'pec', 'pml'] #or z=`pec` if below cutoff
+# To absorb waves at both longitudinal ends instead of using PEC:
+bc_low = ['pec', 'pec', 'cpml']
+bc_high = ['pec', 'pec', 'cpml']
+# Pass these lists when constructing SolverFIT3D.
 ```
 ### Accessing `solver`'s fields, matrices and simulation parameters
-Similarly to the `grid` object from `GridFIT3D`, `wakis`'s `SolverFIT3D` class is fully exposed. This means that once the `solver` object is instantiated, all the parameters of the EM solver can be accessed as class attributes `solver.attr` and modified. E.g., one can modify the simulation timestep after the instantiation by doing:
+Similarly to `grid`, the solver exposes its fields and parameters as attributes. Inspect the calculated timestep with:
 
 ```python
-solver.dt = 1e-9 #[s]
+print(solver.dt)  # [s]
 ```
 
 #### Electromagnetic fields `E`, `J`, `H`
@@ -217,7 +208,7 @@ solver.E[0,0,0,'z'] = c_light
 iz = Nz//3
 solver.H[:, :, iz, 'x'] = np.ones((Nx, Ny))
 
-# modify the y component of the J on the z axis at a particular x, y
+# access the y component of J along z at a particular x, y
 ix, iy = Nx//2, Ny//2
 solver.J[ix, iy, :,'y']
 
@@ -225,7 +216,7 @@ solver.J[ix, iy, :,'y']
 E_abs = solver.E.get_abs() #size [Nx, Ny, Nz]
 ```
 
-The routines `inspect()` for 2D and `inspect3d()` allow for quick visualization of the field values:
+The `inspect()` and `inspect3D()` methods allow quick visualization of field values:
 ``` python
 solver.E.inspect(plane='YZ',            # 2d plane, cut at the domain center
                  cmap='bwr',            # colormap
@@ -250,60 +241,32 @@ solver.ieps[:, :, :, 'x']
 # permeability(^-1) tensor in y direction
 solver.imu[:, :, :, 'y']
 
-# Modify first 10 cells in x of the conductivity tensor:
-for d in ['x', 'y', 'z']:
-    solver.sigma[:10, :, :, d] = np.ones(10)*1e3 #S/m
+# Check the conductivity along one component:
+print(np.max(solver.sigma[:, :, :, 'z']))
 ```
 
-Since `wakis` supports anisotropy, the tensors are 3D matrices of sizes `[Nx, Ny, Nz]x3` since there are values for each simulation cell in $x$, $y$, and $z$ direction. Similarly, one can inspect the values given to the tensors by using e.g., `solver.sigma.inspect()`
+Since `wakis` supports anisotropy, each material tensor stores $x$, $y$, and $z$ components on the 3D grid. Use `solver.sigma.inspect()` to view a slice. Set material properties through `stl_materials` or `bg` when constructing the solver.
 
 
 ```{tip}
-Material tensors $\varepsilon$, $\mu$, and $\sigma$, and electromagnetic fields $E$, $H$ and $J$ are created as `Field` objects, the class in `field.py`. This class allows for optimized access to matrix values, conversion to array format using the lexico-grapihc index and inspection methods ìnspect()` via 2D plots to confirm that the tensor are built correctly before running the simulation.
+Material tensors and electromagnetic fields are `Field` objects. Use their `inspect()` method to check a 2D slice before running the simulation.
 ```
 ### Running a simulation
 
-Once the domain and geometry are defined in `grid` and the fields and internal operators have been instantiated with `solver`, an electromagnetic time-domain simulation can be run provided some initial conditions. The simplest way to run the code, step-by-step, is by calling the routine `solver.one_setp()`:
+With an initial field or a source, advance the simulation one timestep at a time with `solver.one_step()`:
 ```python
-# Run one step (advance from t=0 to t=dt)
-solver.one_step()
-
-# Run a number of timesteps while modifying the fields
-hf = h5py.File('results/Ex.h5', 'w')
-Nt = 100
-for n in tqdm(range(Nt)):
-
-    # [OPTIONAL] Modify field
-    #source_fun(t) can be any function, see next section
-    solver.E[:, :, :, 'x'] = source_fun(n*dt)
-
-    # Advance
+for step in tqdm(range(100)):
     solver.one_step()
-
-    # [OPTIONAL] Plot 2D on-the-fly. -->See dedicated section.
-    solver.plot2D(field='E', component='x', plane='ZY', pos=0.5, #
-                  cmap='rainbow', title='img/Ex', off_screen=True,
-                  n=n, interpolation='spline36')
-
-    # [OPTIONAL] Save in hdf5 format
-    hf['#'+str(n).zfill(5)]=solver.E[Nx//2, :, :, 'x']
 ```
 
-A more optimized solution for running a EM simulation is the routine `solver.emsolve()`. This removes the need of the loop, while still allows to use built-in plotting routines and saving the fields at any timestep though the input arguments:
+The `emsolve()` routine runs the loop and can optionally save fields to HDF5 or plot them:
 
 ```python
-# emsolve function call example
-Nt = 10000              # Number of timesteps to run
-source = sources.Beam() # [OPTIONAL] ->See next section for details
-
-solver.emsolve(Nt, source=source, # [OPT] field or current time-dependent source
-            save=False, fields=['E'], components=['Abs'], # [OPT] field components to save
-            every=1, subdomain=None, # [OPT] frequency of save and subdomain slice [x,y,z]
-            plot=False, plot_every=1,  # [OPT] on-the-fly plot enable and frequency
-            plot3d=False, # [OPT] use 3D plot instead of 2D
-            **kwargs) # [OPT] plot arguments. ->See built-in plotting section for details
-
+source = Beam(sigmaz=0.02)
+solver.emsolve(Nt=100, source=source, save=False, plot=False)
 ```
+
+To save fields, pass `save=True`, `fields=['E']`, `components=['z']`, and `save_every=10`. The optional `subdomain` argument selects an $x$, $y$, $z$ slice.
 
 ```{tip}
 All the functions inside `wakis` are documented with `docstrings` explaining each input parameter. To access it (after instantiating the class) simply type a question mark at the end, e.g.:
@@ -320,42 +283,27 @@ Sources in `wakis` can be:
 * Plane or port sources: modifying the field on a 2d plane e.g., $z=z_s \forall x,y$
 * Volume sources: modify the field in a 3d subdomain: e.g., $z=slice(0, Nz-30) \forall x,y$.
 
-The sources can modify any component of the $E$, $H$ fields or the current $J$, and be introduced in the simulation as a callback
+The sources can modify components of the $E$ and $H$ fields or the current $J$. Each source updates the solver once per timestep.
 
 To add a time-dependent source, one can simply setup a time-loop and run the routine `solver.one_step()` after the source has been applied (see [Running a simulation](#running-a-simulation) section). However, a more optimized way is to pass a `source` to the EM solver. The `source` objects available inside `sources.py` are:
-* `Beam`: a line source for $J_z$ that adds a gaussian-shaped current traversing the domain from z- to z+. Beam's longitudinal size $sigma_z$ and peak current $q$, as well as transverse position, can be defined as class attributes during instantiation.
-* `PlaneWave`: a port source that excites a sinusoidal plane wave n +z direction by modifying $E_x$ and $H_y$ in the XY plane. Plane wave's frequency $f$, longitudinal position $z_s$, and plane extent $(\bold{x_s}, \bold{y_s})$ an be defined as class attributes.
-* `WavePacket`: a port source that excites a gaussian wave packet that travels in z+ direction, by modifying $H_y$ and $E_x$ field components. The frequency $f$ or wavelength $\lambda$, longitudinal size $sigma_z$, transverse size $sigma_{xy}$ and propagation speed (relativistic $\beta$), can be defined as class attributes.
+* `Beam`: a line source for $J_z$ that adds a Gaussian current traversing the domain from z- to z+. Its longitudinal size $\sigma_z$, total charge $q$, and transverse position are constructor arguments.
+* `PlaneWave`: a port source that excites a sinusoidal plane wave in the +$z$ direction by modifying $E_x$ and $H_y$ in an $xy$ plane.
+* `WavePacket`: a port source for a Gaussian wave packet travelling in +$z$, with configurable frequency or wavelength, longitudinal size, transverse size, and speed.
 * `Dipole`: Updates the user-defined field and component every timestep to introduce a dipole-like sinusoidal excitation
 * `Pulse`: Injects an electromagnetic pulse at the given source point (xs, ys, zs), with the selected shape {"Harris", "Gaussian", "Rectangular"}, length, and amplitude
 
-The user can easily add a `CustomSource` by following this pseudocode recipe:
+Custom sources provide an `update(solver, t)` method. For example:
 ```python
 class CustomSource:
-    def __init__(self, attr1, attr2):
-        '''
-        Docstring
-        '''
-
-        # Class initialization of attributes
-
-        self.attr1 = attr1
-        self.attr2 = attr2
-
+    def __init__(self, frequency):
+        self.frequency = frequency
 
     def update(self, solver, t):
-        # solver will be a `SolverFIT3D` class object
-        # Here goes the code that should be run every timestep
+        solver.J[solver.Nx // 2, solver.Ny // 2, :, 'z'] = np.sin(
+            2 * np.pi * self.frequency * t
+        )
 
-        # e.g., point source at the 10th cell of the domain in x,y,z on Ex
-        solver.E[10,10,10,'x'] = self.attr1*t
-
-        # e.g., line source for all z at domain center in xy, on Jz
-        solver.J[solver.Nx//2,solver.Ny//2,:,'z'] = self.attr1*solver.z*t
-
-        # e.g., port source on XY plane at first cell 0 in z, on Hy
-        X, Y = np.meshgrid(solver.x, solver.y)
-        solver.H[:,:,0,'y'] = np.exp(-(X**2+Y**2)/self.attr1)*t
+solver.emsolve(Nt=100, source=CustomSource(frequency=1e9))
 ```
 
 Combining `wakis` sources, geometry capabilities and material tensors, many different physical phenomena can be simulated with `wakis`: laser pulses, interaction with plasma, waveguides... For particle accelerators, the `Beam` class was created but the profile and trajectory can be easily modified to simulate advanced impedance effects.
@@ -374,35 +322,36 @@ These effects can be characterized through the beam coupling impedance in the fr
 `wakis` can compute wake potential and impedance for both longitudinal and transverse planes for general 3D structures. The wake computation is performed right after the electromagnetic simulation, and the dedicated routines are encapsulated in the class `WakeSolver`, inside `wakeSolver.py`. The recipe on how to instantiate the `WakeSolver`class is:
 
 ```python
-wake = WakeSolver(q=q, # beam charge in Coulombs [C]
-                 sigmaz=sigmaz, # beam longitudinal sigma in [m]
-                 beta=beta,     # beam relativistic beta
-                 xsource=xs, ysource=ys, # beam transverse source position (DIPOLAR)
-                 xtest=xt, ytest=yt,     # beam transverse integration path (QUADRUPOLAR)
-                 add_space=add_space,    # remove no. cells in z- and z+ from the wake integration
-                 save=True, logfile=True # save results in txt format and enable logfile
-                 results_folder='results/',   # Name of the results folder
-                 Ez_file='Ez.h5',        # Name of the HDF5 file to store E field
-                 )
+wake = WakeSolver(
+    q=1e-9,              # total beam charge [C]
+    sigmaz=0.02,         # longitudinal beam size [m]
+    beta=1.0,
+    xsource=0.0,
+    ysource=0.0,
+    xtest=0.0,
+    ytest=0.0,
+    skip_cells=10,
+    save=True,
+    results_folder='results/',
+)
 ```
 
 As can be deduced from the instantiation, the `wake` object contains the information of the beam source. When `wake` is passed to the `solver` object, a `Beam` source will be automatically added using `wake` attributes.
 
 ```{tip}
-The attribute `add_space` is a very useful addition to improve the wake potential calculation. it removes the specified no. of cells from the integration path e.g., `add_space=10` removes the last 10 cells in z- and in z+. This allows to remove some perturbations caused by the beam injection or some unwanted reflections from the domain boundaries.
+The `skip_cells` parameter excludes the specified number of cells at each end of the wake integration path. For example, `skip_cells=10` can avoid perturbations near the beam injection or reflections from the domain boundaries. The older `add_space` argument to `wakesolve` remains available for compatibility.
 ```
 
 ### Running a wakefield simulation
-A wakefield simulation can be run using the `solver.wakesolve` routine. Similarly to `emsolve` it will run the electromagnetic simulation until a desired `wakelength` is reached. Then, the wake potential and impedance in longitudinal and transverse planes will be computed from the field saved in `Ez.h5` file:
+A wakefield simulation can be run using `solver.wakesolve()`. It advances the electromagnetic fields until the requested `wakelength` is reached, saves the longitudinal electric field to the wake solver's `Ez_file`, and computes wake potentials and impedances. Reset the fields if reusing the solver from the preceding examples:
 
 ```python
-solver.wakesolve(wakelength, # Simulation wakelength in [m]
-                wake=wake,   # wake object of WakeSolver class
-                add_space=add_space,
-                save_J=True,   # [OPT] Save source current Jz in HDF5 format
-                plot=False, plot_every=30, # [OPT] Enable 2Dplot and plot frequency
-                **plotkw, # [OPT] plot arguments. ->See built-in plotting section for details
-                )
+solver.reset_fields()
+solver.wakesolve(
+    wakelength=1.0,  # simulated wake length [m]
+    wake=wake,
+    plot=False,
+)
 ```
 ### Recomputing some magnitudes
 Once the simulation is finished and the data is safely stored in the HDF5 file, any result of wake potential and/or impedance can be re-computed and optimized. For instance, the longitudinal or transverse impedance can be recomputed using a higher number of samples or a different maximum frequency:
@@ -428,7 +377,7 @@ Specific documentation for [`IDDEFIX`](https://github.com/ImpedanCEI/IDDEFIX) is
 ```
 
 ### Import simulation results
-First, we import iddefix and load previous Wakis wakefield results:
+This example assumes a separate 30 m wake run was saved to `results_wl30/`. Import IDDEFIX and load those Wakis results:
 ```python
 import wakis
 import iddefix
@@ -436,11 +385,11 @@ import iddefix
 # Load partially decayed wake results
 wake30 = wakis.WakeSolver()
 wake30.load_results('results_wl30/')
-wake_length = 30 # [m]
+wake_length = 30  # [m]
 
 # Plot imported results
 fig, ax = plt.subplots()
-ax.plot(wake30.s, wake30.WP, c='tab:red', label='Wakelength = 10 m')
+ax.plot(wake30.s, wake30.WP, c='tab:red', label='Wake length = 30 m')
 ax.set_xlabel('s [m]')
 ```
 
@@ -452,9 +401,9 @@ fig, ax = plt.subplots()
 ax.plot(wake30.f, np.abs(wake30.Z), c='k', lw=2, label='Impedance from Wakis')
 
 # Plot iddefix FFT and deconvolution results
-f, WP_fft = iddefix.compute_fft(wake30.s/c, wake30.WP*1e12/c, fmax=1.5e9)
+f, WP_fft = iddefix.compute_fft(wake30.s/c_light, wake30.WP*1e12/c_light, fmax=1.5e9)
 ax.plot(f, np.abs(WP_fft), c='tab:red', alpha=0.7, label='Impedance from FFT')
-f, Z = iddefix.compute_deconvolution(wake30.s/c, wake30.WP*1e12/c, fmax=1.5e9, sigma=10e-2/c)
+f, Z = iddefix.compute_deconvolution(wake30.s/c_light, wake30.WP*1e12/c_light, fmax=1.5e9, sigma=10e-2/c_light)
 ax.plot(f, np.abs(Z), c='tab:green', alpha=0.7, label='Impedance from deconvolution')
 ax.set_xlabel('frequency [Hz]')
 ax.legend()
@@ -465,7 +414,7 @@ To estimate the parameter bounds of the resonators in the impedance data, one ca
 ```python
 # Compute impedance through deconvolution
 # To improve algorithm speed and convergence, it is advised to keep the data to about 1000 samples
-f,Z = iddefix.compute_deconvolution(wake30.s/c, wake30.WP*1e12/c, samples=1000, fmax=1.2e9, sigma=10e-2/c)
+f,Z = iddefix.compute_deconvolution(wake30.s/c_light, wake30.WP*1e12/c_light, samples=1000, fmax=1.2e9, sigma=10e-2/c_light)
 Z *= -1.0 # longitudinal impedance normalization
 
 # Control the heigths to be passed to the peak finder routine
@@ -486,7 +435,6 @@ bounds.to_table()       # print as a table the estimated bounds
 ### Run differential evolution (DE) and minimization
 Now it is time to pass the data to the `EvolutionaryAlgorithm` class. The available fit founctions use the Broadband Resonator Formalism, and the evolutionary algorithm find the list of parameters (Rs, Q, fr) that better describe the impedance. To run the Differential Evolution algorithm, follow:
 ```python
-%%time
 DE_model = iddefix.EvolutionaryAlgorithm(f,
                                          Z.real,
                                          N_resonators=bounds.N_resonators,
@@ -517,7 +465,7 @@ To asses the fitting, one can compare the partially decayed with the analyticall
 #%matplotlib ipympl
 
 # Retrieve partially decayed wake portential (30 m)
-WP_pd = DE_model.get_wake_potential(wake30.s/c)
+WP_pd = DE_model.get_wake_potential(wake30.s/c_light)
 
 # Retreieve partially decayed  fittted impedance
 f_pd = np.linspace(0, 1.2e9, 10000)
@@ -528,7 +476,7 @@ Z_pd_min = DE_model.get_impedance_from_fitFunction(f_pd, use_minimization=True) 
 fig1, ax = plt.subplots(1,2, figsize=[12,4], dpi=150)
 ax[0].plot(wake30.s, wake30.WP, c='k', alpha=0.8,label='Wakis wl=30 m')
 ax[0].plot(wake30.s, -WP_pd*1e-12, c='tab:red', lw=1.5, label='iddefix')
-ax[0].set_xlabel('s [cm]')
+ax[0].set_xlabel('s [m]')
 ax[0].set_ylabel('Longitudinal wake potential [V/pC]', color='tab:red')
 ax[0].legend()
 
@@ -543,7 +491,7 @@ ax[1].plot(f_pd*1e-9, np.real(Z_pd_min), ls='-', c='tab:red', alpha=0.6, lw=1.5,
 #ax[1].plot(f_pd*1e-9, np.imag(Z_pd_min), ls=':', c='tab:red', alpha=0.6, lw=1.5, label='DE+min Imag')
 
 ax[1].set_xlabel('f [GHz]')
-ax[1].set_ylabel('Longitudinal impedance [Abs][$\Omega$]', color='tab:blue')
+ax[1].set_ylabel('Longitudinal impedance [Ω]', color='tab:blue')
 ax[1].legend()
 
 fig1.tight_layout()
@@ -554,8 +502,8 @@ Once the fitting is satisfactory, the fully decayed impedance can be computed vi
 
 ```python
 # Fully decayed wake, wakelength 1000 m
-t_fd = np.linspace(wake30.s[0]/c, 1000/c, 10000)
-WP_fd = DE_model.get_wake_potential(t_fd, sigma=1e-2/c)
+t_fd = np.linspace(wake30.s[0]/c_light, 1000/c_light, 10000)
+WP_fd = DE_model.get_wake_potential(t_fd, sigma=1e-2/c_light)
 
 # Fully decayed wake, wakelength inf m
 f_fd = np.linspace(0, 1.5e9, 10000)
@@ -563,8 +511,8 @@ Z_fd = DE_model.get_impedance(f_fd)
 
 # Plot
 fig1, ax = plt.subplots(1,2, figsize=[12,4], dpi=150)
-ax[0].plot(t_fd*c, WP_fd*1e-12*c, c='tab:red', lw=1.5, label='iddefix')
-ax[0].set_xlabel('s [cm]')
+ax[0].plot(t_fd*c_light, WP_fd*1e-12*c_light, c='tab:red', lw=1.5, label='iddefix')
+ax[0].set_xlabel('s [m]')
 ax[0].set_ylabel('Longitudinal wake potential [V/pC]', color='tab:red')
 ax[0].legend()
 
@@ -572,7 +520,7 @@ ax[1].plot(f_fd*1e-9, np.abs(Z_fd), c='tab:blue', alpha=0.8, lw=2, label='Fully 
 ax[1].plot(f_fd*1e-9, np.real(Z_fd), ls='--', c='tab:blue', lw=1.5, label='Fully decayed, Real')
 ax[1].plot(f_fd*1e-9, np.imag(Z_fd), ls=':', c='tab:blue', lw=1.5, label='Fully decayed, Imag')
 ax[1].set_xlabel('f [GHz]')
-ax[1].set_ylabel('Longitudinal impedance [Abs][$\Omega$]', color='tab:blue')
+ax[1].set_ylabel('Longitudinal impedance [Ω]', color='tab:blue')
 ax[1].legend()
 
 fig1.tight_layout()
@@ -583,14 +531,16 @@ Neffint is an acronym for Non-equidistant Filon Fourier integration. This is a p
 
 `neffint` has been integrated in `IDDEFIX` as an alternative method to compute Fourier Transforms:
 ```python
-time, wake_function = iddefix.compute_ineffint(frequency_data, impedance_data,
+time, wake_function = iddefix.compute_ineffint(wake30.f, wake30.Z,
                                  times=np.linspace(1e-11, 50e-9, 1000), #avoid starting at zero
-                                 plane='transverse', #or longitudinal, changes normalization
+                                 plane='longitudinal',
                                  adaptative=True, # refines the sampling, but can be slow/unstable
                                  )
 
-frequency, impedance = iddefix.compute_neffint(time_data, wake_data,
+frequency, wake_spectrum = iddefix.compute_neffint(
+                                 wake30.s / c_light, wake30.WP * 1e12 / c_light,
                                  frequencies=np.linspace(0, 5e9, 1000),
+                                 plane='longitudinal',
                                  adaptative=True, # refines the sampling, but can be slow/unstable
                                  )
 ```
@@ -640,6 +590,8 @@ def fillingSchemeLHC(ninj, ntrain=5, nbunches=36):
 ```
 With this information, we can use `BIHC` to fill the `Beam` class:
 ```python
+import bihc
+
 # Create beam object
 fillingScheme = fillingSchemeLHC(ninj=9, ntrain=4, nbunches=72)
 bl = 1.2e-9                 # bunch length [s]
@@ -662,12 +614,12 @@ fig, ax = plt.subplots(1,2, figsize=[14,6])
 
 t, prof = beam.longitudinalProfile
 ax[0].plot(t*1e6, prof*beam.Np,)
-ax[0].set_xlabel('Time [ms]')
+ax[0].set_xlabel('Time [µs]')
 ax[0].set_ylabel('Profile Intensity [protons]')
 
 f, spectrum = beam.spectrum
 ax[1].plot(f*1e-9, spectrum*beam.Np*np.sum(fillingScheme), c='r')
-ax[1].set_xlabel('Frquency [GHz]')
+ax[1].set_xlabel('Frequency [GHz]')
 ax[1].set_ylabel('Spectrum Intensity [protons]')
 ax[1].set_xlim((0, 2.0))
 ```
@@ -675,14 +627,10 @@ ax[1].set_xlim((0, 2.0))
 ### The impedance object
 To compute the power loss, we need to fill the `Impedance` class with the impedance data of the accelerator device under study:
 ```python
-Z = bihc.Impedance(f=frequency, Z=impedance) # directly from array (Wakis, IDDEFIX)
-Z.getImpedancefromCST('impedance.txt') # from CST or other output txt file
-Z.getResonatorImpedance(R, Q, fres)    # 1 resonator impedance
-for i in range(len(fr)): # n resonator impedance
-    Zmode = bihc.Impedance(frequency)
-    Zmode.getResonatorImpedance(Rs=Rs[i], Qr= Qr[i], fr=fr[i])
-    Z = Z + Zmode
-Z.getRWImpedance(L ,b, sigma)    # single-layer resistive wall impedance
+Z = bihc.Impedance(f=wake30.f, Z=wake30.Z)
+
+# To load a CST file instead, use:
+# Z = bihc.Impedance(CST_file='impedance.txt')
 ```
 
 ### Power loss calculation, 1 beam case
@@ -724,7 +672,7 @@ ax.set_xlabel('Frequency [GHz]')
 ax.set_xlim((0, 1.5))
 ax.set_ylim(ymin=1e-1, ymax=1e4)
 ax.grid(which='minor', axis='y', alpha=0.8, ls=':')
-ax.legend([l0, l1, l2], [f'Ploss', 'Ploss Max.'], loc=1)
+ax.legend([l0, l1], ['Power loss', 'Maximum shifted power loss'], loc=1)
 ```
 
 ### Power loss calculation, 2 counter-rotating beams

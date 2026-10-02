@@ -2262,8 +2262,9 @@ class PlotMixinGrid:
             Key or list of keys of STL solids to include. If None, all solids are shown.
         stl_opacity : float, optional
             Opacity for STL surfaces (0 transparent, 1 opaque). Default 0.5.
-        stl_colors : str, list, or dict, optional
-            Color specification for STL surfaces; defaults to ``self.stl_colors``.
+        stl_colors : list or dict, optional
+            Colors for STL surfaces. Use a list in the same order as ``add_stl``
+            or a dictionary keyed by solid name. Defaults to ``self.stl_colors``.
         anti_aliasing : str or None, optional
             Anti-aliasing mode to enable in the plotter (default 'ssaa').
         smooth_shading : bool, optional
