@@ -1343,7 +1343,55 @@ class WakeSolver:
         return f, impedance
 
     @staticmethod
-    def _conversion_beta(gamma):
+    def calc_impedance_from_wake(
+        wake,
+        s=None,
+        t=None,
+        fmax=None,
+        samples=None,
+        verbose=True,
+        *,
+        gamma=None,
+        plane="longitudinal",
+    ):
+        """
+        Calculate impedance from point-charge wake function using FFT.
+
+        Parameters
+        ----------
+        wake : array_like or list
+            Wake function or [t, wake] list.
+        s : ndarray, optional
+            Distance array [m].
+        t : ndarray, optional
+            Time array [s].
+        fmax : float, optional
+            Maximum frequency [Hz].
+        samples : integer, optional
+            Number of samples
+        verbose : bool, optional
+            If True, print information.
+        gamma : float, optional
+            Relativistic gamma (Lorentz factor). If not provided, relativistic
+            beta = 1 will be used when converting ``s`` to ``t``.
+        plane : {"longitudinal", "transverse"}, optional
+            Selects the transform convention and impedance units.
+
+        Returns
+        -------
+        f : ndarray
+            Frequency array [Hz].
+        Z : ndarray
+            Longitudinal impedance array [Ohm] or transverse impedance array
+            [Ohm/m].
+        """
+
+        # Parse inputs
+        if isinstance(wake, list):
+            t = np.asarray(wake[0])
+            wake = np.asarray(wake[1])
+
+        # Relativistic factor
         if gamma is None:
             return 1.0
         if gamma <= 1.0:
@@ -1554,55 +1602,34 @@ class WakeSolver:
                 'Provide time or distance data through parameter "t" [s] or "s" [m]'
             )
         else:
-            t = np.asarray(t, dtype=float)
+            fmax = 1 / dt
+
+        # Obtain DFTs
+        if samples is not None:
+            Nf = 2 * samples
+            Wfft = np.fft.fft(wake, n=Nf) * dt
+        else:
+            Nt = len(t)
+            Nf = 4 * ((Nt + 1) // 2 - 1)
+            Wfft = np.fft.fft(wake, n=Nf) * dt
+
+        # Plane handling
+        if plane.lower() == "longitudinal":
+            pass
+        elif plane.lower() == "transverse":
+            Wfft = 1j * Wfft
+        else:
+            raise ValueError("plane must be 'longitudinal' or 'transverse'")
 
         if np.iscomplexobj(wake):
             if not np.allclose(wake.imag, 0.0):
                 raise ValueError("wake must be real")
             wake = wake.real
 
-        t_grid, wake_grid, fmax_used, source_nyquist = WakeSolver._causal_conversion_grid(
-            t, wake, fmax=fmax, samples=samples
-        )
-        dt = t_grid[1] - t_grid[0]
-        n = len(t_grid)
-        f_grid = np.arange(n, dtype=float) / (2.0 * (n - 1) * dt)
-
-        if separate:
-            if main is None:
-                raise ValueError("main must be provided when separate=True")
-            main_src = WakeSolver._conversion_component(main, t, "main")
-            if np.iscomplexobj(main_src):
-                if not np.allclose(main_src.imag, 0.0):
-                    raise ValueError("main wake must be real")
-                main_src = main_src.real
-            _, main_grid, _, _ = WakeSolver._causal_conversion_grid(
-                t, main_src, fmax=fmax_used, samples=n
-            )
-
-            if residual is None:
-                residual_src = wake - main_src
-            else:
-                residual_src = WakeSolver._conversion_component(residual, t, "residual")
-                if np.iscomplexobj(residual_src):
-                    if not np.allclose(residual_src.imag, 0.0):
-                        raise ValueError("residual wake must be real")
-                    residual_src = residual_src.real
-            _, residual_grid, _, _ = WakeSolver._causal_conversion_grid(
-                t, residual_src, fmax=fmax_used, samples=n
-            )
-
-            Z_main = WakeSolver._dct_impedance(
-                main_grid, dt, plane.lower(), beam_loading=beam_loading
-            )
-            Z_residual = WakeSolver._dct_impedance(
-                residual_grid, dt, plane.lower(), beam_loading=beam_loading
-            )
-            Z = Z_main + Z_residual
-        else:
-            Z = WakeSolver._dct_impedance(
-                wake_grid, dt, plane.lower(), beam_loading=beam_loading
-            )
+        # Mask invalid frequencies
+        mask = np.logical_and(ffft >= 0, ffft < fmax)
+        Z = Wfft[mask]
+        f = ffft[mask]
 
         if verbose:
             print(f"* Number of samples = {len(f_grid)}")
@@ -1629,27 +1656,37 @@ class WakeSolver:
         *,
         gamma=None,
         plane="longitudinal",
-        separate=False,
-        main=None,
-        residual=None,
-        return_components=False,
-        beam_loading=True,
     ):
         """Calculate point-charge wake with DCT-I/DST-I.
 
-	DCT-I gives the matched spacing ``dt = 1/(2*fmax)``; ``tmax``
-        adjusts the frequency grid and ``samples`` adjusts the returned time grid.
-        ``pad`` extends the impedance with zero-valued high-frequency bins at
-        the original ``df``. This increases the assumed bandwidth and decreases
-        the intrinsic time step while leaving the native time window unchanged.
-        It does not add physical high-frequency information, so it is most useful
-        when the impedance is already small near the original frequency cutoff.
+        Parameters
+        ----------
+        impedance : array_like or list
+            Impedance or [f, Z] list.
+        f : ndarray, optional
+            Frequency array.
+        tmax : float, optional
+            Maximum time [s]. If provided, resample the impedance to the
+            corresponding frequency resolution before transforming.
+        samples : int, optional
+            Number of returned time samples.
+        pad : int, optional
+            Retained for backward compatibility. Currently unused.
+        verbose : bool, optional
+            If True, print information.
+        gamma : float, optional
+            Relativistic gamma (Lorentz factor). The value is validated for
+            consistency with :meth:`calc_impedance_from_wake`; it does not
+            rescale the returned time axis.
+        plane : {"longitudinal", "transverse"}, optional
+            Selects the transform convention and wake units.
 
-        Set ``separate=True`` to transform ``main`` and ``residual`` separately.
-        If ``residual`` is omitted it is calculated as ``impedance - main``.
-	This is useful for simulated data when a weak residual coexists
-	with a much larger dominant component, since the two can otherwise have very
-	different numerical scales.
+        Returns
+        -------
+        t : ndarray
+            Time array [s].
+        wake : ndarray
+            Longitudinal wake [V/C] or transverse wake [V/C/m].
         """
 
         if isinstance(impedance, list) and len(impedance) == 2:
@@ -1723,19 +1760,46 @@ class WakeSolver:
                 Z_grid, df, plane.lower(), beam_loading=beam_loading
             )
 
-        # Optional output-grid adjustment. This changes sampling only, not bandwidth.
-        if tmax is not None or samples is not None:
-            output_tmax = t_intrinsic[-1] if tmax is None else float(tmax)
-            if output_tmax > t_intrinsic[-1] * (1.0 + 1e-12):
-                raise ValueError("requested tmax exceeds the available DCT-I time window")
-            output_samples = n if samples is None else int(samples)
-            if output_samples < 2:
-                raise ValueError("samples must be >= 2")
-            t_out = np.linspace(0.0, output_tmax, output_samples)
-            wake = np.interp(t_out, t_intrinsic, wake_intrinsic)
-            if separate:
-                wake_main_out = np.interp(t_out, t_intrinsic, wake_main)
-                wake_residual_out = np.interp(t_out, t_intrinsic, wake_residual)
+        if tmax is not None:
+            resampled_f = np.arange(f.min(), f.max(), 1 / (2 * tmax))
+            Z = np.interp(resampled_f, f, Z)
+            f = resampled_f
+
+        # Frequency grid
+        df = np.mean(np.diff(f))
+
+        # Time grid
+        if samples is None:
+            transform_length = len(f)
+        else:
+            transform_length = 2 * (samples - 1)
+        Nt = transform_length // 2 + 1
+        dt = 1.0 / (transform_length * df)
+        t = np.arange(Nt) * dt
+
+        # Plane handling
+        if plane.lower() == "longitudinal":
+            # Since the wake function is real, the longitudinal impedance satisfies
+            # Hermitian symmetry, Z*(f) = Z(-f).
+            # As a consequence, the inverse Fourier transform can be reduced
+            # to a cosine transform involving only the real part of the impedance.
+            # This Hermitian (cosine) reduction introduces an additional factor of four
+            # compared to the full complex IFFT.
+            # See Eqs. (2.72) and (2.92) in A. W. Chao,
+            # "Physics of Collective Beam Instabilities in High Energy Accelerators".
+            wake = (
+                np.real(ihfft(Z.real, n=transform_length, norm="forward"))
+                * 4
+                * df
+            )
+        elif plane.lower() == "transverse":
+            # Z*(f) = -Z(-f)
+            # sine transform
+            wake = (
+                np.imag(ihfft(Z.real, n=transform_length, norm="forward"))
+                * 4
+                * df
+            )
         else:
             t_out = t_intrinsic
             wake = wake_intrinsic

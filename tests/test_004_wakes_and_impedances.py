@@ -1,186 +1,162 @@
 import sys
 
-import matplotlib.pyplot as plt
-from matplotlib.ticker import ScalarFormatter
 import numpy as np
 import pytest
+from scipy.constants import c as c_light
 from scipy.integrate import trapezoid
 
 sys.path.append("../wakis")
 from wakis import WakeSolver as wk
 
+def analytic_impedance(f, fr, amplitude, duration, plane):
+    """Continuous transform of a finite cosine or sine wake."""
 
-def analytic_impedance_from_sine_cosine_wake(f, fr, A, T):
-    def integral_term(freq):
-        out = np.empty_like(freq, dtype=complex)
-        zero = np.isclose(freq, 0.0, rtol=0.0, atol=1e-15)
-        out[zero] = T
-        x = 2 * np.pi * freq[~zero]
-        out[~zero] = (np.exp(-1j * x * T) - 1) / (-1j * x)
-        return out
+    def rectangular_pulse_transform(offset):
+        return duration * np.exp(-1j * np.pi * offset * duration) * np.sinc(
+            offset * duration
+        )
 
-    return -0.5 * A * (integral_term(f + fr) - integral_term(f - fr))
+    lower_sideband = rectangular_pulse_transform(f - fr)
+    upper_sideband = rectangular_pulse_transform(f + fr)
+    if plane == "longitudinal":
+        return 0.5 * amplitude * (lower_sideband + upper_sideband)
+    return 0.5 * amplitude * (lower_sideband - upper_sideband)
 
+class TestImpedancesAndWakes:
+    @pytest.mark.parametrize("analytic", [True, False])
+    def test_charge_profile_file_units(self, tmp_path, analytic):
+        s = np.linspace(-0.04, 0.04, 257)
+        wake = wk(results_folder=str(tmp_path), save=True, verbose=0)
+        wake.s = s
 
-# Parameters
-fr = 0.5e9
-A = 100
-Nsamples = 30000
+        if analytic:
+            wake.calc_lambdas_analytic()
+        else:
+            profile = np.exp(-0.5 * (s / wake.sigmaz) ** 2)
+            profile /= trapezoid(profile, s)
+            wake.z = s
+            wake.chargedist = wake.q * profile
+            wake.calc_lambdas()
 
-t = np.linspace(0, 100e-9, Nsamples)
+        header = (tmp_path / "lambda.txt").read_text().splitlines()[0]
+        assert "s [m]" in header
+        assert "Normalized charge distribution [1/m]" in header
+        assert trapezoid(wake.lambdas, s) == pytest.approx(1.0, rel=1e-10)
 
-# Longitudinal
-wake_l = A * np.cos(2 * np.pi * fr * t)
-wake_l[0] *= 0.5  # fundamental theorem
+    def test_dimensionless_spectrum_preserves_impedances(self, tmp_path):
+        wake = wk(results_folder=str(tmp_path), save=True, verbose=0)
+        wake.s = np.linspace(-0.04, 0.04, 257)
+        wake.calc_lambdas_analytic()
+        wake.WP = np.exp(-0.5 * ((wake.s - 0.002) / 0.006) ** 2)
+        wake.WPx = 0.4 * wake.WP
+        wake.WPy = -0.2 * wake.WP
 
-f_l, Z_l = wk.calc_impedance_from_wake([t, wake_l])
-tt_l, wwake_l = wk.calc_wake_from_impedance([f_l, Z_l])
-ff_l, Zz_l = wk.calc_impedance_from_wake([tt_l, wwake_l])
-ttt_l, wwwake_l = wk.calc_wake_from_impedance([ff_l, Zz_l])
+        wake.calc_long_Z(samples=101, fmax=5e9)
+        ds = wake.s[1] - wake.s[0]
+        n = int((wake.v / ds) // 5e9 * 101)
+        frequencies = np.fft.fftfreq(n, ds / wake.v)
+        mask = np.logical_and(frequencies >= 0, frequencies < 5e9)
+        old_spectrum = np.fft.fft(wake.lambdas * wake.v, n=n)[mask] * ds
+        old_z = -(np.fft.fft(wake.WP * 1e12, n=n)[mask] * ds) / old_spectrum
 
-# Analytical
-dt = np.mean(np.diff(t))
-T = Nsamples * dt
-Z_analytical = analytic_impedance_from_sine_cosine_wake(f_l, fr, A, T)
+        assert wake.lambdaf[0] == pytest.approx(1.0, rel=1e-10)
+        np.testing.assert_allclose(wake.lambdaf * wake.v, old_spectrum, rtol=1e-12)
+        np.testing.assert_allclose(wake.Z, old_z, rtol=1e-12)
+        header = (tmp_path / "spectrum.txt").read_text().splitlines()[0]
+        assert "[dimensionless]" in header
 
-# Transverse
-wake_t = A * np.sin(2 * np.pi * fr * t)
+        wake.calc_trans_Z(samples=101, fmax=5e9)
+        old_zx = 1j * np.fft.fft(wake.WPx * 1e12, n=n)[mask] * ds / old_spectrum
+        old_zy = 1j * np.fft.fft(wake.WPy * 1e12, n=n)[mask] * ds / old_spectrum
+        np.testing.assert_allclose(wake.Zx, old_zx, rtol=1e-12)
+        np.testing.assert_allclose(wake.Zy, old_zy, rtol=1e-12)
 
-f_t, Z_t = wk.calc_impedance_from_wake([t, wake_t], plane="transverse")
-tt_t, wwake_t = wk.calc_wake_from_impedance([f_t, Z_t], plane="transverse")
-ff_t, Zz_t = wk.calc_impedance_from_wake([tt_t, wwake_t], plane="transverse")
-ttt_t, wwwake_t = wk.calc_wake_from_impedance([ff_t, Zz_t], plane="transverse")
+    @pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+    def test_analytic_transform_and_round_trip(self, plane, plot_comparison):
+        fr = 0.5e9
+        amplitude = 100.0
+        time = np.linspace(0, 100e-9, 3000)
+        if plane == "longitudinal":
+            wake = amplitude * np.cos(2 * np.pi * fr * time)
+            wake[0] *= 0.5
+        else:
+            wake = amplitude * np.sin(2 * np.pi * fr * time)
 
-# Same analytical formula applies
-Z_analytical_t = analytic_impedance_from_sine_cosine_wake(f_t, fr, A, T)
+        frequency, impedance = wk.calc_impedance_from_wake(
+            [time, wake], plane=plane, verbose=False
+        )
+        duration = len(time) * np.mean(np.diff(time))
+        expected_impedance = analytic_impedance(
+            frequency, fr, amplitude, duration, plane
+        )
+        np.testing.assert_allclose(
+            impedance, expected_impedance, rtol=2e-3, atol=4e-9
+        )
 
+        reconstructed_time, reconstructed_wake = wk.calc_wake_from_impedance(
+            [frequency, impedance], plane=plane, verbose=False
+        )
+        expected_wake = amplitude * (
+            np.cos(2 * np.pi * fr * reconstructed_time)
+            if plane == "longitudinal"
+            else np.sin(2 * np.pi * fr * reconstructed_time)
+        )
+        expected_wake[0] *= 0.5
+        if plane == "transverse":
+            expected_wake[-1] = 0.0
 
-# Regression tests
+        plot_comparison(
+            reconstructed_wake, expected_wake, f"{plane.title()} wake"
+        )
+        plot_comparison(
+            np.abs(impedance),
+            np.abs(expected_impedance),
+            f"{plane.title()} impedance magnitude",
+        )
+        plot_comparison(
+            np.real(impedance),
+            np.real(expected_impedance),
+            f"{plane.title()} impedance real part",
+        )
+        plot_comparison(
+            np.imag(impedance),
+            np.imag(expected_impedance),
+            f"{plane.title()} impedance imaginary part",
+        )
+        np.testing.assert_allclose(reconstructed_wake, expected_wake, atol=0.05)
 
-def test_longitudinal_round_trip():
-    # DCT-I keeps the matched one-sided grid: dt = 1 / (2*fmax).
-    assert len(tt_l) == len(f_l)
-    assert np.isclose(np.mean(np.diff(tt_l)), 1.0 / (2.0 * f_l[-1]))
-    np.testing.assert_allclose(tt_l, t, rtol=0.0, atol=1e-18)
-    np.testing.assert_allclose(wwake_l, wake_l, rtol=1e-10, atol=1e-10)
+    def test_non_ultrarelativistic_distance_round_trip(self):
+        gamma = 2.0
+        beta = np.sqrt(1.0 - 1.0 / gamma**2)
+        time = np.linspace(0, 100e-9, 3000)
+        distance = time * beta * c_light
+        wake = 100.0 * np.cos(2 * np.pi * 0.5e9 * time)
+        wake[0] *= 0.5
 
+        frequency, impedance = wk.calc_impedance_from_wake(
+            wake, s=distance, gamma=gamma, verbose=False
+        )
+        reconstructed_time, _ = wk.calc_wake_from_impedance(
+            [frequency, impedance], gamma=gamma, verbose=False
+        )
+        reference_time, _ = wk.calc_wake_from_impedance(
+            [frequency, impedance], verbose=False
+        )
 
-def test_transverse_round_trip():
-    assert len(tt_t) == len(f_t)
-    assert np.isclose(np.mean(np.diff(tt_t)), 1.0 / (2.0 * f_t[-1]))
-    np.testing.assert_allclose(tt_t, t, rtol=0.0, atol=1e-18)
-    np.testing.assert_allclose(wwake_t, wake_t, rtol=1e-10, atol=1e-10)
+        np.testing.assert_array_equal(reconstructed_time, reference_time)
+        assert reconstructed_time[-1] == pytest.approx(time[-1], rel=5e-4)
 
+    def test_legacy_positional_arguments(self):
+        time = np.linspace(0, 20e-9, 128)
+        wake = np.cos(2 * np.pi * 0.5e9 * time)
 
-def test_main_residual_separation():
-    main = 0.9 * wake_l
-    f_sep, Z_sep = wk.calc_impedance_from_wake(
-        [t, wake_l], separate=True, main=main, verbose=False
-    )
-    np.testing.assert_allclose(f_sep, f_l, rtol=0.0, atol=0.0)
-    np.testing.assert_allclose(Z_sep, Z_l, rtol=1e-12, atol=1e-12)
+        frequency, impedance = wk.calc_impedance_from_wake(
+            [time, wake], None, None, None, 64, False
+        )
+        reconstructed_time, reconstructed_wake = wk.calc_wake_from_impedance(
+            impedance, frequency, 20e-9, 32, 0, False
+        )
 
-
-def test_finite_gamma_distance_input():
-    gamma = 3.0
-    beta = np.sqrt(1.0 - 1.0 / gamma**2)
-    c_light = 299792458.0
-    s = beta * c_light * t
-    f_s, Z_s = wk.calc_impedance_from_wake(
-        wake_l, s=s, gamma=gamma, verbose=False
-    )
-    f_time, Z_time = wk.calc_impedance_from_wake(
-        [t, wake_l], gamma=gamma, verbose=False
-    )
-    np.testing.assert_allclose(f_s, f_time, rtol=0.0, atol=0.0)
-    np.testing.assert_allclose(Z_s, Z_time, rtol=1e-12, atol=1e-12)
-
-
-def test_legacy_positional_arguments():
-    f_pos, Z_pos = wk.calc_impedance_from_wake(
-        [t, wake_l], None, None, None, None, False
-    )
-    np.testing.assert_allclose(f_pos, f_l, rtol=0.0, atol=0.0)
-    np.testing.assert_allclose(Z_pos, Z_l, rtol=1e-12, atol=1e-12)
-
-    t_pos, wake_pos = wk.calc_wake_from_impedance(
-        [f_l, Z_l], None, None, None, 0, False
-    )
-    np.testing.assert_allclose(t_pos, tt_l, rtol=0.0, atol=0.0)
-    np.testing.assert_allclose(wake_pos, wwake_l, rtol=1e-12, atol=1e-12)
-
-
-# Plot: Longitudinal
-plt.rc('xtick', labelsize=13)
-plt.rc('ytick', labelsize=13)
-
-fig1, axs = plt.subplots(4, 1, figsize=(11, 14))
-
-axs[0].set_title("Longitudinal wake and impedance", fontsize=18)
-axs[0].plot(t, wake_l, "-g", label="analytic", linewidth=3)
-axs[0].plot(tt_l, wwake_l, "--r", label="calc")
-axs[0].plot(ttt_l, wwwake_l, "--b", label="calc, iter2")
-axs[0].set_ylabel("Wake [V/C]")
-axs[0].legend()
-
-axs[1].plot(f_l, np.abs(Z_analytical), "-g", label="analytic", linewidth=3)
-axs[1].plot(f_l, np.abs(Z_l), "--r", label="calc")
-axs[1].plot(ff_l, np.abs(Zz_l), "--b", label="calc, iter2")
-axs[1].set_ylabel("|Z| [Ohm]")
-axs[1].set_xlim([0, 1e9])
-axs[1].legend()
-
-axs[2].plot(f_l, np.real(Z_analytical), "-g", label="analytic", linewidth=3)
-axs[2].plot(f_l, np.real(Z_l), "--r", label="calc")
-axs[2].plot(ff_l, np.real(Zz_l), "--b", label="calc, iter2")
-axs[2].set_ylabel("Re(Z) [Ohm]")
-axs[2].set_xlim([0, 1e9])
-axs[2].legend()
-
-axs[3].plot(f_l, np.imag(Z_analytical), "-g", label="analytic", linewidth=3)
-axs[3].plot(f_l, np.imag(Z_l), "--r", label="calc")
-axs[3].plot(ff_l, np.imag(Zz_l), "--b", label="calc, iter2")
-axs[3].set_ylabel("Im(Z) [Ohm]")
-axs[3].set_xlabel("Frequency [Hz]")
-axs[3].set_xlim([0, 1e9])
-axs[3].legend()
-
-fig1.tight_layout()
-
-
-# Plot: Transverse
-fig2, axs = plt.subplots(4, 1, figsize=(11, 14))
-
-axs[0].set_title("Transverse wake and impedance", fontsize=18)
-axs[0].plot(t, wake_t, "-g", label="analytic", linewidth=3)
-axs[0].plot(tt_t, wwake_t, "--r", label="calc")
-axs[0].plot(ttt_t, wwwake_t, "--b", label="calc, iter2")
-axs[0].set_ylabel("Wake [V/C/m]")
-axs[0].legend()
-
-axs[1].plot(f_t, np.abs(Z_analytical_t), "-g", label="analytic", linewidth=3)
-axs[1].plot(f_t, np.abs(Z_t), "--r", label="calc")
-axs[1].plot(ff_t, np.abs(Zz_t), "--b", label="calc, iter2")
-axs[1].set_ylabel("|Z| [Ohm/m]")
-axs[1].set_xlim([0, 1e9])
-axs[1].legend()
-
-axs[2].plot(f_t, np.real(Z_analytical_t), "-g", label="analytic", linewidth=3)
-axs[2].plot(f_t, np.real(Z_t), "--r", label="calc")
-axs[2].plot(ff_t, np.real(Zz_t), "--b", label="calc, iter2")
-axs[2].set_ylabel("Re(Z) [Ohm/m]")
-axs[2].set_xlim([0, 1e9])
-axs[2].legend()
-
-axs[3].plot(f_t, np.imag(Z_analytical_t), "-g", label="analytic", linewidth=3)
-axs[3].plot(f_t, np.imag(Z_t), "--r", label="calc")
-axs[3].plot(ff_t, np.imag(Zz_t), "--b", label="calc, iter2")
-axs[3].set_ylabel("Im(Z) [Ohm/m]")
-axs[3].set_xlabel("Frequency [Hz]")
-axs[3].set_xlim([0, 1e9])
-axs[3].legend()
-
-fig2.tight_layout()
-
-if __name__ == "__main__":
-    plt.show()
+        assert len(frequency) == 64
+        assert len(reconstructed_time) == len(reconstructed_wake) == 32
+        assert reconstructed_time[-1] == pytest.approx(20e-9)
