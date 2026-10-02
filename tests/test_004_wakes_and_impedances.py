@@ -1,13 +1,26 @@
 import sys
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+from scipy.constants import c as c_light
 from scipy.integrate import trapezoid
 
 sys.path.append("../wakis")
 from wakis import WakeSolver as wk
 
+def analytic_impedance(f, fr, amplitude, duration, plane):
+    """Continuous transform of a finite cosine or sine wake."""
+
+    def rectangular_pulse_transform(offset):
+        return duration * np.exp(-1j * np.pi * offset * duration) * np.sinc(
+            offset * duration
+        )
+
+    lower_sideband = rectangular_pulse_transform(f - fr)
+    upper_sideband = rectangular_pulse_transform(f + fr)
+    if plane == "longitudinal":
+        return 0.5 * amplitude * (lower_sideband + upper_sideband)
+    return 0.5 * amplitude * (lower_sideband - upper_sideband)
 
 class TestImpedancesAndWakes:
     @pytest.mark.parametrize("analytic", [True, False])
@@ -58,73 +71,92 @@ class TestImpedancesAndWakes:
         np.testing.assert_allclose(wake.Zx, old_zx, rtol=1e-12)
         np.testing.assert_allclose(wake.Zy, old_zy, rtol=1e-12)
 
-    def test_sin_wake(self):
+    @pytest.mark.parametrize("plane", ["longitudinal", "transverse"])
+    def test_analytic_transform_and_round_trip(self, plane, plot_comparison):
         fr = 0.5e9
-        A = 100
-        t = np.linspace(0, 100 * 1e-9, 3000)
-        wake = A * np.sin(2 * np.pi * fr * t)
+        amplitude = 100.0
+        time = np.linspace(0, 100e-9, 3000)
+        if plane == "longitudinal":
+            wake = amplitude * np.cos(2 * np.pi * fr * time)
+            wake[0] *= 0.5
+        else:
+            wake = amplitude * np.sin(2 * np.pi * fr * time)
 
-        f, Z = wk.calc_impedance_from_wake([t, wake])
-        tt, wwake = wk.calc_wake_from_impedance([f, Z], samples=3000)
-        ff, Zz = wk.calc_impedance_from_wake(
-            [tt, wwake],
+        frequency, impedance = wk.calc_impedance_from_wake(
+            [time, wake], plane=plane, verbose=False
         )
-        ttt, wwwake = wk.calc_wake_from_impedance([ff, Zz], samples=3000)
-
-        assert np.allclose(wake, wwake, atol=1), "1st Transformed wake failed"
-        assert np.allclose(wake, wwwake, atol=1), "2nd Transformed wake failed"
-
-    def test_sin_impedance(self):
-        fr = 0.5e9
-        A = 100
-        t = np.linspace(0, 100 * 1e-9, 3000)
-        wake = A * np.sin(2 * np.pi * fr * t)
-
-        f, Z = wk.calc_impedance_from_wake([t, wake])
-        tt, wwake = wk.calc_wake_from_impedance([f, Z], samples=3000)
-        ff, Zz = wk.calc_impedance_from_wake(
-            [tt, wwake],
+        duration = len(time) * np.mean(np.diff(time))
+        expected_impedance = analytic_impedance(
+            frequency, fr, amplitude, duration, plane
+        )
+        np.testing.assert_allclose(
+            impedance, expected_impedance, rtol=2e-3, atol=4e-9
         )
 
-        assert np.allclose(np.max(np.abs(Z)), A, atol=1), (
-            "1st Transformed impedance Max. failed"
+        reconstructed_time, reconstructed_wake = wk.calc_wake_from_impedance(
+            [frequency, impedance], plane=plane, verbose=False
         )
-        assert np.allclose(np.max(np.abs(Zz)), A, atol=1), (
-            "2nd Transformed impedance Max. failed"
+        expected_wake = amplitude * (
+            np.cos(2 * np.pi * fr * reconstructed_time)
+            if plane == "longitudinal"
+            else np.sin(2 * np.pi * fr * reconstructed_time)
+        )
+        expected_wake[0] *= 0.5
+        if plane == "transverse":
+            expected_wake[-1] = 0.0
+
+        plot_comparison(
+            reconstructed_wake, expected_wake, f"{plane.title()} wake"
+        )
+        plot_comparison(
+            np.abs(impedance),
+            np.abs(expected_impedance),
+            f"{plane.title()} impedance magnitude",
+        )
+        plot_comparison(
+            np.real(impedance),
+            np.real(expected_impedance),
+            f"{plane.title()} impedance real part",
+        )
+        plot_comparison(
+            np.imag(impedance),
+            np.imag(expected_impedance),
+            f"{plane.title()} impedance imaginary part",
+        )
+        np.testing.assert_allclose(reconstructed_wake, expected_wake, atol=0.05)
+
+    def test_non_ultrarelativistic_distance_round_trip(self):
+        gamma = 2.0
+        beta = np.sqrt(1.0 - 1.0 / gamma**2)
+        time = np.linspace(0, 100e-9, 3000)
+        distance = time * beta * c_light
+        wake = 100.0 * np.cos(2 * np.pi * 0.5e9 * time)
+        wake[0] *= 0.5
+
+        frequency, impedance = wk.calc_impedance_from_wake(
+            wake, s=distance, gamma=gamma, verbose=False
+        )
+        reconstructed_time, _ = wk.calc_wake_from_impedance(
+            [frequency, impedance], gamma=gamma, verbose=False
+        )
+        reference_time, _ = wk.calc_wake_from_impedance(
+            [frequency, impedance], verbose=False
         )
 
-        assert np.allclose(f[np.argmax(Z)], fr, atol=1e6), (
-            "1st Transformed impedance fr failed"
+        np.testing.assert_array_equal(reconstructed_time, reference_time)
+        assert reconstructed_time[-1] == pytest.approx(time[-1], rel=5e-4)
+
+    def test_legacy_positional_arguments(self):
+        time = np.linspace(0, 20e-9, 128)
+        wake = np.cos(2 * np.pi * 0.5e9 * time)
+
+        frequency, impedance = wk.calc_impedance_from_wake(
+            [time, wake], None, None, None, 64, False
         )
-        assert np.allclose(ff[np.argmax(Zz)], fr, atol=1e6), (
-            "2nd Transformed impedance fr. failed"
+        reconstructed_time, reconstructed_wake = wk.calc_wake_from_impedance(
+            impedance, frequency, 20e-9, 32, 0, False
         )
 
-    def plot_sin(self):
-        fr = 0.5e9
-        A = 100
-        t = np.linspace(0, 100 * 1e-9, 3000)
-        wake = A * np.sin(2 * np.pi * fr * t)
-
-        f, Z = wk.calc_impedance_from_wake([t, wake])
-        tt, wwake = wk.calc_wake_from_impedance([f, Z], samples=3000)
-        ff, Zz = wk.calc_impedance_from_wake(
-            [tt, wwake],
-        )
-        ttt, wwwake = wk.calc_wake_from_impedance([ff, Zz], samples=3000)
-
-        fig, (ax1, ax2) = plt.subplots(2, 1)
-        ax1.plot(t, wake, "-g", alpha=0.8, label="analytic")
-        ax1.plot(tt, wwake, "--r", alpha=0.5, label="calc")
-        ax1.plot(ttt, wwwake, "--b", alpha=0.5, label="calc, iter2")
-        ax1.set_xlabel("time [s]")
-
-        ax2.plot([fr, fr], [0.0, A], "-g", alpha=0.8, label="analytic")
-        ax2.plot(f, np.abs(Z), "--r", alpha=0.5, label="calc")
-        ax2.plot(ff, np.abs(Zz), "--b", alpha=0.5, label="calc, iter2")
-        ax2.set_xlabel("frequency [Hz]")
-        ax2.legend()
-
-        fig.tight_layout()
-        fig.savefig("test_004_sin.png")
-        plt.show()
+        assert len(frequency) == 64
+        assert len(reconstructed_time) == len(reconstructed_wake) == 32
+        assert reconstructed_time[-1] == pytest.approx(20e-9)
