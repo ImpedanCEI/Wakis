@@ -1600,7 +1600,7 @@ class WakeSolver:
         Notes
         -----
         - The data is saved in a two-column format where `x_data` and `y_data`
-        are combined column-wise.
+          are combined column-wise.
         - If `x_data` or `y_data` is missing, the function prints a warning and does not save a file.
 
         Examples
@@ -1611,7 +1611,7 @@ class WakeSolver:
         >>> y = np.sin(x)
         >>> save_txt("data", x, y, x_name="Time [s]", y_name="Amplitude")
 
-        The saved file will look like:
+        The saved file will look like::
 
             Time [s]               Amplitude
             --------------------------------

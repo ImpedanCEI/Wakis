@@ -4,13 +4,9 @@
 # ########################################### #
 
 """
-The `sources.py` script containts different classes
-defining a time-dependent sources to be installed
-in the electromagnetic simulation.
+This module defines time-dependent sources for electromagnetic simulations.
 
-All sources need an update function that will be called
-every simulation timestep, e.g.:
-    def update(self, t, *args, **kwargs)`
+Each source provides an update method called at every simulation timestep.
 """
 
 import matplotlib.pyplot as plt
