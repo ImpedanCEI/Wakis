@@ -16,6 +16,12 @@ from .field import Field
 
 
 class BCsMixin:
+    """Configure and apply boundary conditions for ``SolverFIT3D``.
+
+    Provides the internal PEC, PMC, periodic, ABC, PML, CPML, and TFSF setup
+    routines used when the solver initializes and advances its fields.
+    """
+
     def _apply_bc_to_C(self):
         """
         Apply boundary conditions by modifying curl and metric matrices.
@@ -923,7 +929,7 @@ class BCsMixin:
             )
 
         del self.pml_b_E, self.pml_c_E, self.pml_b_H, self.pml_c_H
-        
+
     def _initialize_tfsf(self):
         """
         Initialize the Total-Field/Scattered-Field (TFSF) boundary conditions.
@@ -949,7 +955,7 @@ class BCsMixin:
         self.tf_dyz = iAy * Lx
         self.tf_dtxz = itAx * tLy
         self.tf_dtyz = itAy * tLx
-        
+
     def _initialize_abc(self):
         """Initialize plane-local state for first-order Mur ABC."""
         abc_axes = [
@@ -989,7 +995,6 @@ class BCsMixin:
         self.abc_x_high_coeff = (wave_speed * self.dt - self.dx[-1]) / (
             wave_speed * self.dt + self.dx[-1]
         )
-
 
         # y-normal faces: tangential Ex and Ez.
         self.abc_y_low_coeff = (wave_speed * self.dt - self.dy[0]) / (

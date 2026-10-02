@@ -14,6 +14,12 @@ from wakis.sources import Beam
 
 
 class RoutinesMixin:
+    """Run electromagnetic and wakefield simulations for ``SolverFIT3D``.
+
+    Provides the time-stepping routines for field output, plotting, and wake
+    calculations, along with their plotting defaults.
+    """
+
     def emsolve(
         self,
         Nt,
@@ -67,38 +73,8 @@ class RoutinesMixin:
         **kwargs
             Keyword arguments to be passed to the Plot2D or Plot3D function.
 
-            * Default kwargs used for 2D plotting:
-            ```
-            plotkw = {
-                "field": "E",
-                "component": "z",
-                "plane": "ZY",
-                "pos": 0.5,
-                "cmap": "rainbow",
-                "patch_reverse": True,
-                "title": "Ez",
-                "off_screen": True,
-                "interpolation": "spline36",
-            }
-            ```
-
-            * Default kwargs used for 3D plotting:
-            ```
-            plotkw = {
-                "field": "E",
-                "component": "z",
-                "add_stl": None,
-                "stl_opacity": 0.0,
-                "stl_colors": "white",
-                "title": "Ez",
-                "cmap": "jet",
-                "clip_box": False,
-                "clip_normal": "-y",
-                "off_screen": True,
-                "zoom": 1.0,
-                "nan_opacity": 1.0,
-            }
-            ```
+            Default keyword arguments are provided by
+            :meth:`get_plotting_kwargs` for 2D and 3D plots.
 
         Raises
         ------
@@ -257,8 +233,12 @@ class RoutinesMixin:
         wakelength : float
             Desired length of the wake in [m] to be computed.
 
-            Maximum simulation time in [s] can be computed from the wakelength parameter as:
-            .. math::    t_{max} = t_{inj} + (wakelength + (z_{max}-z_{min}))/c
+            Maximum simulation time in [s] can be computed from the wakelength
+            parameter as:
+
+            .. math::
+
+               t_{max} = t_{inj} + (wakelength + (z_{max}-z_{min}))/c
         wake : object, optional
             `WakeSolver` object containing the information needed to run the wake solver
             calculation. See Wake docstring for more information. Can be passed at
@@ -290,10 +270,7 @@ class RoutinesMixin:
             Deprecated. If True, use exponential time differencing.
         **kwargs
             Keyword arguments to be passed to the Plot2D function.
-            Default kwargs used:
-                {'plane':'ZY', 'pos':0.5, 'title':'Ez',
-                'cmap':'rainbow', 'patch_reverse':True,
-                'off_screen': True, 'interpolation':'spline36'}
+            Defaults are provided by :meth:`get_plotting_kwargs`.
 
         Raises
         ------
