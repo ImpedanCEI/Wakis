@@ -25,3 +25,5 @@ dist/
 wakis.egg-info/
 .coverage
 .vscode/
+notes/*
+!notes/PR_DESCRIPTION_106_SOURCES_REFACTOR.md
