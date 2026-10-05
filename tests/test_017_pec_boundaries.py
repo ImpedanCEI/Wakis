@@ -63,8 +63,9 @@ class TestBoundaryConditions:
 
         for component in tangential_components:
             if axis == 0:
-                # Exclude edges shared with the y/z boundaries. Their current
-                # treatment is independent of the high-side PEC regression tested here.
+                # Exclude edges and corners shared by multiple boundary faces.
+                # Their treatment depends on the combination of boundary conditions
+                # and is outside the scope of this regression test.
                 low_mask = solver.BC[0, 1:-1, 1:-1, component]
                 high_mask = solver.BC[-1, 1:-1, 1:-1, component]
 
