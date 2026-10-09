@@ -310,9 +310,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.source_type = (
                     "tfsf"  # Force Total-Field/Scattered-Field injection for PML
                 )
-                print(
-                    "[!] PML works better with Total-Field/Scattered-Field injection, setting source_type='tfsf'"
-                )
                 self.update_logger(["source_type"])
             self.n_pml = n_pml
             self._initialize_PML()
@@ -326,12 +323,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 print("Filling CPML parameters...")
             self.one_step = self._one_step_cpml
             if self.source_type != "tfsf":
-                self.source_type = (
-                    "tfsf"  # Force Total-Field/Scattered-Field injection for CPML
-                )
-                print(
-                    "[!] CPML requires Total-Field/Scattered-Field injection, setting source_type='tfsf'"
-                )
+                self.source_type = "tfsf"  # Forced for CPML
                 self.update_logger(["source_type"])
             self.n_pml = n_pml
             self.kappa_max = kappa_max

@@ -11,6 +11,7 @@ from scipy.constants import c
 
 from wakis import GridFIT3D, SolverFIT3D
 from wakis.sources import Beam
+from wakis.sources.beam import Z0
 
 
 @pytest.mark.parametrize(
@@ -40,6 +41,16 @@ def test_serial_tfsf_injection_and_lifecycle(
     beam.update(solver, 0.0)
     assert (beam.j_start, beam.j_stop) == (expected_start, expected_stop)
     assert beam.high_plane == solver.z[expected_stop]
+    assert set(beam._tfsf_field_templates) == {"low", "high"}
+    for (
+        electric_x,
+        electric_y,
+        magnetic_x,
+        magnetic_y,
+    ) in beam._tfsf_field_templates.values():
+        assert electric_x.shape == electric_y.shape == (solver.Nx, solver.Ny)
+        np.testing.assert_allclose(magnetic_x, -electric_y / Z0)
+        np.testing.assert_allclose(magnetic_y, electric_x / Z0)
 
     # Initially E and H are zero, so the first H update isolates the TF/SF correction.
     expected_hx = (
@@ -76,6 +87,7 @@ def test_serial_tfsf_injection_and_lifecycle(
     assert solver.injection_done
     assert not hasattr(solver, "E_trans")
     assert not hasattr(solver, "tf_dxz")
+    assert not hasattr(beam, "_tfsf_field_templates")
     for step in range(n + 1, n + 6):
         beam.update(solver, step * solver.dt)
         solver.one_step()
