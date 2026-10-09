@@ -285,10 +285,12 @@ Sources in `wakis` can be:
 
 The sources can modify components of the $E$ and $H$ fields or the current $J$. Each source updates the solver once per timestep.
 
+All waveform sources use hard injection by default, assigning their evaluated values to the selected components. Pass `injection="soft"` to add the values to the existing fields instead. The `Beam` source uses its own moving-current and TF/SF injection path.
+
 To add a time-dependent source, one can simply setup a time-loop and run the routine `solver.one_step()` after the source has been applied (see [Running a simulation](#running-a-simulation) section). However, a more optimized way is to pass a `source` to the EM solver. The `source` objects available inside `sources.py` are:
 * `Beam`: a line source for $J_z$ that adds a Gaussian current traversing the domain from z- to z+. Its longitudinal size $\sigma_z$, total charge $q$, and transverse position are constructor arguments.
-* `PlaneWave`: a port source that excites a sinusoidal plane wave in the +$z$ direction by modifying $E_x$ and $H_y$ in an $xy$ plane.
-* `WavePacket`: a port source for a Gaussian wave packet travelling in +$z$, with configurable frequency or wavelength, longitudinal size, transverse size, and speed.
+* `PlaneWave`: a port source that excites a sinusoidal TM plane wave at angle `theta` from +$z$ towards +$x$ by modifying $E_x$, $E_z$, and $H_y$ in an $xy$ plane. The default `theta=0` gives propagation along +$z$.
+* `WavePacket`: a port source for a TM Gaussian wave packet travelling in the $x$-$z$ plane, with configurable angle from +$z$, frequency or wavelength, longitudinal size, transverse size, and speed.
 * `Dipole`: Updates the user-defined field and component every timestep to introduce a dipole-like sinusoidal excitation
 * `Pulse`: Injects an electromagnetic pulse at the given source point (xs, ys, zs), with the selected shape {"Harris", "Gaussian", "Rectangular"}, length, and amplitude
 

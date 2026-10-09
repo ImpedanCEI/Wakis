@@ -232,41 +232,108 @@ Most matrix operations are precomputed and cached, enabling large-scale simulati
 
 Wakis allows arbitrary initial conditions on $\vec{E}$, $\vec{H}$, and $\vec{J}$. Sources can be defined in multiple ways:
 - **User-defined time-dependent callbacks** placed after each step
-- **Predefined source types**: Gaussian beams, dipoles, plane waves, laser pulses, available in `sources.py`
+- **Predefined source types**: particle beams, dipoles, plane waves, and pulses, available in `wakis.sources`
 
-```{tip}
-#### ⚙️ Source callbacks
+#### Prescribed waveform sources
 
-A source callback can be easily created as:
-- A function like `def update(solver, time)` placed in a `for` loop after each step `solver.one_step()`.
-- a class with the method `Source.update(solver, time)`, passed to the `solver.emsolve()` routine.
-```
-
-#### Example: Gaussian Beam Current $J_z$
-
-A rigid Gaussian bunch current is modeled as a line distribution:
+These sources impose a waveform on selected field or current components at fixed grid indices. Their profiles can be separated into three factors:
 
 $$
-\mathbf{J}_z(x_{\text{src}}, y_{\text{src}}, \vec{z}) =
-\frac{q \beta c}{\sqrt{2\pi} \sigma_z} \,
-\exp\left( -\frac{(\vec{s} - s_0)^2}{2\sigma_z^2} \right)
+S(u,v,w,t) = A\,P(u,v)\,G(w,t)\,C(w,t),
+$$
+
+where $P(u,v)$ is the transverse profile, $G(w,t)$ is the temporal envelope, and $C(w,t)$ is the carrier. The envelope determines the pulse duration and spectral width, while the carrier sets its central frequency. A source with $C(w,t)=1$ is a carrier-free broadband pulse.
+
+The predefined plane sources use these factors as follows:
+
+| Source | Temporal envelope $G(w,t)$ | Transverse profile $P(u,v)$ | Carrier $C(w,t)$ | Injected fields |
+|---|---|---|---|---|
+| `PlaneWave` | Constant, optionally time limited | Uniform on the selected plane | $\cos(\omega t-kw+\phi)$ | Matched TM fields |
+| `GaussianPacket` | Gaussian | Gaussian | None, $C(t)=1$ | Either $E_x$ or $H_y$ |
+| `WavePacket` | Gaussian | Gaussian | $\cos(\omega t-kw+\phi)$ | Matched TM fields, normal or oblique |
+| `Pulse` | Harris, Gaussian, or rectangular | Defined by the selected indices | None | One selected component of $\mathbf{E}$, $\mathbf{H}$, or $\mathbf{J}$ |
+
+For `GaussianPacket`, the value imposed at the plane $z=z_s$ is
+
+$$
+S(x,y,t) = A
+\exp\left[-\frac{x^2+y^2}{2\sigma_{xy}^2}\right]
+\exp\left[-\frac{(\beta c t-t_{\mathrm{inj}})^2}{2\sigma_z^2}\right].
+$$
+
+The pulse peaks at $t=t_{\mathrm{inj}}/(\beta c)$. Selecting `field="E"` imposes $E_x=S$ with amplitude in V/m; selecting `field="H"` preserves the existing convention $H_y=-S$ with amplitude in A/m. Only the selected field is prescribed, and Maxwell's equations evolve the companion field. This differs from `WavePacket`, which explicitly imposes an impedance-matched electric and magnetic pair with an oscillating carrier.
+
+`PlaneWave` and `WavePacket` use the same TM polarization and propagation angle $\theta$, measured from $+z$ towards $+x$. The propagation direction is
+
+$$
+\hat{\mathbf{k}}=(\sin\theta,0,\cos\theta), \qquad
+\mathbf{H}=H_y(0,1,0), \qquad
+\mathbf{E}=\mu_0\beta c H_y(\cos\theta,0,-\sin\theta).
+$$
+
+The source frame uses coordinates $(u,v,w)$: $w$ follows the propagation direction and $(u,v)$ span the transverse plane. Global Cartesian coordinates remain $(x,y,z)$, while $s$ is reserved for the distance between a source particle and an observation or integration point. On the injection plane, $w=x\sin\theta$, $u=x\cos\theta$, and $v=y$. Consequently, $\mathbf{k}\cdot\mathbf{E}=0$ and $\mathbf{E}\times\mathbf{H}$ points along $\hat{\mathbf{k}}$. The default $\theta=0$ gives the normal-incidence $E_x/H_y$ packet.
+
+The `Beam` source does not belong to this table because it prescribes a moving physical current distribution rather than a fixed-location waveform. The resulting fields are generated self-consistently by Maxwell's equations and the surrounding structure.
+
+#### Common waveform-source lifecycle
+
+The predefined waveform sources inherit from `WaveformSource` (`Source` remains
+an alias for compatibility). Their common update sequence is:
+
+1. Resolve mesh-dependent defaults once through `_initialize()`.
+2. Evaluate the shared spatial profile, temporal envelope, and carrier helpers.
+3. Compute and inject the physical field components explicitly in each concrete
+   source's `update()` method.
+
+With `injection="hard"`, which preserves the previous default behavior, the source replaces the selected field components. With `injection="soft"`, it adds to the existing field values. Plotting methods use the same shared profile and carrier helpers as the simulation updates.
+
+`WaveformSource` provides the reusable transformation from global Cartesian coordinates $(x,y,z)$ to source-frame coordinates $(u,v,w)$. `PlaneWave` and `WavePacket` use this transformation while keeping their polarization equations explicit in their own `update()` methods.
+
+#### Beam source for wakefield simulations
+
+`Beam` is the main excitation used for wakefield and beam-coupling impedance simulations. Calling `SolverFIT3D.wakesolve()` constructs it automatically from the bunch parameters stored in `WakeSolver`. It can also be passed directly to `emsolve()` when only the time-domain fields are needed.
+
+A rigid Gaussian bunch moving in the positive $z$ direction is represented in the continuum by
+
+$$
+J_z(x,y,z,t) =
+\frac{qv}{\sqrt{2\pi}\sigma_z}
+\delta(x-x_{\mathrm{src}})\delta(y-y_{\mathrm{src}})
+\exp\left[-\frac{(z-vt-s_0)^2}{2\sigma_z^2}\right],
 $$
 
 with:
-- $\vec{s} = \vec{z} - \beta c t$: beam-frame coordinate
-- $s_0 = z_{\min} - \beta c t_{\text{inj}}$: center of bunch
-- $q$ the charge in $\text{nC}$
-- $\sigma_z$ the bunch length in $\text{m}$
+- $v=\beta c$: beam velocity
+- $s_0=z_{\min}-vt_{\mathrm{inj}}$: initial bunch-center offset
+- $q$: total bunch charge in C
+- $\sigma_z$: rms bunch length in m
+- $(x_{\mathrm{src}},y_{\mathrm{src}})$: transverse source position
 
-This supports both **ultra-relativistic** ($\beta \approx 1$) and **low-beta** scenarios.
+On the discrete grid, the transverse delta functions are deposited in the source cell by dividing the line current by its transverse cell area. The bunch current drives the solver fields, and those fields contain both the direct beam field and the wake scattered by the geometry. Wake potentials and impedances are then obtained from the fields sampled along the test trajectory, as described in Section 4.
 
-To avoid parasitic fields interacting with the Perfect Matched Layer (PML) boundary, particle beams are only injected into the physical domain, excluding the PML region. To mitigate the divergence error fields that arise from this truncation, a Total-Field/Scattered-Field (TF/SF) formulation is applied [M.C. Balk et al., 2006].
+This source supports both **ultra-relativistic** ($\beta \approx 1$) and **low-beta** scenarios.
+
+```{warning}
+First-order Mur ABCs are not sufficient for open-boundary wakefield simulations driven by `Beam`. Mur assumes an outgoing plane wave close to normal incidence with a single propagation speed. A moving bunch also produces broadband, co-propagating space-charge and transverse/TEM-like field components that do not satisfy this approximation, so appreciable fields can be reflected from the longitudinal boundary and contaminate the computed wake.
+
+CPML is the recommended longitudinal absorber for beam-driven simulations because it handles broadband, low-frequency, evanescent, and non-normal field content more effectively. The simpler PML remains available, but its absorption is less robust.
+```
+
+With PML or CPML boundaries, the bunch current is injected only into the physical domain and excluded from the absorbing layer. Abruptly truncating the current would otherwise violate the discrete continuity relation and generate parasitic fields. Wakis therefore uses a Total-Field/Scattered-Field (TF/SF) formulation [M.C. Balk et al., 2006].
 
 The computational domain is divided into total-field and scattered-field regions, with the TF/SF boundary offset by one cell from the CPML interface. The beam is injected strictly within the total-field region, where the total field is defined as:
 
 $$E^t = E^s + E^i$$
 
 At the boundary, the curl operator is modified to add or subtract the incident fields, rendering the boundary transparent to field propagation. For ultrarelativistic beams, incident transverse electric fields are pre-calculated using a 2D Poisson solver and dynamically scaled by the instantaneous longitudinal current density during time integration.
+
+```{tip}
+#### ⚙️ Source callbacks
+
+A source callback can be easily created as:
+- A function like `def update(solver, time)` placed in a `for` loop after each step `solver.one_step()`.
+- A class with the method `Source.update(solver, time)`, passed to the `solver.emsolve()` routine.
+```
 
 ### 🧊🔚 Boundary Conditions
 
@@ -346,7 +413,7 @@ $$
 This preserves the impedance while introducing attenuation. Equivalently, a PML can be formulated through complex coordinate stretching [Gedney et al., 2000]:
 
 $$
-s = 1 + \frac{\sigma}{j\omega\varepsilon_0}.
+S_{\mathrm{PML}} = 1 + \frac{\sigma}{j\omega\varepsilon_0}.
 $$
 
 The current Wakis `pml` boundary is a deliberately simple adiabatic absorber rather than a complete matched, stretched-coordinate PML. It adds a geometrically graded artificial electric conductivity to the PML cells and uses the regular electric-current update. The inverse permittivity in those cells is set to the vacuum value, and no corresponding artificial magnetic conductivity is applied. Consequently, its effectiveness depends on layer thickness and the low-conductivity ramp; it is not expected to be reflectionless, especially for oblique incidence, broadband pulses, or non-vacuum material at the interface.
@@ -356,7 +423,7 @@ The current Wakis `pml` boundary is a deliberately simple adiabatic absorber rat
 Convolutional PML (CPML) improves absorption of grazing-incidence, low-frequency, and evanescent fields by using a complex-frequency-shifted coordinate stretch [Gedney et al., 2000]:
 
 $$
-s = \kappa + \frac{\sigma}{\alpha + j\omega\varepsilon_0}.
+S_{\mathrm{PML}} = \kappa + \frac{\sigma}{\alpha + j\omega\varepsilon_0}.
 $$
 
 Here $\kappa \geq 1$ scales the coordinate stretch, $\sigma$ is the graded conductivity, and $\alpha$ is a non-negative frequency-shift parameter. Wakis constructs $\sigma$, $\kappa$, and $\alpha$ on both primal and dual field locations with a polynomial distance profile. It converts them into recursion coefficients and stores only the CPML auxiliary fields needed to correct curl terms inside each boundary layer.
