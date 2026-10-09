@@ -8,15 +8,16 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.constants import c as c_light
-from scipy.constants import mu_0
+
+from .source import WaveformSource
 
 
-class GaussianPacket:
-    """Magnetic soft source with a Gaussian spatial and temporal envelope.
+class GaussianPacket(WaveformSource):
+    """Carrier-free soft source with Gaussian temporal and transverse profiles.
 
-    The source currently writes only ``Hy``; the solver evolves the companion
-    electric field. ``sigmaf`` and ``sigmaz`` use the vacuum relation
-    ``sigmaf = c / (2*pi*sigmaz)``.
+    The source writes either ``Ex`` or ``Hy`` on a plane normal to the z-axis;
+    the solver evolves the companion field. ``sigmaf`` and ``sigmaz`` use the
+    vacuum relation ``sigmaf = c / (2*pi*sigmaz)``.
     """
 
     def __init__(
@@ -31,11 +32,11 @@ class GaussianPacket:
         beta=1.0,
         sigmaf=None,
         phase=0,
-        theta=0,
+        field="H",
+        injection="hard",
     ):
         """
-        Updates Hy every timestep to introduce a magnetic Gaussian soft source
-        at the given xs, ys slice.
+        Inject a carrier-free Gaussian soft source on an xy plane.
 
         Parameters
         ----------
@@ -50,14 +51,19 @@ class GaussianPacket:
         tinj : float, optional
             Injection time delay [m]. Default is 6*sigmaz.
         amplitude : float, optional
-            Amplitude of the wave packet. Default is 1.0.
+            Amplitude of the injected field, in V/m for ``field='E'`` or A/m
+            for ``field='H'``. Default is 1.0.
         beta : float, optional
             Relativistic beta. Default is 1.0.
         phase : float, optional
             Reserved for API compatibility. This nonoscillatory source does
             not currently apply a carrier phase.
-        theta : float, optional
-            Propagation angle with respect to z-axis [rad]. Default is 0.
+        field : {'E', 'H'}, optional
+            Field to inject. ``'E'`` writes Ex in V/m and ``'H'`` writes Hy
+            in A/m. Default is ``'H'``.
+        injection : {'hard', 'soft'}, optional
+            Hard injection assigns the selected field; soft injection adds to
+            it. Default is ``'hard'``.
 
         Attributes
         ----------
@@ -72,16 +78,18 @@ class GaussianPacket:
         sigmaf : float
             Gaussian frequency width [Hz].
         amplitude : float
-            Amplitude of the wave packet.
+            Amplitude of the injected field.
         beta : float
             Relativistic beta.
         phase : float
             Reserved phase value; currently unused.
-        theta : float
-            Propagation angle with respect to z-axis [rad].
+        field : str
+            Injected field, either ``'E'`` or ``'H'``.
         is_first_update : bool
             Flag for first update call.
         """
+        super().__init__(injection=injection)
+
         # Check inputs and update self
         self.beta = beta
         self.xs, self.ys = xs, ys
@@ -92,7 +100,9 @@ class GaussianPacket:
         self.tinj = tinj
         self.amplitude = amplitude
         self.phase = phase
-        self.theta = theta
+        self.field = str(field).upper()
+        if self.field not in ("E", "H"):
+            raise ValueError("field must be either 'E' or 'H'")
 
         if self.sigmaf is not None and self.sigmaz is None:
             self.sigmaz = c_light / (2 * np.pi * self.sigmaf)
@@ -101,61 +111,45 @@ class GaussianPacket:
         if self.tinj is None and self.sigmaz is not None:
             self.tinj = 6 * self.sigmaz
 
-        self.is_first_update = True
+    def _initialize(self, solver):
+        """Resolve mesh-dependent packet defaults."""
+        if self.xs is None:
+            self.xs = slice(0, solver.Nx)
+        if self.ys is None:
+            self.ys = slice(0, solver.Ny)
+        if self.sigmaz is None:
+            self.sigmaz = 10 * np.mean(
+                solver.dz
+            )  # only feasible for not to ununiform grids
+        if self.tinj is None:
+            self.tinj = 6 * self.sigmaz
+        if self.sigmaxy is None:
+            self.sigmaxy = 5 * np.mean([np.mean(solver.dx), np.mean(solver.dy)])
 
     def update(self, solver, t):
-        """
-        Update the E and H fields in the solver to represent the wave packet at time t.
+        """Inject the selected carrier-free Gaussian field at time ``t``."""
+        self._ensure_initialized(solver)
 
-        Parameters
-        ----------
-        solver : object
-            Solver object with E and H field arrays.
-        t : float
-            Current simulation time [s].
-        """
-        if self.is_first_update:
-            if self.xs is None:
-                self.xs = slice(0, solver.Nx)
-            if self.ys is None:
-                self.ys = slice(0, solver.Ny)
-            if self.sigmaz is None:
-                self.sigmaz = 10 * np.mean(
-                    solver.dz
-                )  # only feasible for not to ununiform grids
-            if self.tinj is None:
-                self.tinj = 6 * self.sigmaz
-            if self.sigmaxy is None:
-                self.sigmaxy = 5 * np.mean([np.mean(solver.dx), np.mean(solver.dy)])
-
-            self.is_first_update = False
-
-        # 2d gaussian
         X, Y = np.meshgrid(solver.x[self.xs], solver.y[self.ys], indexing="ij")
         zs_physical = solver.z[self.zs]
-        s_spatial = X * np.sin(self.theta) + zs_physical * np.cos(self.theta)
+        spatial = self.gaussian_spatial_profile(X, Y, self.sigmaxy)
+        temporal = self._compute_temporal_envelope(t, zs_physical)
+        waveform = self.amplitude * spatial * temporal
 
-        # reference shift
-        s0 = zs_physical - self.tinj
-        s = s_spatial - self.beta * c_light * t
+        index = (self.xs, self.ys, self.zs)
+        if self.field == "H":
+            self._inject(solver.H, (*index, "y"), -waveform)
+        else:
+            self._inject(solver.E, (*index, "x"), waveform)
 
-        gaussxy = np.exp(-(X**2 + Y**2) / (2 * self.sigmaxy**2))
-        gausst = np.exp(-((s - s0) ** 2) / (2 * self.sigmaz**2))
-
-        # Update
-
-        solver.H[self.xs, self.ys, self.zs, "y"] = -self.amplitude * gaussxy * gausst
-        # solver.E[self.xs, self.ys, self.zs, "x"] = (
-        #     self.amplitude
-        #     * mu_0
-        #     * c_light
-        #     * gaussxy
-        #     * gausst
-        # )
+    def _compute_temporal_envelope(self, t, z_pos=0):
+        """Return the Gaussian temporal envelope at a longitudinal position."""
+        coordinate = self.tinj - self.beta * c_light * t
+        return self.gaussian_profile(coordinate, self.sigmaz)
 
     def plot(self, t, zmin=0):
         """
-        Plot the time evolution of the wave packet source fields.
+        Plot the time evolution of the injected field.
 
         Parameters
         ----------
@@ -166,27 +160,19 @@ class GaussianPacket:
         """
         fig, ax = plt.subplots()
 
-        # compute source evolution
-        s0 = zmin - self.tinj
-        s = zmin - self.beta * c_light * t
-        gausst = np.exp(-((s - s0) ** 2) / (2 * self.sigmaz**2))
+        waveform = self.amplitude * self._compute_temporal_envelope(t, zmin)
+        waveform *= -1 if self.field == "H" else 1
+        units = "A/m" if self.field == "H" else "V/m"
+        component = "Hy" if self.field == "H" else "Ex"
 
-        sourceH = -self.amplitude * gausst
-        ax.plot(t, sourceH, "b")
+        ax.plot(t, waveform, label=component)
         ax.set_xlabel("Time [s]")
-        ax.set_ylabel("Magnetic field Hy [A/m]", color="b")
-        ax.set_ylim(-np.abs(sourceH).max(), +np.abs(sourceH).max())
-
-        sourceE = self.amplitude * mu_0 * c_light * gausst
-        axx = ax.twinx()
-        axx.plot(t, sourceE, "r")
-        axx.set_ylabel("Electric field Ex [V/m]", color="r")
-        axx.set_ylim(-np.abs(sourceE).max(), +np.abs(sourceE).max())
-
+        ax.set_ylabel(f"{self.field} field [{units}]")
+        ax.legend()
         fig.tight_layout()
         plt.show()
 
-    def spectrumPlot(self, t, zmin=0):
+    def plot_spectrum(self, t, zmin=0):
         """
         Plot the spectrum of the gaussian pulse.
 
@@ -204,9 +190,7 @@ class GaussianPacket:
         S : ndarray
             Spectrum values (arbitrary units).
         """
-        s0 = zmin - self.tinj
-        s = zmin - self.beta * c_light * t
-        gausst = np.exp(-((s - s0) ** 2) / (2 * self.sigmaz**2))
+        gausst = self._compute_temporal_envelope(t, zmin)
 
         S = np.abs(np.fft.fft(gausst)) ** 2
         f = np.fft.fftfreq(len(t), d=t[1] - t[0])
@@ -221,4 +205,4 @@ class GaussianPacket:
         fig.tight_layout()
         plt.show()
 
-        return
+        return f[mask], S[mask]

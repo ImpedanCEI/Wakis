@@ -5,11 +5,13 @@
 
 """Electromagnetic pulse source."""
 
-import numpy as np
+import matplotlib.pyplot as plt
 from scipy.constants import c as c_light
 
+from .source import WaveformSource
 
-class Pulse:
+
+class Pulse(WaveformSource):
     def __init__(
         self,
         field="E",
@@ -21,6 +23,7 @@ class Pulse:
         L=None,
         amplitude=1.0,
         delay=0.0,
+        injection="hard",
     ):
         """
         Injects an electromagnetic pulse at the given source point (xs, ys, zs), with
@@ -39,11 +42,14 @@ class Pulse:
             Profile of the pulse in time: ['Harris', 'Gaussian', 'Rectangular'].
             Default is 'Harris'.
         L : float, optional
-            Width of the pulse (~10*sigma). Default is 50*dt.
+            Longitudinal pulse length [m]. Default is ``50*c*dt``.
         amplitude : float, optional
             Amplitude of the pulse. Default is 1.0.
         delay : float, optional
-            Time delay for the pulse [s]. Default is 0.0.
+            Longitudinal pulse delay [m]. Default is 0.0.
+        injection : {'hard', 'soft'}, optional
+            Hard injection assigns the selected component; soft injection
+            adds to it. Default is ``'hard'``.
 
         Attributes
         ----------
@@ -66,10 +72,11 @@ class Pulse:
 
         Notes
         -----
-        Injection time for the gaussian pulse t0=5*L to ensure smooth derivative.
+        The Gaussian pulse peaks at ``L/2`` and has standard deviation ``L/10``.
         """
-        # Check inputs and update self
+        super().__init__(injection=injection)
 
+        # Check inputs and update self
         self.xs, self.ys, self.zs = xs, ys, zs
         self.field = field
         self.component = component
@@ -82,6 +89,11 @@ class Pulse:
             self.component = field[1]
             self.field = field[0]
 
+        self.field = self.field.upper()
+        self.component = self.component.lower()
+        if self.field not in ("E", "H", "J"):
+            raise ValueError("field must be 'E', 'H', or 'J'")
+
         if shape.lower() == "harris":
             self.tprofile = self.harris_pulse
         elif shape.lower() == "gaussian":
@@ -89,11 +101,7 @@ class Pulse:
         elif shape.lower() == "rectangular":
             self.tprofile = self.rectangular_pulse
         else:
-            print(
-                '** shape does not, match available types: "Harris", "Gaussian", "Rectangular"'
-            )
-
-        self.is_first_update = True
+            raise ValueError("shape must be 'Harris', 'Gaussian', or 'Rectangular'")
 
     def harris_pulse(self, t):
         """
@@ -109,24 +117,8 @@ class Pulse:
         float or ndarray
             Harris pulse value(s).
         """
-        t = t * c_light - self.delay
-        try:
-            if t < self.L:
-                return (
-                    10
-                    - 15 * np.cos(2 * np.pi / self.L * t)
-                    + 6 * np.cos(4 * np.pi / self.L * t)
-                    - np.cos(6 * np.pi / self.L * t)
-                ) / 32  # L dividing (working)
-            else:
-                return 0.0
-        except Exception:  # support for time arrays
-            return (
-                10
-                - 15 * np.cos(2 * np.pi / self.L * t)
-                + 6 * np.cos(4 * np.pi / self.L * t)
-                - np.cos(6 * np.pi / self.L * t)
-            ) / 32  # L dividing (working)
+        coordinate = t * c_light - self.delay
+        return self.harris_profile(coordinate, self.L)
 
     def gaussian_pulse(self, t):
         """
@@ -142,8 +134,8 @@ class Pulse:
         float or ndarray
             Gaussian pulse value(s).
         """
-        t = t * c_light - self.delay
-        return np.exp(-((t - 5 * (self.L / 10)) ** 2) / (2 * (self.L / 10) ** 2))
+        coordinate = t * c_light - self.delay
+        return self.gaussian_profile(coordinate - self.L / 2, self.L / 10)
 
     def rectangular_pulse(self, t):
         """
@@ -159,47 +151,51 @@ class Pulse:
         float or ndarray
             Rectangular pulse value(s).
         """
-        t = t * c_light - self.delay
-        if t < self.L and t > 0.0:
-            return 1.0
-        else:
-            return 0.0
+        coordinate = t * c_light - self.delay
+        return self.rectangular_profile(coordinate, self.L)
+
+    def _initialize(self, solver):
+        """Resolve the default source position and pulse length."""
+        if self.xs is None:
+            self.xs = int(solver.Nx / 2)
+        if self.ys is None:
+            self.ys = int(solver.Ny / 2)
+        if self.zs is None:
+            self.zs = int(solver.Nz / 2)
+        if self.L is None:
+            self.L = 50 * c_light * solver.dt
 
     def update(self, solver, t):
-        """
-        Update the specified field/component in the solver to represent the pulse at
-        time t.
+        """Inject the selected pulse component at time ``t``."""
+        self._ensure_initialized(solver)
 
-        Parameters
-        ----------
-        solver : object
-            Solver object with E, H, and J field arrays.
-        t : float
-            Current simulation time [s].
-        """
-        if self.is_first_update:
-            if self.xs is None:
-                self.xs = int(solver.Nx / 2)
-            if self.ys is None:
-                self.ys = int(solver.Ny / 2)
-            if self.zs is None:
-                self.zs = int(solver.Nz / 2)
-            if self.L is None:
-                self.L = 50 * solver.dt
-
-            self.is_first_update = False
+        waveform = self.amplitude * self.tprofile(t)
+        index = (self.xs, self.ys, self.zs, self.component)
 
         if self.field == "E":
-            solver.E[self.xs, self.ys, self.zs, self.component] = (
-                self.amplitude * self.tprofile(t)
-            )
+            self._inject(solver.E, index, waveform)
         elif self.field == "H":
-            solver.H[self.xs, self.ys, self.zs, self.component] = (
-                self.amplitude * self.tprofile(t)
-            )
-        elif self.field == "J":
-            solver.J[self.xs, self.ys, self.zs, self.component] = (
-                self.amplitude * self.tprofile(t)
-            )
+            self._inject(solver.H, index, waveform)
         else:
-            print(f'Field "{self.field}" not valid, should be "E", "H" or "J"]')
+            self._inject(solver.J, index, waveform)
+
+    def plot(self, t):
+        """Plot the time evolution of the injected pulse component."""
+        if self.L is None:
+            raise ValueError("L must be provided or resolved by update() before plot()")
+
+        waveform = self.amplitude * self.tprofile(t)
+        units = {"E": "V/m", "H": "A/m", "J": "A/m²"}[self.field]
+        quantity = {
+            "E": "Electric field",
+            "H": "Magnetic field",
+            "J": "Current density",
+        }[self.field]
+
+        fig, ax = plt.subplots()
+        ax.plot(t, waveform, label=f"{self.field}{self.component}")
+        ax.set_xlabel("Time [s]")
+        ax.set_ylabel(f"{quantity} [{units}]")
+        ax.legend()
+        fig.tight_layout()
+        plt.show()
