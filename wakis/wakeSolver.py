@@ -374,6 +374,12 @@ class WakeSolver:
         else:
             zz = np.s_[:]
         z = self.zf[zz]
+        if not np.ndim(self.dz):
+            dz = self.dz
+        elif len(self.dz) == len(self.zf):
+            dz = self.dz[zz]
+        else:
+            dz = self.dz[self.skip_cells : self.skip_cells + len(z)]
         nz = len(z)
 
         # Set Wake length and s
@@ -418,7 +424,7 @@ class WakeSolver:
                     ts = (z[k] + s[n]) / self.v - zmin / self.v - self.t[0] + ti
                     it = int(ts / dt)  # find index for t
                     if it < nt:
-                        WP[n] = WP[n] + (Ezt[k, it]) * self.dz[k]  # compute integral
+                        WP[n] = WP[n] + (Ezt[k, it]) * dz[k]  # compute integral
                     pbar.update(1)
 
         WP = WP / (self.q * 1e12)  # [V/pC]
@@ -479,6 +485,12 @@ class WakeSolver:
         else:
             zz = np.s_[:]
         z = self.zf[zz]
+        if not np.ndim(self.dz):
+            dz = self.dz
+        elif len(self.dz) == len(self.zf):
+            dz = self.dz[zz]
+        else:
+            dz = self.dz[self.skip_cells : self.skip_cells + len(z)]
         nz = len(z)
 
         # Set Wake length and s
@@ -532,7 +544,7 @@ class WakeSolver:
                                 it = int(ts / dt)  # find index for t
                                 if it < nt:
                                     WP[n] = WP[n] + (Ezt[-k - 1, it]) * (
-                                        -1 * self.dz[k]
+                                        -1 * dz[k]
                                     )  # compute integral
                             pbar.update(1)
 
@@ -548,7 +560,7 @@ class WakeSolver:
                                 it = int(ts / dt)  # find index for t
                                 if it < nt:
                                     WP[n] = (
-                                        WP[n] + (Ezt[k, it]) * self.dz[k]
+                                        WP[n] + (Ezt[k, it]) * dz[k]
                                     )  # compute integral
 
                             pbar.update(1)
