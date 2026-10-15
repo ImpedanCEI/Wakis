@@ -138,7 +138,8 @@ def test_mode_101():
     freqs = np.fft.fftshift(np.fft.fftfreq(len(Ey_000), d=solver.dt))[
         len(Ey_000) // 2 :
     ]
-    resonator_f = freqs[np.argmax(FEy_000)]
+
+    resonator_f = freqs[np.argmax(np.abs(FEy_000))]
 
     # analytic frequency: https://learnemc.com/ext/calculators/cavity_resonance/rect-res.html
     assert resonator_f == pytest.approx(2.121e8, 0.05), "Ey frequency error >5%"
