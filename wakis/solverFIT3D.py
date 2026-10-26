@@ -223,7 +223,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                     `GridFIT3D` to enable MPI"
                 )
 
-        # Matrices
+        # Curl operator
         # fmt: off
         if verbose:
             print("Assembling operator matrices...")
@@ -239,14 +239,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.Pz[indices[:, :, -1].ravel(), :] = 0
         self.Px, self.Py, self.Pz = self.Px.tocsr(), self.Py.tocsr(), self.Pz.tocsr()
 
-        # original grid
-        self.Ds = diags(self.grid.L.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
-        self.iDa = diags(self.grid.iA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
-
-        # tilde grid
-        self.tDs = diags(self.grid.tL.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
-        self.itDa = diags(self.grid.itA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
-
         # Curl matrix
         self.C = vstack(
             [
@@ -259,13 +251,22 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         )
         # fmt: on
 
-        # Boundaries
+        # Boundaries to C
         if verbose:
             print("Applying boundary conditions...")
         self.bc_low = bc_low
         self.bc_high = bc_high
         self.update_logger(["bc_low", "bc_high"])
         self._apply_bc_to_C()
+
+        # Diagonal matrices for grid metrics
+        self.Ds = diags(self.grid.L.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+        self.iDa = diags(self.grid.iA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+
+        self.tDs = diags(self.grid.tL.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+        self.itDa = diags(
+            self.grid.itA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
+        )
 
         # Materials
         if verbose:
@@ -456,6 +457,10 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self._initialize_abc()
             self._one_step_backend = self.one_step
             self.one_step = self._one_step_with_abc
+
+        if any(bc.lower() == "periodic" for bc in self.bc_low):
+            self._one_step_periodic = self.one_step
+            self.one_step = self._one_step_with_periodic
 
         if verbose:
             print(f"Total solver initialization time: {time.time() - t0} s")
@@ -728,6 +733,40 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self._capture_abc()
         self._one_step_backend()
         self._apply_abc()
+
+    def _one_step_with_periodic(self):
+        """Advance independent periodic samples, then fill boundary copies."""
+        self._one_step_periodic()
+        ex = self.E.to_matrix("x")
+        ey = self.E.to_matrix("y")
+        ez = self.E.to_matrix("z")
+        hx = self.H.to_matrix("x")
+        hy = self.H.to_matrix("y")
+        hz = self.H.to_matrix("z")
+
+        if self.bc_low[0].lower() == "periodic":
+            ex[-1, :, :] = 0
+            ey[-1, :, :] = ey[0, :, :]
+            ez[-1, :, :] = ez[0, :, :]
+            hx[-1, :, :] = hx[0, :, :]
+            hy[-1, :, :] = 0
+            hz[-1, :, :] = 0
+
+        if self.bc_low[1].lower() == "periodic":
+            ex[:, -1, :] = ex[:, 0, :]
+            ey[:, -1, :] = 0
+            ez[:, -1, :] = ez[:, 0, :]
+            hx[:, -1, :] = 0
+            hy[:, -1, :] = hy[:, 0, :]
+            hz[:, -1, :] = 0
+
+        if self.bc_low[2].lower() == "periodic":
+            ex[:, :, -1] = ex[:, :, 0]
+            ey[:, :, -1] = ey[:, :, 0]
+            ez[:, :, -1] = 0
+            hx[:, :, -1] = 0
+            hy[:, :, -1] = 0
+            hz[:, :, -1] = hz[:, :, 0]
 
     def _one_step(self):
         if self.step_0:

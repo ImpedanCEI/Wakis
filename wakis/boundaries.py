@@ -24,13 +24,11 @@ class BCsMixin:
 
     def _apply_bc_to_C(self):
         """
-        Apply boundary conditions by modifying curl and metric matrices.
+        Build the curl and apply boundary conditions.
 
-        Adjusts rows/columns of the curl operator ``C`` and the metric-diagonal
-        matrices (``tDs``, ``itDa``) according to the low/high boundary
-        condition lists ``bc_low`` and ``bc_high``. Handles periodic, PEC/PMC,
-        ABC and PML/CPML options and also configures MPI-internal faces when the
-        grid is subdivided.
+        Adjusts periodic derivative rows and dual grid metrics before assembling
+        ``C``. Masks inactive field samples according to ``bc_low`` and
+        ``bc_high``, and configures MPI-internal faces when the grid is subdivided.
         """
         xlo, ylo, zlo = 1, 1, 1
         xhi, yhi, zhi = 1, 1, 1
@@ -60,104 +58,108 @@ class BCsMixin:
             ):
                 raise ValueError(f"Periodic {direction} boundaries must be paired.")
 
-        if any(True for x in self.bc_low if x.lower() == "periodic"):
-            # Flat field indices: i + j*Nx + k*Nx*Ny.
+        periodic_x = self.bc_low[0].lower() == "periodic"
+        periodic_y = self.bc_low[1].lower() == "periodic"
+        periodic_z = self.bc_low[2].lower() == "periodic"
+        has_periodic = periodic_x or periodic_y or periodic_z
+        if has_periodic:
             indices = np.arange(self.N).reshape((self.Nx, self.Ny, self.Nz), order="F")
+            node_mask = np.ones((self.Nx, self.Ny, self.Nz), dtype=np.int8)
 
-            if (
-                self.bc_low[0].lower() == "periodic"
-                and self.bc_high[0].lower() == "periodic"
-            ):
-                # Replace high-x rows: remove connections into the next y line.
+            # Redirect each last physical edge from the high endpoint to the low node.
+            if periodic_x:
+                previous = indices[-2, :, :].ravel()
                 high = indices[-1, :, :].ravel()
                 low = indices[0, :, :].ravel()
                 self.Px = self.Px.tolil()
-                self.Px[high, :] = 0
-                self.Px[high, high] = -1
-                self.Px[high, low] = 1 if self.Nx > 1 else 0
+                self.Px[previous, high] = 0
+                if self.Nx > 2:
+                    self.Px[previous, low] = 1
+                else:
+                    self.Px[previous, previous] = 0
                 self.Px = self.Px.tocsc()
 
-                self.grid.tL[-1, :, :, "x"] = 0.5 * (
-                    self.grid.L[-1, :, :, "x"] + self.grid.L[0, :, :, "x"]
-                )
+                lengths = self.grid.tL.to_matrix("x")
+                lengths[0, :, :] += lengths[-1, :, :]
+                lengths[-1, :, :] = 0
+                node_mask[-1, :, :] = 0
 
-            if (
-                self.bc_low[1].lower() == "periodic"
-                and self.bc_high[1].lower() == "periodic"
-            ):
-                # Replace high-y rows: remove connections into the next z plane.
+            if periodic_y:
+                previous = indices[:, -2, :].ravel()
                 high = indices[:, -1, :].ravel()
                 low = indices[:, 0, :].ravel()
                 self.Py = self.Py.tolil()
-                self.Py[high, :] = 0
-                self.Py[high, high] = -1
-                self.Py[high, low] = 1 if self.Ny > 1 else 0
+                self.Py[previous, high] = 0
+                if self.Ny > 2:
+                    self.Py[previous, low] = 1
+                else:
+                    self.Py[previous, previous] = 0
                 self.Py = self.Py.tocsc()
 
-                self.grid.tL[:, -1, :, "y"] = 0.5 * (
-                    self.grid.L[:, -1, :, "y"] + self.grid.L[:, 0, :, "y"]
-                )
+                lengths = self.grid.tL.to_matrix("y")
+                lengths[:, 0, :] += lengths[:, -1, :]
+                lengths[:, -1, :] = 0
+                node_mask[:, -1, :] = 0
 
-            if (
-                self.bc_low[2].lower() == "periodic"
-                and self.bc_high[2].lower() == "periodic"
-            ):
-                # Replace high-z rows with last-to-first plane differences.
+            if periodic_z:
+                previous = indices[:, :, -2].ravel()
                 high = indices[:, :, -1].ravel()
                 low = indices[:, :, 0].ravel()
                 self.Pz = self.Pz.tolil()
-                self.Pz[high, :] = 0
-                self.Pz[high, high] = -1
-                self.Pz[high, low] = 1 if self.Nz > 1 else 0
+                self.Pz[previous, high] = 0
+                if self.Nz > 2:
+                    self.Pz[previous, low] = 1
+                else:
+                    self.Pz[previous, previous] = 0
                 self.Pz = self.Pz.tocsc()
 
-                self.grid.tL[:, :, -1, "z"] = 0.5 * (
-                    self.grid.L[:, :, -1, "z"] + self.grid.L[:, :, 0, "z"]
-                )
+                lengths = self.grid.tL.to_matrix("z")
+                lengths[:, :, 0] += lengths[:, :, -1]
+                lengths[:, :, -1] = 0
+                node_mask[:, :, -1] = 0
 
-            # Recompute dual areas after all periodic lengths, including corners.
-            aux = self.grid.tL.field_y * self.grid.tL.field_z
+            # Recompute dual face areas after all seam widths, including corners.
+            area_x = self.grid.tL.field_y * self.grid.tL.field_z
+            area_y = self.grid.tL.field_x * self.grid.tL.field_z
+            area_z = self.grid.tL.field_x * self.grid.tL.field_y
             self.grid.itA.field_x = np.divide(
-                1.0, aux, out=np.zeros_like(aux), where=aux != 0
+                1.0, area_x, out=np.zeros_like(area_x), where=area_x != 0
             )
-            aux = self.grid.tL.field_x * self.grid.tL.field_z
             self.grid.itA.field_y = np.divide(
-                1.0, aux, out=np.zeros_like(aux), where=aux != 0
+                1.0, area_y, out=np.zeros_like(area_y), where=area_y != 0
             )
-            aux = self.grid.tL.field_x * self.grid.tL.field_y
             self.grid.itA.field_z = np.divide(
-                1.0, aux, out=np.zeros_like(aux), where=aux != 0
+                1.0, area_z, out=np.zeros_like(area_z), where=area_z != 0
             )
 
-            self.tDs = diags(
-                self.grid.tL.toarray(),
-                shape=(3 * self.N, 3 * self.N),
-                dtype=self.dtype,
-            )
-            self.itDa = diags(
-                self.grid.itA.toarray(),
-                shape=(3 * self.N, 3 * self.N),
-                dtype=self.dtype,
-            )
+            # High-side periodic samples are copies or inactive ghosts.
+            periodic_mask = np.tile(node_mask.ravel(order="F"), 3)
 
-            # Rebuild before PEC/PMC masks; CPML also uses the updated P matrices.
-            N = self.N
-            self.C = vstack(
-                [
-                    hstack([sparse_mat((N, N)), -self.Pz, self.Py]),
-                    hstack([self.Pz, sparse_mat((N, N)), -self.Px]),
-                    hstack([-self.Py, self.Px, sparse_mat((N, N))]),
-                ],
-                dtype=np.int8,
-            )
+        # Build the curl once, after any periodic P rows have been adjusted.
+        N = self.N
+        self.C = vstack(
+            [
+                hstack([sparse_mat((N, N)), -self.Pz, self.Py]),
+                hstack([self.Pz, sparse_mat((N, N)), -self.Px]),
+                hstack([-self.Py, self.Px, sparse_mat((N, N))]),
+            ],
+            format="csr",
+            dtype=np.int8,
+        )
 
         # Dirichlet PEC: tangential E field = 0 at boundary
-        if any(
-            True for x in self.bc_low if x.lower() in ("electric", "pec", "pml", "cpml")
-        ) or any(
-            True
-            for x in self.bc_high
-            if x.lower() in ("electric", "pec", "pml", "cpml")
+        if (
+            has_periodic
+            or any(
+                True
+                for x in self.bc_low
+                if x.lower() in ("electric", "pec", "pml", "cpml")
+            )
+            or any(
+                True
+                for x in self.bc_high
+                if x.lower() in ("electric", "pec", "pml", "cpml")
+            )
         ):
             if self.bc_low[0].lower() in ("electric", "pec", "pml", "cpml"):
                 xlo = 0
@@ -189,6 +191,9 @@ class BCsMixin:
                     self.BC[:, :, 0, d] *= zlo
                     self.BC[:, :, -1, d] *= zhi
 
+            if has_periodic:
+                self.BC.array *= periodic_mask
+
             self.Dbc = diags(
                 self.BC.toarray(),
                 shape=(3 * self.N, 3 * self.N),
@@ -210,7 +215,8 @@ class BCsMixin:
                 dtype=np.int8,
             )
 
-            # Update C (columns)
+            # Masking high periodic columns also zeros their curl rows because
+            # terminal P rows have no edge into the physical domain.
             self.C = self.C * self.Dbc
 
         # PMC is the natural boundary of the staggered FIT grid. Tangential H
