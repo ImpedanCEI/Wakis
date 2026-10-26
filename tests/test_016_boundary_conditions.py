@@ -33,6 +33,25 @@ def test_periodic_derivative_matches_coordinate_roll(axis, name):
     np.testing.assert_array_equal(derivative.T @ np.ones(solver.N), 0)
 
 
+@pytest.mark.parametrize("axis,name", enumerate("xyz"))
+def test_nonperiodic_derivative_stops_at_boundary(axis, name):
+    """Forward differences reach the boundary node without crossing it."""
+    solver = make_solver(bcs=["pec"] * 3)
+    shape = (solver.Nx, solver.Ny, solver.Nz)
+    values = np.random.default_rng(1).normal(size=shape)
+    expected = np.zeros(shape)
+    interior = [slice(None)] * 3
+    neighbor = [slice(None)] * 3
+    interior[axis] = slice(None, -1)
+    neighbor[axis] = slice(1, None)
+    expected[tuple(interior)] = values[tuple(neighbor)] - values[tuple(interior)]
+
+    derivative = getattr(solver, "P" + name)
+    np.testing.assert_allclose(
+        derivative @ values.ravel(order="F"), expected.ravel(order="F")
+    )
+
+
 def test_constant_fields_survive_periodic_first_step():
     solver = make_solver()
     solver.E.array[:] = 2.0

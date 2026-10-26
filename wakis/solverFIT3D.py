@@ -231,6 +231,19 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.Py = diags([-1, 1], [0, self.Nx], shape=(N, N), dtype=np.int8)
         self.Pz = diags([-1, 1], [0, self.Nx * self.Ny], shape=(N, N), dtype=np.int8)
 
+        # Terminal nodes have no forward primal edge. In flattened storage,
+        # leaving these rows intact would also connect adjacent x/y lines.
+        indices = np.arange(N).reshape((self.Nx, self.Ny, self.Nz), order="F")
+        self.Px = self.Px.tolil()
+        self.Py = self.Py.tolil()
+        self.Pz = self.Pz.tolil()
+        self.Px[indices[-1, :, :].ravel(), :] = 0
+        self.Py[indices[:, -1, :].ravel(), :] = 0
+        self.Pz[indices[:, :, -1].ravel(), :] = 0
+        self.Px = self.Px.tocsc()
+        self.Py = self.Py.tocsc()
+        self.Pz = self.Pz.tocsc()
+
         # original grid
         self.Ds = diags(self.L.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
         self.iDa = diags(self.iA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
