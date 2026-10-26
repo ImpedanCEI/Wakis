@@ -600,41 +600,25 @@ class WakeSolver:
         for key, val in kwargs.items():
             setattr(self, key, val)
 
+        t0 = time.time()
         ds = self.s[2] - self.s[1]
         i0, j0 = self.n_transverse_cells, self.n_transverse_cells
 
-        # Initialize variables
-        WPx = np.zeros_like(self.s)
-        WPy = np.zeros_like(self.s)
-        int_WP = np.zeros_like(self.WP_3d)
-
-        dxf = np.diff(self.xf)
-        dyf = np.diff(self.yf)
-
         print("Calculating transverse wake potential WPx, WPy...")
-        # Obtain the transverse wake potential
-        with tqdm(total=len(self.s) * (i0 * 2 + 1) * (j0 * 2 + 1)) as pbar:
-            for n in range(len(self.s)):
-                for i in range(-i0, i0 + 1, 1):
-                    for j in range(-j0, j0 + 1, 1):
-                        # Perform the integral
-                        int_WP[i0 + i, j0 + j, n] = (
-                            np.sum(self.WP_3d[i0 + i, j0 + j, 0:n]) * ds
-                        )
-                        pbar.update(1)
+        # Integral of the wake potential over s, excluding the current sample
+        int_WP = np.zeros_like(self.WP_3d)
+        int_WP[:, :, 1:] = np.cumsum(self.WP_3d[:, :, :-1], axis=-1) * ds
 
-                # Perform the gradient (second order scheme)
-                WPx[n] = -(int_WP[i0 + 1, j0, n] - int_WP[i0 - 1, j0, n]) / (
-                    dxf[i0 - 1] + dxf[i0]
-                )
-                WPy[n] = -(int_WP[i0, j0 + 1, n] - int_WP[i0, j0 - 1, n]) / (
-                    dyf[j0 - 1] + dyf[j0]
-                )
+        # Gradient on the integration path (second order also for non-uniform grids)
+        wx = self._central_diff_weights(self.xf[i0 - 1 : i0 + 2])
+        wy = self._central_diff_weights(self.yf[j0 - 1 : j0 + 2])
+        WPx = -np.tensordot(wx, int_WP[i0 - 1 : i0 + 2, j0, :], axes=1)
+        WPy = -np.tensordot(wy, int_WP[i0, j0 - 1 : j0 + 2, :], axes=1)
 
         self.WPx = WPx
         self.WPy = WPy
 
-        self.log(f"Elapsed time {pbar.format_dict['elapsed']} s")
+        self.log(f"Elapsed time {time.time() - t0} s")
 
         if self.save:
             np.savetxt(
@@ -647,6 +631,23 @@ class WakeSolver:
                 np.c_[self.s, self.WPy],
                 header="   s [m]" + " " * 20 + "WP [V/pC]" + "\n" + "-" * 48,
             )
+
+    @staticmethod
+    def _central_diff_weights(nodes):
+        """
+        Weights of the 3-point first derivative at nodes[1].
+
+        Second-order accurate for unequal spacings; reduces to
+        (-1, 0, 1) / (2h) on a uniform grid.
+        """
+        h1, h2 = nodes[1] - nodes[0], nodes[2] - nodes[1]
+        return np.array(
+            [
+                -h2 / (h1 * (h1 + h2)),
+                (h2 - h1) / (h1 * h2),
+                h1 / (h2 * (h1 + h2)),
+            ]
+        )
 
     def calc_long_Z(self, samples=1001, fmax=None, **kwargs):
         """
