@@ -118,8 +118,12 @@ In these equations, $\varepsilon$, $\mu$, $\sigma$ can be considered tensors and
 Wakis discretizes the integral form of Maxwell's equations using the **Finite Integration Technique (FIT)** on a structured three-dimensional Cartesian grid.
 
 $$
-N_\text{cells} = N_x \times N_y \times N_z
+N_\text{comp} = N_xN_yN_z, \qquad
+N_\text{phys} = (N_x-1)(N_y-1)(N_z-1)
 $$
+
+Here $N_x$, $N_y$, and $N_z$ count stored primal nodes and computational
+cells; the final computational cell on each axis has zero primal extent.
 
 This approach maps:
 - Line integrals → to grid **edges**
@@ -340,10 +344,35 @@ A source callback can be easily created as:
 Wakis supports several boundary condition (BC) types:
 - **PEC (Perfect Electric Conductor)**: masks tangential electric-field degrees of freedom, enforcing $\vec{E}_{\parallel} = 0$ at the selected face.
 - **PMC (Perfect Magnetic Conductor)**: uses the natural boundary of the staggered FIT grid. Tangential magnetic-field samples lie inside the first and last physical half-cells, rather than on the wall, so no interior H sample is masked. The high-side ghost samples have zero primal area. Tangential electric-field samples on a PMC face remain free.
-- **Periodic**: pairs the low and high faces of an axis and closes the corresponding FIT derivative stencil (`Px`, `Py`, or `Pz`) across that seam. The curl matrix is then rebuilt from the corrected derivative matrices and the periodic dual metrics are updated. A periodic face must be paired with the opposite face. Serial periodic boundaries are available in all three directions; longitudinal periodic MPI requires cyclic ghost exchange and is intentionally not enabled yet.
+- **Periodic**: connects opposite faces so fields repeat across the boundary. The last physical cell wraps to the first node, and the boundary half-cells form one dual cell. Both faces of an axis must be periodic. All three directions work in serial runs but periodic $z$ is not supported with MPI.
 - **ABC**: a first-order Mur radiation condition for selected domain faces.
 - **PML**: a finite, graded, electrically lossy layer terminated by the usual electric boundary mask.
 - **CPML**: a convolutional absorbing layer that adds auxiliary curl-correction fields.
+
+#### Periodic stencil
+
+For an axis with $N_x$ stored primal nodes, the $N_x-1$ physical cells span
+$x_0$ to $x_{N_x-1}$. On a periodic axis, the two endpoint nodes represent
+the same location. The final physical forward difference and the terminal
+computational row are therefore
+
+$$
+(P_x u)_{N_x-2} = u_0-u_{N_x-2}, \qquad
+(P_x u)_{N_x-1} = 0.
+$$
+
+The dual width of the identified seam node combines the half-cells on either
+side:
+
+$$
+\widetilde L_{x,0} = \frac{\Delta x_0+\Delta x_{N_x-2}}{2}.
+$$
+
+The high stored plane is a copy for node-centred field components and an
+inactive ghost plane for components centred in primal cells. Wakis assembles
+the periodic metric corrections in the grid when the solver is initialized.
+This endpoint representation is a Wakis adaptation
+of the staggered-grid placement introduced by [Yee (1966)](https://doi.org/10.1109/TAP.1966.1138693).
 
 #### Mur ABC implementation
 
