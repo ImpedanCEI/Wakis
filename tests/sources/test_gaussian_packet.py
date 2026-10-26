@@ -59,7 +59,10 @@ def test_gaussian_packet_envelope_peak_and_width(unit_solver):
     source.update(unit_solver, peak_time + sigma_time)
     one_sigma_t = -unit_solver.H[center, center, 2, "y"]
 
-    np.testing.assert_allclose(one_sigma_x / peak, np.exp(-0.5))
+    offset_x = unit_solver.x[center + 1] - unit_solver.x[center]
+    np.testing.assert_allclose(
+        one_sigma_x / peak, np.exp(-0.5 * (offset_x / source.sigmaxy) ** 2)
+    )
     np.testing.assert_allclose(one_sigma_t / peak, np.exp(-0.5))
 
 

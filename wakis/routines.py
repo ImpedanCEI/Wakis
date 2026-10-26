@@ -109,9 +109,9 @@ class RoutinesMixin:
             for hf in hfs:
                 hf["x"], hf["y"], hf["z"] = self.x, self.y, self.z
                 hf["dx"], hf["dy"], hf["dz"] = (
-                    self.grid.dx,
-                    self.grid.dy,
-                    self.grid.dz,
+                    self.dx,
+                    self.dy,
+                    self.dz,
                 )
                 hf["t"] = np.arange(0, Nt * self.dt, save_every * self.dt)
 
@@ -301,7 +301,7 @@ class RoutinesMixin:
             wakelength = self.wake.wakelength
 
         beam_wavelength = self.wake.v / self.wake.fmax
-        cells_per_wavelength = beam_wavelength / np.max(self.grid.dz)
+        cells_per_wavelength = beam_wavelength / np.max(self.dz)
         if cells_per_wavelength < 20 and (not self.use_mpi or self.rank == 0):
             if self.verbose:
                 print(
@@ -322,8 +322,8 @@ class RoutinesMixin:
         # integration path (test position)
         self.xtest, self.ytest = self.wake.xtest, self.wake.ytest
         self.ixt, self.iyt = (
-            np.abs(self.grid.x - self.xtest).argmin(),
-            np.abs(self.grid.y - self.ytest).argmin(),
+            np.abs(self.x - self.xtest).argmin(),
+            np.abs(self.y - self.ytest).argmin(),
         )
         if compute_plane.lower() == "longitudinal":
             xx, yy = self.ixt, self.iyt
@@ -365,40 +365,40 @@ class RoutinesMixin:
         if self.use_mpi:
             if self.rank == 0:
                 hf = h5py.File(self.Ez_file, "w")
-                hf["x"], hf["y"], hf["z"] = self.grid.x[xx], self.grid.y[yy], z[zz]
-                hf["dx"], hf["dy"], hf["dz"] = self.grid.dx, self.grid.dy, dz
+                hf["x"], hf["y"], hf["z"] = self.x[xx], self.y[yy], z[zz]
+                hf["dx"], hf["dy"], hf["dz"] = self.dx, self.dy, dz
                 hf["t"] = np.arange(0, Nt * self.dt, self.dt)
 
                 if save_J:
                     hfJ = h5py.File("Jz.h5", "w")
                     hfJ["x"], hfJ["y"], hfJ["z"] = (
-                        self.grid.x[xx],
-                        self.grid.y[yy],
+                        self.x[xx],
+                        self.y[yy],
                         z[zz],
                     )
                     hfJ["dx"], hfJ["dy"], hfJ["dz"] = (
-                        self.grid.dx,
-                        self.grid.dy,
+                        self.dx,
+                        self.dy,
                         dz,
                     )
                     hfJ["t"] = np.arange(0, Nt * self.dt, self.dt)
         else:
             hf = h5py.File(self.Ez_file, "w")
-            hf["x"], hf["y"], hf["z"] = self.grid.x[xx], self.grid.y[yy], z[zz]
+            hf["x"], hf["y"], hf["z"] = self.x[xx], self.y[yy], z[zz]
             hf["dx"], hf["dy"], hf["dz"] = (
-                self.grid.dx,
-                self.grid.dy,
-                self.grid.dz,
+                self.dx,
+                self.dy,
+                self.dz,
             )
             hf["t"] = np.arange(0, Nt * self.dt, self.dt)
 
             if save_J:
                 hfJ = h5py.File("Jz.h5", "w")
-                hfJ["x"], hfJ["y"], hfJ["z"] = self.grid.x[xx], self.grid.y[yy], z[zz]
+                hfJ["x"], hfJ["y"], hfJ["z"] = self.x[xx], self.y[yy], z[zz]
                 hfJ["dx"], hfJ["dy"], hfJ["dz"] = (
-                    self.grid.dx,
-                    self.grid.dy,
-                    self.grid.dz,
+                    self.dx,
+                    self.dy,
+                    self.dz,
                 )
                 hfJ["t"] = np.arange(0, Nt * self.dt, self.dt)
 

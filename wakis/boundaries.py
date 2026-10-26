@@ -77,8 +77,8 @@ class BCsMixin:
                 self.Px[high, low] = 1 if self.Nx > 1 else 0
                 self.Px = self.Px.tocsc()
 
-                self.tL[-1, :, :, "x"] = 0.5 * (
-                    self.L[-1, :, :, "x"] + self.L[0, :, :, "x"]
+                self.grid.tL[-1, :, :, "x"] = 0.5 * (
+                    self.grid.L[-1, :, :, "x"] + self.grid.L[0, :, :, "x"]
                 )
 
             if (
@@ -94,8 +94,8 @@ class BCsMixin:
                 self.Py[high, low] = 1 if self.Ny > 1 else 0
                 self.Py = self.Py.tocsc()
 
-                self.tL[:, -1, :, "y"] = 0.5 * (
-                    self.L[:, -1, :, "y"] + self.L[:, 0, :, "y"]
+                self.grid.tL[:, -1, :, "y"] = 0.5 * (
+                    self.grid.L[:, -1, :, "y"] + self.grid.L[:, 0, :, "y"]
                 )
 
             if (
@@ -111,31 +111,31 @@ class BCsMixin:
                 self.Pz[high, low] = 1 if self.Nz > 1 else 0
                 self.Pz = self.Pz.tocsc()
 
-                self.tL[:, :, -1, "z"] = 0.5 * (
-                    self.L[:, :, -1, "z"] + self.L[:, :, 0, "z"]
+                self.grid.tL[:, :, -1, "z"] = 0.5 * (
+                    self.grid.L[:, :, -1, "z"] + self.grid.L[:, :, 0, "z"]
                 )
 
             # Recompute dual areas after all periodic lengths, including corners.
-            aux = self.tL.field_y * self.tL.field_z
-            self.itA.field_x = np.divide(
+            aux = self.grid.tL.field_y * self.grid.tL.field_z
+            self.grid.itA.field_x = np.divide(
                 1.0, aux, out=np.zeros_like(aux), where=aux != 0
             )
-            aux = self.tL.field_x * self.tL.field_z
-            self.itA.field_y = np.divide(
+            aux = self.grid.tL.field_x * self.grid.tL.field_z
+            self.grid.itA.field_y = np.divide(
                 1.0, aux, out=np.zeros_like(aux), where=aux != 0
             )
-            aux = self.tL.field_x * self.tL.field_y
-            self.itA.field_z = np.divide(
+            aux = self.grid.tL.field_x * self.grid.tL.field_y
+            self.grid.itA.field_z = np.divide(
                 1.0, aux, out=np.zeros_like(aux), where=aux != 0
             )
 
             self.tDs = diags(
-                self.tL.toarray(),
+                self.grid.tL.toarray(),
                 shape=(3 * self.N, 3 * self.N),
                 dtype=self.dtype,
             )
             self.itDa = diags(
-                self.itA.toarray(),
+                self.grid.itA.toarray(),
                 shape=(3 * self.N, 3 * self.N),
                 dtype=self.dtype,
             )
@@ -315,7 +315,7 @@ class BCsMixin:
 
         # Fill
         if self.bc_low[0].lower() == "pml":
-            # sx[0:self.n_pml] = eps_0/(2*self.dt)*((self.x[self.n_pml] - self.x[:self.n_pml])/(self.n_pml*self.dx))**pml_exp
+            # sx[0:self.n_pml] = eps_0/(2*self.dt)*((self.grid.x[self.n_pml] - self.grid.x[:self.n_pml])/(self.n_pml*self.dx))**pml_exp
             sx[0 : self.n_pml] = self.pml_func(self.pml_hi, self.pml_lo, self.n_pml)
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -335,7 +335,7 @@ class BCsMixin:
                     # if sx[i] > 0 : self.ieps[i, :, :, d] = 1/(eps_0+sx[i]*(2*self.dt))
 
         if self.bc_low[1].lower() == "pml":
-            # sy[0:self.n_pml] = 1/(2*self.dt)*((self.y[self.n_pml] - self.y[:self.n_pml])/(self.n_pml*self.dy))**pml_exp
+            # sy[0:self.n_pml] = 1/(2*self.dt)*((self.grid.y[self.n_pml] - self.grid.y[:self.n_pml])/(self.n_pml*self.dy))**pml_exp
             sy[0 : self.n_pml] = self.pml_func(self.pml_hi, self.pml_lo, self.n_pml)
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -355,7 +355,7 @@ class BCsMixin:
                     # if sy[j] > 0 : self.ieps[:, j, :, d] = 1/(eps_0+sy[j]*(2*self.dt))
 
         if self.bc_low[2].lower() == "pml":
-            # sz[0:self.n_pml] = eps_0/(2*self.dt)*((self.z[self.n_pml] - self.z[:self.n_pml])/(self.n_pml*self.dz))**pml_exp
+            # sz[0:self.n_pml] = eps_0/(2*self.dt)*((self.grid.z[self.n_pml] - self.grid.z[:self.n_pml])/(self.n_pml*self.dz))**pml_exp
             sz[0 : self.n_pml] = self.pml_func(self.pml_hi, self.pml_lo, self.n_pml)
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -375,7 +375,7 @@ class BCsMixin:
                     # if sz[k] > 0. : self.ieps[:, :, k, d] = 1/(np.mean(sz[:self.n_pml])*eps_0)
 
         if self.bc_high[0].lower() == "pml":
-            # sx[-self.n_pml:] = 1/(2*self.dt)*((self.x[-self.n_pml:] - self.x[-self.n_pml])/(self.n_pml*self.dx))**pml_exp
+            # sx[-self.n_pml:] = 1/(2*self.dt)*((self.grid.x[-self.n_pml:] - self.grid.x[-self.n_pml])/(self.n_pml*self.dx))**pml_exp
             sx[-self.n_pml :] = self.pml_func(self.pml_lo, self.pml_hi, self.n_pml)
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -396,7 +396,7 @@ class BCsMixin:
                     # if sx[-i] > 0 : self.ieps[-i, :, :, d] = 1/(eps_0+sx[-i]*(2*self.dt))
 
         if self.bc_high[1].lower() == "pml":
-            # sy[-self.n_pml:] = 1/(2*self.dt)*((self.y[-self.n_pml:] - self.y[-self.n_pml])/(self.n_pml*self.dy))**pml_exp
+            # sy[-self.n_pml:] = 1/(2*self.dt)*((self.grid.y[-self.n_pml:] - self.grid.y[-self.n_pml])/(self.n_pml*self.dy))**pml_exp
             sy[-self.n_pml :] = self.pml_func(self.pml_lo, self.pml_hi, self.n_pml)
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -417,7 +417,7 @@ class BCsMixin:
                     # if sy[-j] > 0 : self.ieps[:, -j, :, d] = 1/(eps_0+sy[-j]*(2*self.dt))
 
         if self.bc_high[2].lower() == "pml":
-            # sz[-self.n_pml:] = eps_0/(2*self.dt)*((self.z[-self.n_pml:] - self.z[-self.n_pml])/(self.n_pml*self.dz))**pml_exp
+            # sz[-self.n_pml:] = eps_0/(2*self.dt)*((self.grid.z[-self.n_pml:] - self.grid.z[-self.n_pml])/(self.n_pml*self.dz))**pml_exp
             sz[-self.n_pml :] = self.pml_func(self.pml_lo, self.pml_hi, self.n_pml)
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -611,18 +611,18 @@ class BCsMixin:
 
     def _initialize_CPML_matrices(self):
         N = self.N
-        self.tLx = diags(self.tL.field_x, shape=(N, N), dtype=self.dtype)
-        self.tLy = diags(self.tL.field_y, shape=(N, N), dtype=self.dtype)
-        self.tLz = diags(self.tL.field_z, shape=(N, N), dtype=self.dtype)
-        self.iAx = diags(self.iA.field_x, shape=(N, N), dtype=self.dtype)
-        self.iAy = diags(self.iA.field_y, shape=(N, N), dtype=self.dtype)
-        self.iAz = diags(self.iA.field_z, shape=(N, N), dtype=self.dtype)
-        self.Lx = diags(self.L.field_x, shape=(N, N), dtype=self.dtype)
-        self.Ly = diags(self.L.field_y, shape=(N, N), dtype=self.dtype)
-        self.Lz = diags(self.L.field_z, shape=(N, N), dtype=self.dtype)
-        self.itAx = diags(self.itA.field_x, shape=(N, N), dtype=self.dtype)
-        self.itAy = diags(self.itA.field_y, shape=(N, N), dtype=self.dtype)
-        self.itAz = diags(self.itA.field_z, shape=(N, N), dtype=self.dtype)
+        self.tLx = diags(self.grid.tL.field_x, shape=(N, N), dtype=self.dtype)
+        self.tLy = diags(self.grid.tL.field_y, shape=(N, N), dtype=self.dtype)
+        self.tLz = diags(self.grid.tL.field_z, shape=(N, N), dtype=self.dtype)
+        self.iAx = diags(self.grid.iA.field_x, shape=(N, N), dtype=self.dtype)
+        self.iAy = diags(self.grid.iA.field_y, shape=(N, N), dtype=self.dtype)
+        self.iAz = diags(self.grid.iA.field_z, shape=(N, N), dtype=self.dtype)
+        self.Lx = diags(self.grid.L.field_x, shape=(N, N), dtype=self.dtype)
+        self.Ly = diags(self.grid.L.field_y, shape=(N, N), dtype=self.dtype)
+        self.Lz = diags(self.grid.L.field_z, shape=(N, N), dtype=self.dtype)
+        self.itAx = diags(self.grid.itA.field_x, shape=(N, N), dtype=self.dtype)
+        self.itAy = diags(self.grid.itA.field_y, shape=(N, N), dtype=self.dtype)
+        self.itAz = diags(self.grid.itA.field_z, shape=(N, N), dtype=self.dtype)
         self.ikapx = diags(1.0 / self.kappa.field_x, shape=(N, N), dtype=self.dtype)
         self.ikapy = diags(1.0 / self.kappa.field_y, shape=(N, N), dtype=self.dtype)
         self.ikapz = diags(1.0 / self.kappa.field_z, shape=(N, N), dtype=self.dtype)
@@ -950,14 +950,14 @@ class BCsMixin:
         """
 
         N = self.N
-        tLx = diags(self.tL.field_x, shape=(N, N), dtype=self.dtype)
-        tLy = diags(self.tL.field_y, shape=(N, N), dtype=self.dtype)
-        iAx = diags(self.iA.field_x, shape=(N, N), dtype=self.dtype)
-        iAy = diags(self.iA.field_y, shape=(N, N), dtype=self.dtype)
-        Lx = diags(self.L.field_x, shape=(N, N), dtype=self.dtype)
-        Ly = diags(self.L.field_y, shape=(N, N), dtype=self.dtype)
-        itAx = diags(self.itA.field_x, shape=(N, N), dtype=self.dtype)
-        itAy = diags(self.itA.field_y, shape=(N, N), dtype=self.dtype)
+        tLx = diags(self.grid.tL.field_x, shape=(N, N), dtype=self.dtype)
+        tLy = diags(self.grid.tL.field_y, shape=(N, N), dtype=self.dtype)
+        iAx = diags(self.grid.iA.field_x, shape=(N, N), dtype=self.dtype)
+        iAy = diags(self.grid.iA.field_y, shape=(N, N), dtype=self.dtype)
+        Lx = diags(self.grid.L.field_x, shape=(N, N), dtype=self.dtype)
+        Ly = diags(self.grid.L.field_y, shape=(N, N), dtype=self.dtype)
+        itAx = diags(self.grid.itA.field_x, shape=(N, N), dtype=self.dtype)
+        itAy = diags(self.grid.itA.field_y, shape=(N, N), dtype=self.dtype)
 
         # In case of CPML the kappa stretching is not needed at the TFSF interface, since it is never inside the PML region.
         self.tf_dxz = iAx * Ly

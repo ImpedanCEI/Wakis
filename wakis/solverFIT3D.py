@@ -131,7 +131,16 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             Material tensors (inverse permittivity, inverse permeability and
             conductivity) stored per field component.
         grid : GridFIT3D
-            Reference to the input grid object.
+            Reference to the input grid object, which owns the primal and dual
+            metric fields (L, iA, tL, itA).
+        x, y, z : ndarray
+            Aliases of the grid's primal node coordinates.
+        tx, ty, tz : ndarray
+            Aliases of the grid's dual node coordinates.
+        dx, dy, dz : ndarray
+            Aliases of the grid's primal cell widths.
+        tdx, tdy, tdz : ndarray
+            Dual cell widths along each axis, including boundary half-cells.
         dt : float
             Time-step used for time integration.
         cfln : float
@@ -177,18 +186,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.Nz = self.grid.Nz
         self.N = self.Nx * self.Ny * self.Nz
 
-        self.dx = self.grid.dx
-        self.dy = self.grid.dy
-        self.dz = self.grid.dz
-
-        self.x = self.grid.x[:-1] + self.dx / 2
-        self.y = self.grid.y[:-1] + self.dy / 2
-        self.z = self.grid.z[:-1] + self.dz / 2
-
-        self.L = self.grid.L
-        self.iA = self.grid.iA
-        self.tL = self.grid.tL
-        self.itA = self.grid.itA
+        self.dx, self.dy, self.dz = self.grid.dx, self.grid.dy, self.grid.dz
+        self.x, self.y, self.z = self.grid.x, self.grid.y, self.grid.z
+        self.tx, self.ty, self.tz = self.grid.tx, self.grid.ty, self.grid.tz
         self.update_logger(["grid", "background"])
 
         # Wake computation
@@ -245,12 +245,14 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.Pz = self.Pz.tocsc()
 
         # original grid
-        self.Ds = diags(self.L.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
-        self.iDa = diags(self.iA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+        self.Ds = diags(self.grid.L.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+        self.iDa = diags(self.grid.iA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
 
         # tilde grid
-        self.tDs = diags(self.tL.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
-        self.itDa = diags(self.itA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+        self.tDs = diags(self.grid.tL.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+        self.itDa = diags(
+            self.grid.itA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
+        )
 
         # Curl matrix
         self.C = vstack(
@@ -358,9 +360,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.dt = cfln / (
                 c_light
                 * np.sqrt(
-                    1 / np.min(self.grid.dx) ** 2
-                    + 1 / np.min(self.grid.dy) ** 2
-                    + 1 / np.min(self.grid.dz) ** 2
+                    1 / np.min(self.dx) ** 2
+                    + 1 / np.min(self.dy) ** 2
+                    + 1 / np.min(self.dz) ** 2
                 )
             )
         else:
@@ -417,8 +419,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             )
             self.injection_done = True
             self._initialize_tfsf()
-        self.tdx = self.tL[:, 0, 0, "x"]
-        self.tdy = self.tL[0, :, 0, "y"]
+        self.tdx = self.grid.tL[:, 0, 0, "x"]
+        self.tdy = self.grid.tL[0, :, 0, "y"]
+        self.tdz = self.grid.tL[0, 0, :, "z"]
 
         if imported_mkl and not self.use_gpu:  # MKL backend for CPU
             if verbose:
@@ -1785,7 +1788,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
     def _attrcleanup(self):
         # Fields
-        del self.L, self.tL, self.iA, self.itA
         if hasattr(self, "BC"):
             del self.BC
             del self.Dbc

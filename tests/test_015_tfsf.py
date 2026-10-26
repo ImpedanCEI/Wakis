@@ -91,7 +91,7 @@ def test_serial_tfsf_field_update_preserves_precision(dtype):
 
     # The public slice method returns E and H in the solver precision.
     injected_fields = beam.get_injected_2D_slice(
-        solver, solver.grid.z[beam.j_start], 0.0, side="low"
+        solver, solver.z[beam.j_start], 0.0, side="low"
     )
     assert all(field.dtype == dtype for field in injected_fields)
     electric_x, electric_y, magnetic_x, magnetic_y = injected_fields

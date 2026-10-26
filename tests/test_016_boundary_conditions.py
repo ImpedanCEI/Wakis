@@ -52,6 +52,28 @@ def test_nonperiodic_derivative_stops_at_boundary(axis, name):
     )
 
 
+def test_solver_grid_coordinates():
+    """Solver aliases axis coordinates and widths while the grid owns metrics."""
+    grid = GridFIT3D(
+        x=np.array([0.0, 0.2, 1.0]),
+        y=np.array([0.0, 0.4, 1.0]),
+        z=np.array([0.0, 0.3, 1.0]),
+        verbose=0,
+    )
+    solver = SolverFIT3D(grid, bc_low=["pec"] * 3, bc_high=["pec"] * 3, verbose=0)
+    for name in "xyz":
+        assert getattr(solver, name) is getattr(grid, name)
+        assert getattr(solver, "t" + name) is getattr(grid, "t" + name)
+        assert getattr(solver, "d" + name) is getattr(grid, "d" + name)
+        assert len(getattr(solver, name)) == getattr(solver, "N" + name)
+        assert len(getattr(solver, "t" + name)) == getattr(solver, "N" + name) + 1
+        np.testing.assert_allclose(
+            getattr(solver, "td" + name), np.diff(getattr(solver, "t" + name))
+        )
+    for name in ("L", "iA", "tL", "itA"):
+        assert not hasattr(solver, name)
+
+
 def test_constant_fields_survive_periodic_first_step():
     solver = make_solver()
     solver.E.array[:] = 2.0
@@ -227,11 +249,11 @@ def test_nonuniform_periodic_metrics():
         shape = [1, 1, 1]
         shape[axis] = len(widths)
         np.testing.assert_allclose(
-            solver.tL.to_matrix(name),
+            grid.tL.to_matrix(name),
             np.broadcast_to(expected.reshape(shape), (3, 3, 3)),
         )
     np.testing.assert_allclose(
-        solver.itA.field_x, 1 / (solver.tL.field_y * solver.tL.field_z)
+        grid.itA.field_x, 1 / (grid.tL.field_y * grid.tL.field_z)
     )
 
 
