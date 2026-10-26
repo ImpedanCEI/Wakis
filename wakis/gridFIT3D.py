@@ -26,8 +26,12 @@ except ImportError:
 
 class GridFIT3D(PlotMixin):
     """
-    Class holding the grid information and
-    stl importing handling using PyVista
+    Store symmetric FIT grid geometry and handle STL solids using PyVista.
+
+    Each axis includes both physical boundary nodes. Computational cell counts
+    equal the numbers of primal nodes; the final computational cell has zero
+    primal extent along that axis. Thus, an axis with ``Nx`` computational
+    cells contains ``Nx - 1`` physical cells.
     """
 
     def __init__(
@@ -74,10 +78,12 @@ class GridFIT3D(PlotMixin):
         xmin, xmax, ymin, ymax, zmin, zmax : float, optional
             Extent of the simulation domain. If None, must provide x, y, z arrays.
         Nx, Ny, Nz : int, optional
-            Number of cells per direction. If None, must provide x, y, z arrays.
+            Number of computational cells (primal nodes) per direction,
+            including both domain boundaries. The numbers of physical cells
+            are Nx - 1, Ny - 1, and Nz - 1. If None, must provide x, y, z arrays.
         x, y, z : array_like, optional
-            Custom grid axis arrays to be used in the meshgrid generation.
-            Non-uniform grids are supported.
+            Primal node coordinates, including both domain boundaries.
+            Their lengths define Nx, Ny, and Nz. Non-uniform grids are supported.
         use_mpi : bool, optional
             Enable MPI domain decomposition in the z direction. Default is False.
         use_mesh_refinement : bool, optional
@@ -135,13 +141,25 @@ class GridFIT3D(PlotMixin):
         Attributes
         ----------
         x, y, z : ndarray
-            Grid axis arrays.
+            Primal node coordinates, including both domain boundaries, with
+            lengths Nx, Ny, and Nz.
         Nx, Ny, Nz : int
-            Number of cells in each direction.
+            Computational cell counts, equal to the primal node counts.
+            Physical cell counts are Nx - 1, Ny - 1, and Nz - 1.
         dx, dy, dz : ndarray
-            Cell sizes in each direction.
+            Physical cell widths, with lengths Nx - 1, Ny - 1, and Nz - 1.
+        tx, ty, tz : ndarray
+            Dual grid coordinates: the domain boundaries and the intervening
+            primal cell midpoints, with lengths Nx + 1, Ny + 1, and Nz + 1.
         grid : pyvista.StructuredGrid
-            PyVista grid object.
+            Computational primal grid, including zero-extent high-side cells.
+        L, iA : Field
+            Primal edge lengths and inverse face areas on the computational
+            grid. Edge lengths vanish along the corresponding high-side
+            boundary axis; inverse areas are zero for zero-area faces.
+        tL, itA : Field
+            Dual edge lengths and inverse face areas on the same computational
+            index space. Dual edges have half-cell lengths at both boundaries.
         stl_solids, stl_materials, stl_colors : dict
             STL solid file paths, materials, and colors.
         (...)
@@ -291,7 +309,15 @@ class GridFIT3D(PlotMixin):
         """
         Compute the PyVista grid and related geometric quantities.
 
-        Sets up the structured grid, cell lengths, inverse areas, and tilde grid.
+        Build primal and dual metrics on the same computational index space.
+
+        Primal coordinates are defined at cell vertices.
+        The high-side primal coordinate is repeated to retain the boundary node
+        in a zero-extent computational cell at the high-boundary (ghost cell).
+
+        Dual coordinates span from the low boundary through primal cell midpoints
+        to the high boundary, giving half-cell dual lengths at both ends.
+        All metric fields have shape (Nx, Ny, Nz) per component.
         """
 
         # === Primal grid G ===
