@@ -164,9 +164,9 @@ class GridFIT3D(PlotMixin):
             self.x = x
             self.y = y
             self.z = z
-            self.Nx = len(self.x) - 1
-            self.Ny = len(self.y) - 1
-            self.Nz = len(self.z) - 1
+            self.Nx = len(self.x)
+            self.Ny = len(self.y)
+            self.Nz = len(self.z)
             self.xmin, self.xmax = self.x[0], self.x[-1]
             self.ymin, self.ymax = self.y[0], self.y[-1]
             self.zmin, self.zmax = self.z[0], self.z[-1]
@@ -182,9 +182,9 @@ class GridFIT3D(PlotMixin):
             self.ymin, self.ymax = ymin, ymax
             self.zmin, self.zmax = zmin, zmax
             self.Nx, self.Ny, self.Nz = Nx, Ny, Nz
-            self.x = np.linspace(self.xmin, self.xmax, self.Nx + 1)
-            self.y = np.linspace(self.ymin, self.ymax, self.Ny + 1)
-            self.z = np.linspace(self.zmin, self.zmax, self.Nz + 1)
+            self.x = np.linspace(self.xmin, self.xmax, self.Nx)
+            self.y = np.linspace(self.ymin, self.ymax, self.Ny)
+            self.z = np.linspace(self.zmin, self.zmax, self.Nz)
 
         else:
             raise ValueError(
@@ -195,7 +195,7 @@ class GridFIT3D(PlotMixin):
                 "  - OR load from a HDF5 file using load_from_h5"
             )
 
-        # TODO: allow non uniform dx, dy, dz
+        # TODO: allow non uniform dx, dy, dz from input
         self.dx = np.diff(self.x)
         self.dy = np.diff(self.y)
         self.dz = np.diff(self.z)
@@ -239,9 +239,9 @@ class GridFIT3D(PlotMixin):
         if verbose > 1:
             print(
                 f"    * Simulation domain bounds: \n\
-                x:[{xmin:.3f}, {xmax:.3f}],\n\
-                y:[{ymin:.3f}, {ymax:.3f}],\n\
-                z:[{zmin:.3f}, {zmax:.3f}]"
+                x:[{self.xmin:.3f}, {self.xmax:.3f}],\n\
+                y:[{self.ymin:.3f}, {self.ymax:.3f}],\n\
+                z:[{self.zmin:.3f}, {self.zmax:.3f}]"
             )
             print(
                 "    * Minimum cell sizes: dx={:.3e}, dy={:.3e}, dz={:.3e}".format(
@@ -293,43 +293,49 @@ class GridFIT3D(PlotMixin):
 
         Sets up the structured grid, cell lengths, inverse areas, and tilde grid.
         """
-        X, Y, Z = np.meshgrid(self.x, self.y, self.z, indexing="ij")
+
+        # === Primal grid G ===
+
+        # Extend the grid to account for ghost cell node
+        x = np.append(self.x, self.x[-1])
+        y = np.append(self.y, self.y[-1])
+        z = np.append(self.z, self.z[-1])
+        X, Y, Z = np.meshgrid(x, y, z, indexing="ij")
         self.grid = pv.StructuredGrid(X.transpose(), Y.transpose(), Z.transpose())
 
+        # Values outside of physical domain are 0
         self.L = Field(self.Nx, self.Ny, self.Nz)
         self.L.field_x = X[1:, 1:, 1:] - X[:-1, :-1, :-1]
         self.L.field_y = Y[1:, 1:, 1:] - Y[:-1, :-1, :-1]
         self.L.field_z = Z[1:, 1:, 1:] - Z[:-1, :-1, :-1]
 
         self.iA = Field(self.Nx, self.Ny, self.Nz)
-        self.iA.field_x = np.divide(1.0, self.L.field_y * self.L.field_z)
-        self.iA.field_y = np.divide(1.0, self.L.field_x * self.L.field_z)
-        self.iA.field_z = np.divide(1.0, self.L.field_x * self.L.field_y)
+        aux = self.L.field_y * self.L.field_z
+        self.iA.field_x = np.divide(1.0, aux, out=np.zeros_like(aux), where=aux != 0)
+        aux = self.L.field_x * self.L.field_z
+        self.iA.field_y = np.divide(1.0, aux, out=np.zeros_like(aux), where=aux != 0)
+        aux = self.L.field_x * self.L.field_y
+        self.iA.field_z = np.divide(1.0, aux, out=np.zeros_like(aux), where=aux != 0)
+        del aux
 
-        # tilde grid ~G
-        self.tx = (self.x[1:] + self.x[:-1]) / 2
-        self.ty = (self.y[1:] + self.y[:-1]) / 2
-        self.tz = (self.z[1:] + self.z[:-1]) / 2
+        # === Tilde grid ~G ===
 
-        self.tx = np.append(self.tx, self.tx[-1])
-        self.ty = np.append(self.ty, self.ty[-1])
-        self.tz = np.append(self.tz, self.tz[-1])
-
+        # Append domain boundaries to the tilde grid coordinates
+        self.tx = np.r_[self.x[0], (self.x[1:] + self.x[:-1]) / 2, self.x[-1]]
+        self.ty = np.r_[self.y[0], (self.y[1:] + self.y[:-1]) / 2, self.y[-1]]
+        self.tz = np.r_[self.z[0], (self.z[1:] + self.z[:-1]) / 2, self.z[-1]]
         tX, tY, tZ = np.meshgrid(self.tx, self.ty, self.tz, indexing="ij")
 
+        # No values are 0, just snapped to physical domain boundaries
         self.tL = Field(self.Nx, self.Ny, self.Nz)
         self.tL.field_x = tX[1:, 1:, 1:] - tX[:-1, :-1, :-1]
         self.tL.field_y = tY[1:, 1:, 1:] - tY[:-1, :-1, :-1]
         self.tL.field_z = tZ[1:, 1:, 1:] - tZ[:-1, :-1, :-1]
 
         self.itA = Field(self.Nx, self.Ny, self.Nz)
-        aux = self.tL.field_y * self.tL.field_z
-        self.itA.field_x = np.divide(1.0, aux, out=np.zeros_like(aux), where=aux != 0)
-        aux = self.tL.field_x * self.tL.field_z
-        self.itA.field_y = np.divide(1.0, aux, out=np.zeros_like(aux), where=aux != 0)
-        aux = self.tL.field_x * self.tL.field_y
-        self.itA.field_z = np.divide(1.0, aux, out=np.zeros_like(aux), where=aux != 0)
-        del aux
+        self.itA.field_x = np.divide(1.0, self.tL.field_y * self.tL.field_z)
+        self.itA.field_y = np.divide(1.0, self.tL.field_x * self.tL.field_z)
+        self.itA.field_z = np.divide(1.0, self.tL.field_x * self.tL.field_y)
 
     def _mpi_initialize(self):
         """
