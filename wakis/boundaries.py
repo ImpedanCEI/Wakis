@@ -213,66 +213,9 @@ class BCsMixin:
             # Update C (columns)
             self.C = self.C * self.Dbc
 
-        # Dirichlet PMC: tangential H field = 0 at boundary
-        if any(True for x in self.bc_low if x.lower() in ("magnetic", "pmc")) or any(
-            True for x in self.bc_high if x.lower() in ("magnetic", "pmc")
-        ):
-            # Reset the face factors so that PEC faces do not also mask H
-            xlo, ylo, zlo = 1, 1, 1
-            xhi, yhi, zhi = 1, 1, 1
-            if self.bc_low[0].lower() == "magnetic" or self.bc_low[0] == "pmc":
-                xlo = 0
-            if self.bc_low[1].lower() == "magnetic" or self.bc_low[1] == "pmc":
-                ylo = 0
-            if self.bc_low[2].lower() == "magnetic" or self.bc_low[2] == "pmc":
-                zlo = 0
-            if self.bc_high[0].lower() == "magnetic" or self.bc_high[0] == "pmc":
-                xhi = 0
-            if self.bc_high[1].lower() == "magnetic" or self.bc_high[1] == "pmc":
-                yhi = 0
-            if self.bc_high[2].lower() == "magnetic" or self.bc_high[2] == "pmc":
-                zhi = 0
-
-            # Assemble matrix
-            self.BC = Field(self.Nx, self.Ny, self.Nz, dtype=np.int8, use_ones=True)
-
-            # Multiply the face factors: assigning them would let a non-masked
-            # face (e.g. periodic) unmask the edge lines it shares with a
-            # masked face.
-            for d in ["x", "y", "z"]:  # tangential to zero
-                if d != "x":
-                    self.BC[0, :, :, d] *= xlo
-                    self.BC[-1, :, :, d] *= xhi
-                if d != "y":
-                    self.BC[:, 0, :, d] *= ylo
-                    self.BC[:, -1, :, d] *= yhi
-                if d != "z":
-                    self.BC[:, :, 0, d] *= zlo
-                    self.BC[:, :, -1, d] *= zhi
-
-            self.Dbc = diags(
-                self.BC.toarray(),
-                shape=(3 * self.N, 3 * self.N),
-                dtype=np.int8,
-            )
-            self.Dbc_x = diags(
-                self.BC.field_x,
-                shape=(self.N, self.N),
-                dtype=np.int8,
-            )
-            self.Dbc_y = diags(
-                self.BC.field_y,
-                shape=(self.N, self.N),
-                dtype=np.int8,
-            )
-            self.Dbc_z = diags(
-                self.BC.field_z,
-                shape=(self.N, self.N),
-                dtype=np.int8,
-            )
-
-            # Update C (rows)
-            self.C = self.Dbc * self.C
+        # PMC is the natural boundary of the staggered FIT grid. Tangential H
+        # samples lie in the first and last physical half-cells, not on the wall.
+        # The high-side ghost samples have zero primal area and cannot evolve.
 
         # First-order Mur absorbing boundary conditions (ABC)
         if any(True for x in self.bc_low if x.lower() == "abc") or any(

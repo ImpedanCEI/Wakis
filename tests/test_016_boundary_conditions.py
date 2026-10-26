@@ -9,6 +9,7 @@ the expected longitudinal response of PEC, PMC, periodic, and Mur ABC faces.
 
 import numpy as np
 import pytest
+from scipy.constants import c
 
 from wakis import GridFIT3D, SolverFIT3D
 from wakis.sources import Pulse
@@ -257,13 +258,62 @@ def test_nonuniform_periodic_metrics():
     )
 
 
-@pytest.mark.parametrize("boundary", ["pec", "pmc"])
-def test_rebuilt_curl_preserves_conductor_masks(boundary):
-    solver = make_solver(["periodic", "periodic", boundary])
+def test_rebuilt_curl_preserves_pec_mask():
+    solver = make_solver(["periodic", "periodic", "pec"])
     masked = np.flatnonzero(solver.BC.toarray() == 0)
     curl = solver.C.tocsr()
-    selected = curl[:, masked] if boundary == "pec" else curl[masked, :]
+    selected = curl[:, masked]
     assert np.count_nonzero(selected.toarray()) == 0
+
+
+@pytest.mark.parametrize("nx", [11, 21])
+@pytest.mark.parametrize(
+    "low,high,half_waves",
+    [
+        ("pec", "pec", 1.0),
+        ("pmc", "pec", 0.5),
+        ("pec", "pmc", 0.5),
+        ("pmc", "pmc", 1.0),
+    ],
+)
+def test_pec_pmc_cavity_modes(nx, low, high, half_waves):
+    """The lowest Ez mode follows the discrete PEC/PMC cavity dispersion.
+
+    One-cell periodic transverse axes isolate an x-directed mode. PEC/PMC
+    walls use the requested 50 mm length, with no missing half-cell at PMC.
+    A leapfrog step preserves the corresponding sampled mode profile.
+    """
+    length = 0.05
+    grid = GridFIT3D(
+        x=np.linspace(0.0, length, nx),
+        y=np.array([0.0, 0.01]),
+        z=np.array([0.0, 0.01]),
+        verbose=0,
+    )
+    solver = SolverFIT3D(
+        grid,
+        bc_low=[low, "periodic", "periodic"],
+        bc_high=[high, "periodic", "periodic"],
+        verbose=0,
+    )
+    operator = (solver.itDaiDepsDstC @ solver.tDsiDmuiDaC).tocsr()
+    ez_operator = operator[2 * solver.N :, 2 * solver.N :].toarray()
+    eigenvalues = np.linalg.eigvals(ez_operator).real
+    eigenvalues = eigenvalues[eigenvalues > eigenvalues.max() * 1e-8]
+    measured = np.sqrt(eigenvalues.min())
+    dx = length / (nx - 1)
+    expected = 2 * c / dx * np.sin(np.pi * half_waves * dx / (2 * length))
+    np.testing.assert_allclose(measured, expected, rtol=1e-10)
+
+    phase = np.pi * half_waves * solver.x / length
+    profile = np.sin(phase) if low == "pec" else np.cos(phase)
+    solver.E[:, :, :, "z"] = profile[:, None, None]
+    solver.one_step()
+    np.testing.assert_allclose(
+        solver.E[:, 0, 0, "z"],
+        (1 - (solver.dt * expected) ** 2) * profile,
+        atol=1e-12,
+    )
 
 
 @pytest.mark.parametrize("bc_y", ["periodic", "pmc"])

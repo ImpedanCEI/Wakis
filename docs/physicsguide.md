@@ -339,7 +339,7 @@ A source callback can be easily created as:
 
 Wakis supports several boundary condition (BC) types:
 - **PEC (Perfect Electric Conductor)**: masks tangential electric-field degrees of freedom, enforcing $\vec{E}_{\parallel} = 0$ at the selected face.
-- **PMC (Perfect Magnetic Conductor)**: masks tangential magnetic-field degrees of freedom, enforcing $\vec{H}_{\parallel} = 0$. Face masks combine by multiplication: an edge line shared by a PEC face and a periodic or PMC face stays masked, and a PMC face masks only magnetic degrees of freedom on its own faces. Mixed boundaries such as a parallel-plate line (PEC plates, periodic or PMC side faces) therefore keep their exact TEM solution.
+- **PMC (Perfect Magnetic Conductor)**: uses the natural boundary of the staggered FIT grid. Tangential magnetic-field samples lie inside the first and last physical half-cells, rather than on the wall, so no interior H sample is masked. The high-side ghost samples have zero primal area. Tangential electric-field samples on a PMC face remain free.
 - **Periodic**: pairs the low and high faces of an axis and closes the corresponding FIT derivative stencil (`Px`, `Py`, or `Pz`) across that seam. The curl matrix is then rebuilt from the corrected derivative matrices and the periodic dual metrics are updated. A periodic face must be paired with the opposite face. Serial periodic boundaries are available in all three directions; longitudinal periodic MPI requires cyclic ghost exchange and is intentionally not enabled yet.
 - **ABC**: a first-order Mur radiation condition for selected domain faces.
 - **PML**: a finite, graded, electrically lossy layer terminated by the usual electric boundary mask.
