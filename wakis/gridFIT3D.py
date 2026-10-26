@@ -159,7 +159,8 @@ class GridFIT3D(PlotMixin):
             boundary axis; inverse areas are zero for zero-area faces.
         tL, itA : Field
             Dual edge lengths and inverse face areas on the same computational
-            index space. Dual edges have half-cell lengths at both boundaries.
+            index space. Dual edges initially have half-cell lengths at both
+            boundaries; a periodic solver combines them at the low boundary.
         stl_solids, stl_materials, stl_colors : dict
             STL solid file paths, materials, and colors.
         (...)
