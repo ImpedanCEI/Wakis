@@ -224,25 +224,20 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 )
 
         # Matrices
+        # fmt: off
         if verbose:
             print("Assembling operator matrices...")
         N = self.N
-        self.Px = diags([-1, 1], [0, 1], shape=(N, N), dtype=np.int8)
-        self.Py = diags([-1, 1], [0, self.Nx], shape=(N, N), dtype=np.int8)
-        self.Pz = diags([-1, 1], [0, self.Nx * self.Ny], shape=(N, N), dtype=np.int8)
+        self.Px = diags([-1, 1], [0, 1], shape=(N, N), dtype=np.int8).tolil()
+        self.Py = diags([-1, 1], [0, self.Nx], shape=(N, N), dtype=np.int8).tolil()
+        self.Pz = diags([-1, 1], [0, self.Nx * self.Ny], shape=(N, N), dtype=np.int8 ).tolil()
 
-        # Terminal nodes have no forward primal edge. In flattened storage,
-        # leaving these rows intact would also connect adjacent x/y lines.
+        # Terminal nodes have no forward primal edge:
         indices = np.arange(N).reshape((self.Nx, self.Ny, self.Nz), order="F")
-        self.Px = self.Px.tolil()
-        self.Py = self.Py.tolil()
-        self.Pz = self.Pz.tolil()
         self.Px[indices[-1, :, :].ravel(), :] = 0
         self.Py[indices[:, -1, :].ravel(), :] = 0
         self.Pz[indices[:, :, -1].ravel(), :] = 0
-        self.Px = self.Px.tocsc()
-        self.Py = self.Py.tocsc()
-        self.Pz = self.Pz.tocsc()
+        self.Px, self.Py, self.Pz = self.Px.tocsr(), self.Py.tocsr(), self.Pz.tocsr()
 
         # original grid
         self.Ds = diags(self.grid.L.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
@@ -250,9 +245,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         # tilde grid
         self.tDs = diags(self.grid.tL.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
-        self.itDa = diags(
-            self.grid.itA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
-        )
+        self.itDa = diags(self.grid.itA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
 
         # Curl matrix
         self.C = vstack(
@@ -261,8 +254,10 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 hstack([self.Pz, sparse_mat((N, N)), -self.Px]),
                 hstack([-self.Py, self.Px, sparse_mat((N, N))]),
             ],
+            format="csr",
             dtype=np.int8,
         )
+        # fmt: on
 
         # Boundaries
         if verbose:
