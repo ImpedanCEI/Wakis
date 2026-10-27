@@ -224,32 +224,53 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 )
 
         # Curl operator
-        # fmt: off
         if verbose:
             print("Assembling operator matrices...")
-        N = self.N
-        self.Px = diags([-1, 1], [0, 1], shape=(N, N), dtype=np.int8).tolil()
-        self.Py = diags([-1, 1], [0, self.Nx], shape=(N, N), dtype=np.int8).tolil()
-        self.Pz = diags([-1, 1], [0, self.Nx * self.Ny], shape=(N, N), dtype=np.int8 ).tolil()
 
-        # Terminal nodes have no forward primal edge:
-        indices = np.arange(N).reshape((self.Nx, self.Ny, self.Nz), order="F")
-        self.Px[indices[-1, :, :].ravel(), :] = 0
-        self.Py[indices[:, -1, :].ravel(), :] = 0
-        self.Pz[indices[:, :, -1].ravel(), :] = 0
-        self.Px, self.Py, self.Pz = self.Px.tocsr(), self.Py.tocsr(), self.Pz.tocsr()
+        # Incidence matrices Px Py Pz
+        # Terminal nodes have no forward primal edge on their respective axis.
+        rows = np.arange(self.N)
+        active_x = (rows % self.Nx != self.Nx - 1).astype(np.int8)
+        self.Px = diags(
+            [-active_x, active_x[:-1]],
+            [0, 1],
+            shape=(self.N, self.N),
+            dtype=np.int8,
+            format="csr",
+        )
+        self.Px.eliminate_zeros()
+
+        active_y = ((rows // self.Nx) % self.Ny != self.Ny - 1).astype(np.int8)
+        self.Py = diags(
+            [-active_y, active_y[: -self.Nx]],
+            [0, self.Nx],
+            shape=(self.N, self.N),
+            dtype=np.int8,
+            format="csr",
+        )
+        self.Py.eliminate_zeros()
+
+        xy_stride = self.Nx * self.Ny
+        active_z = ((rows // xy_stride) % self.Nz != self.Nz - 1).astype(np.int8)
+        self.Pz = diags(
+            [-active_z, active_z[:-xy_stride]],
+            [0, xy_stride],
+            shape=(self.N, self.N),
+            dtype=np.int8,
+            format="csr",
+        )
+        self.Pz.eliminate_zeros()
 
         # Curl matrix
         self.C = vstack(
             [
-                hstack([sparse_mat((N, N)), -self.Pz, self.Py]),
-                hstack([self.Pz, sparse_mat((N, N)), -self.Px]),
-                hstack([-self.Py, self.Px, sparse_mat((N, N))]),
+                hstack([sparse_mat((self.N, self.N)), -self.Pz, self.Py]),
+                hstack([self.Pz, sparse_mat((self.N, self.N)), -self.Px]),
+                hstack([-self.Py, self.Px, sparse_mat((self.N, self.N))]),
             ],
             format="csr",
             dtype=np.int8,
         )
-        # fmt: on
 
         # Boundaries to C
         if verbose:
@@ -260,12 +281,18 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self._apply_bc_to_C()
 
         # Diagonal matrices for grid metrics
-        self.Ds = diags(self.grid.L.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
-        self.iDa = diags(self.grid.iA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+        self.Ds = diags(
+            self.grid.L.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
+        )
+        self.iDa = diags(
+            self.grid.iA.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
+        )
 
-        self.tDs = diags(self.grid.tL.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+        self.tDs = diags(
+            self.grid.tL.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
+        )
         self.itDa = diags(
-            self.grid.itA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
+            self.grid.itA.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
         )
 
         # Materials
@@ -394,10 +421,14 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         # Pre-computing
         if verbose:
             print("Pre-computing...")
-        self.iDeps = diags(self.ieps.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
-        self.iDmu = diags(self.imu.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+        self.iDeps = diags(
+            self.ieps.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
+        )
+        self.iDmu = diags(
+            self.imu.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
+        )
         self.Dsigma = diags(
-            self.sigma.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
+            self.sigma.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
         )
 
         if self.activate_cpml:
