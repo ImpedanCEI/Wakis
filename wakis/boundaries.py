@@ -9,8 +9,9 @@ import numpy as np
 from scipy.constants import c
 from scipy.constants import epsilon_0 as eps_0
 from scipy.constants import mu_0
+from scipy.sparse import coo_matrix
 from scipy.sparse import csc_matrix as sparse_mat
-from scipy.sparse import diags, hstack, vstack
+from scipy.sparse import diags, eye, hstack, kron, vstack
 
 from .field import Field
 
@@ -63,56 +64,74 @@ class BCsMixin:
         periodic_z = self.bc_low[2].lower() == "periodic"
         has_periodic = periodic_x or periodic_y or periodic_z
         if has_periodic:
-            indices = np.arange(self.N).reshape((self.Nx, self.Ny, self.Nz), order="F")
             node_mask = np.ones((self.Nx, self.Ny, self.Nz), dtype=np.int8)
+            # ix, iy, iz leave the other axes unchanged when a 1D difference
+            # is expanded to the full grid by a Kronecker product.
+            ix = eye(self.Nx, dtype=np.int8, format="csc")
+            iy = eye(self.Ny, dtype=np.int8, format="csc")
+            iz = eye(self.Nz, dtype=np.int8, format="csc")
 
-            # Redirect each last physical edge from the high endpoint to the low node.
+            # Each 1D difference uses the physical cells, wraps the last cell
+            # to node zero, and leaves the duplicate high endpoint inactive.
+            # Kronecker products follow the solver's x-fastest field numbering.
             if periodic_x:
-                previous = indices[-2, :, :].ravel()
-                high = indices[-1, :, :].ravel()
-                low = indices[0, :, :].ravel()
-                self.Px = self.Px.tolil()
-                self.Px[previous, high] = 0
-                if self.Nx > 2:
-                    self.Px[previous, low] = 1
-                else:
-                    self.Px[previous, previous] = 0
-                self.Px = self.Px.tocsc()
+                start = np.arange(self.Nx - 1)
+                end = (start + 1) % (self.Nx - 1)
+                values = np.r_[
+                    np.full(self.Nx - 1, -1, dtype=np.int8),
+                    np.full(self.Nx - 1, 1, dtype=np.int8),
+                ]
+                # dx differentiates along x; iy and iz repeat it at every y, z.
+                dx = coo_matrix(
+                    (values, (np.r_[start, start], np.r_[start, end])),
+                    shape=(self.Nx, self.Nx),
+                ).tocsc()
+                dx.eliminate_zeros()
+                self.Px = kron(iz, kron(iy, dx, format="csc"), format="csc")
 
+                # Merge dual half-cells at low x; high x has no independent length.
                 lengths = self.grid.tL.to_matrix("x")
                 lengths[0, :, :] += lengths[-1, :, :]
                 lengths[-1, :, :] = 0
                 node_mask[-1, :, :] = 0
 
             if periodic_y:
-                previous = indices[:, -2, :].ravel()
-                high = indices[:, -1, :].ravel()
-                low = indices[:, 0, :].ravel()
-                self.Py = self.Py.tolil()
-                self.Py[previous, high] = 0
-                if self.Ny > 2:
-                    self.Py[previous, low] = 1
-                else:
-                    self.Py[previous, previous] = 0
-                self.Py = self.Py.tocsc()
+                start = np.arange(self.Ny - 1)
+                end = (start + 1) % (self.Ny - 1)
+                values = np.r_[
+                    np.full(self.Ny - 1, -1, dtype=np.int8),
+                    np.full(self.Ny - 1, 1, dtype=np.int8),
+                ]
+                # dy differentiates along y; ix and iz repeat it at every x, z.
+                dy = coo_matrix(
+                    (values, (np.r_[start, start], np.r_[start, end])),
+                    shape=(self.Ny, self.Ny),
+                ).tocsc()
+                dy.eliminate_zeros()
+                self.Py = kron(iz, kron(dy, ix, format="csc"), format="csc")
 
+                # Merge dual half-cells at low y; high y has no independent length.
                 lengths = self.grid.tL.to_matrix("y")
                 lengths[:, 0, :] += lengths[:, -1, :]
                 lengths[:, -1, :] = 0
                 node_mask[:, -1, :] = 0
 
             if periodic_z:
-                previous = indices[:, :, -2].ravel()
-                high = indices[:, :, -1].ravel()
-                low = indices[:, :, 0].ravel()
-                self.Pz = self.Pz.tolil()
-                self.Pz[previous, high] = 0
-                if self.Nz > 2:
-                    self.Pz[previous, low] = 1
-                else:
-                    self.Pz[previous, previous] = 0
-                self.Pz = self.Pz.tocsc()
+                start = np.arange(self.Nz - 1)
+                end = (start + 1) % (self.Nz - 1)
+                values = np.r_[
+                    np.full(self.Nz - 1, -1, dtype=np.int8),
+                    np.full(self.Nz - 1, 1, dtype=np.int8),
+                ]
+                # dz differentiates along z; ix and iy repeat it at every x, y.
+                dz = coo_matrix(
+                    (values, (np.r_[start, start], np.r_[start, end])),
+                    shape=(self.Nz, self.Nz),
+                ).tocsc()
+                dz.eliminate_zeros()
+                self.Pz = kron(dz, kron(iy, ix, format="csc"), format="csc")
 
+                # Merge dual half-cells at low z; high z has no independent length.
                 lengths = self.grid.tL.to_matrix("z")
                 lengths[:, :, 0] += lengths[:, :, -1]
                 lengths[:, :, -1] = 0
