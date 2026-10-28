@@ -216,7 +216,11 @@ class RoutinesMixin:
         wake potential WP(s) and impedance Z(s).
 
         The `Ez` field is saved every timestep in a subdomain (xtest, ytest, z) around
-        the beam trajectory in HDF5 format file `Ez.h5`.
+        the beam trajectory in HDF5 format file `Ez.h5`. The saved x/y coordinates
+        are primal nodes; z contains physical primal-edge midpoints, with dz
+        their integration lengths. The zero-length terminal edge is excluded.
+        Domain boundaries are recovered from the first/last midpoint and dz.
+        Ez is saved before advancing at t=n*dt; optional Jz is at t=(n+1/2)*dt.
 
         The computed results are available as attributes of the WakeSolver object:
             - wake potential: WP (longitudinal), WPx, WPy (transverse) [V/pC]
@@ -328,26 +332,35 @@ class RoutinesMixin:
         if compute_plane.lower() == "longitudinal":
             xx, yy = self.ixt, self.iyt
         else:
+            n = self.wake.n_transverse_cells
+            if not (n <= self.ixt < self.Nx - n and n <= self.iyt < self.Ny - n):
+                raise ValueError(
+                    "The test position needs neighboring x/y nodes for the transverse wake stencil."
+                )
             xx, yy = (
-                slice(self.ixt - 1, self.ixt + 2),
-                slice(self.iyt - 1, self.iyt + 2),
+                slice(self.ixt - n, self.ixt + n + 1),
+                slice(self.iyt - n, self.iyt + n + 1),
             )
 
         # Compute simulation time
         self.wake.wakelength = wakelength
         self.ti = self.wake.ti
         self.v = self.wake.v
+        # Ez and Jz are longitudinal primal-edge averages, located at edge
+        # midpoints. Exclude the zero-length terminal edge from the saved field.
         if self.use_mpi:
-            z = self.Z  # use global coords
-            dz = np.full(self.NZ, (self.ZMAX - self.ZMIN) / self.NZ)
-            zz = slice(0, self.NZ)
+            z = 0.5 * (self.Z[:-1] + self.Z[1:])
+            dz = np.diff(self.Z)
+            zz = slice(0, self.NZ - 1)
         else:
-            z = self.z
-            zz = slice(0, self.Nz)
+            z = self.tz[1:-1]
+            dz = self.dz
+            zz = slice(0, self.Nz - 1)
 
-        tmax = (wakelength + self.ti * self.v + (z.max() - z.min())) / self.v  # [s]
+        tmax = (wakelength + self.ti * self.v + np.sum(dz)) / self.v  # [s]
         Nt = int(tmax / self.dt)
         self.tmax, self.Nt = tmax, Nt
+        times = np.arange(Nt) * float(self.dt)
 
         # Add beam source
         beam = Beam(
@@ -365,42 +378,42 @@ class RoutinesMixin:
         if self.use_mpi:
             if self.rank == 0:
                 hf = h5py.File(self.Ez_file, "w")
-                hf["x"], hf["y"], hf["z"] = self.x[xx], self.y[yy], z[zz]
+                hf["x"], hf["y"], hf["z"] = self.x[xx], self.y[yy], z
                 hf["dx"], hf["dy"], hf["dz"] = self.dx, self.dy, dz
-                hf["t"] = np.arange(0, Nt * self.dt, self.dt)
+                hf["t"] = times
 
                 if save_J:
                     hfJ = h5py.File("Jz.h5", "w")
                     hfJ["x"], hfJ["y"], hfJ["z"] = (
                         self.x[xx],
                         self.y[yy],
-                        z[zz],
+                        z,
                     )
                     hfJ["dx"], hfJ["dy"], hfJ["dz"] = (
                         self.dx,
                         self.dy,
                         dz,
                     )
-                    hfJ["t"] = np.arange(0, Nt * self.dt, self.dt)
+                    hfJ["t"] = times + float(self.dt) / 2
         else:
             hf = h5py.File(self.Ez_file, "w")
-            hf["x"], hf["y"], hf["z"] = self.x[xx], self.y[yy], z[zz]
+            hf["x"], hf["y"], hf["z"] = self.x[xx], self.y[yy], z
             hf["dx"], hf["dy"], hf["dz"] = (
                 self.dx,
                 self.dy,
-                self.dz,
+                dz,
             )
-            hf["t"] = np.arange(0, Nt * self.dt, self.dt)
+            hf["t"] = times
 
             if save_J:
                 hfJ = h5py.File("Jz.h5", "w")
-                hfJ["x"], hfJ["y"], hfJ["z"] = self.x[xx], self.y[yy], z[zz]
+                hfJ["x"], hfJ["y"], hfJ["z"] = self.x[xx], self.y[yy], z
                 hfJ["dx"], hfJ["dy"], hfJ["dz"] = (
                     self.dx,
                     self.dy,
-                    self.dz,
+                    dz,
                 )
-                hfJ["t"] = np.arange(0, Nt * self.dt, self.dt)
+                hfJ["t"] = times + float(self.dt) / 2
 
         def save_to_h5(self, hf, field, x, y, z, comp, n):
             if self.use_mpi:
@@ -420,7 +433,7 @@ class RoutinesMixin:
         t0 = time.time()
         for n in tqdm(range(Nt)):
             # Initial condition
-            beam.update(self, n * self.dt)
+            beam.update(self, times[n])
 
             # Save
             save_to_h5(self, hf, "E", xx, yy, zz, "z", n)
@@ -442,7 +455,7 @@ class RoutinesMixin:
 
             # Callback func(solver, t)
             if callback is not None:
-                callback(self, n * self.dt)
+                callback(self, times[n])
 
         # End of time loop
         if self.use_mpi:
