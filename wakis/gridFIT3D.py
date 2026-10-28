@@ -86,6 +86,7 @@ class GridFIT3D(PlotMixin):
             Their lengths define Nx, Ny, and Nz. Non-uniform grids are supported.
         use_mpi : bool, optional
             Enable MPI domain decomposition in the z direction. Default is False.
+            Requires more than one MPI rank; otherwise raises ValueError.
         use_mesh_refinement : bool, optional
             Enable mesh refinement based on snap points extracted from the STL solids.
             Default is False.
@@ -375,6 +376,12 @@ class GridFIT3D(PlotMixin):
         self.rank = self.comm.Get_rank()
         self.size = self.comm.Get_size()
 
+        if self.size == 1:
+            raise ValueError(
+                "use_mpi=True requires more than one MPI rank. "
+                "Launch with mpiexec -n 2 (or more), or set use_mpi=False."
+            )
+
         # Error handling for Nz < size
         if self.Nz < self.size:
             raise ValueError(
@@ -386,39 +393,18 @@ class GridFIT3D(PlotMixin):
         self.ZMIN = self.zmin
         self.ZMAX = self.zmax
         self.NZ = self.Nz - self.Nz % (self.size)  # ensure multiple of MPI size
-        self.Z = np.linspace(self.ZMIN, self.ZMAX, self.NZ + 1)[:-1]
-        self.Z += (self.ZMAX - self.ZMIN) / (2 * self.NZ)
+        self.Z = np.linspace(self.ZMIN, self.ZMAX, self.NZ)
 
-        if self.verbose and self.rank == 0:
-            print(f" * Global grid ZMIN={self.ZMIN}, ZMAX={self.ZMAX}, NZ={self.NZ}")
-
-        # MPI subdomain quantities [TODO: support non-uniform dz with MPI]
-        self.Nz = self.NZ // (self.size)
-        self.dz = (self.ZMAX - self.ZMIN) / self.NZ
-        self.zmin = self.rank * self.Nz * self.dz + self.ZMIN
-        self.zmax = (self.rank + 1) * self.Nz * self.dz + self.ZMIN
-
-        if self.verbose:
-            print(
-                f"MPI rank {self.rank} of {self.size} initialized with \
-                        zmin={self.zmin}, zmax={self.zmax}, Nz={self.Nz}"
-            )
-        # Add ghost cells
+        # Partition computational nodes, retaining one neighboring node for
+        # each MPI exchange. Only the final rank owns the high boundary node.
+        nz = self.NZ // self.size
         self.n_ghosts = 1
-        if self.rank > 0:
-            self.zmin += -self.n_ghosts * self.dz
-            self.Nz += self.n_ghosts
-        if self.rank < (self.size - 1):
-            self.zmax += self.n_ghosts * self.dz
-            self.Nz += self.n_ghosts
-
-        # Support for single core
-        if self.rank == 0 and self.size == 1:
-            self.zmax += self.n_ghosts * self.dz
-            self.Nz += self.n_ghosts
-
-        self.z = np.linspace(self.zmin, self.zmax, self.Nz + 1)
-        self.dz = np.diff(self.z)  # only uniform grid possible with MPI
+        start = self.rank * nz - (self.rank > 0)
+        stop = (self.rank + 1) * nz + (self.rank < self.size - 1)
+        self.z = self.Z[start:stop].copy()
+        self.Nz = len(self.z)
+        self.zmin, self.zmax = self.z[0], self.z[-1]
+        self.dz = np.diff(self.z)
 
     def mpi_gather_asGrid(self):
         """
@@ -1058,7 +1044,7 @@ class GridFIT3D(PlotMixin):
         self.x = self.refine_axis(
             self.xmin,
             self.xmax,
-            self.Nx + 1,
+            self.Nx,
             self.x_snaps,
             method=method,
             tol=tol,
@@ -1069,7 +1055,7 @@ class GridFIT3D(PlotMixin):
         self.y = self.refine_axis(
             self.ymin,
             self.ymax,
-            self.Ny + 1,
+            self.Ny,
             self.y_snaps,
             method=method,
             tol=tol,
@@ -1080,15 +1066,15 @@ class GridFIT3D(PlotMixin):
         self.z = self.refine_axis(
             self.zmin,
             self.zmax,
-            self.Nz + 1,
+            self.Nz,
             self.z_snaps,
             method=method,
             tol=tol,
         )
 
-        self.Nx = len(self.x) - 1
-        self.Ny = len(self.y) - 1
-        self.Nz = len(self.z) - 1
+        self.Nx = len(self.x)
+        self.Ny = len(self.y)
+        self.Nz = len(self.z)
         self.dx = np.diff(self.x)
         self.dy = np.diff(self.y)
         self.dz = np.diff(self.z)
@@ -1214,9 +1200,9 @@ class GridFIT3D(PlotMixin):
                 setattr(self, attr, dct)
 
         # recompute dx, dy, dz, Nx, Ny, Nz
-        self.Nx = len(self.x) - 1
-        self.Ny = len(self.y) - 1
-        self.Nz = len(self.z) - 1
+        self.Nx = len(self.x)
+        self.Ny = len(self.y)
+        self.Nz = len(self.z)
         self.dx = np.diff(self.x)
         self.dy = np.diff(self.y)
         self.dz = np.diff(self.z)
