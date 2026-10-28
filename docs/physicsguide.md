@@ -123,7 +123,12 @@ N_\text{phys} = (N_x-1)(N_y-1)(N_z-1)
 $$
 
 Here $N_x$, $N_y$, and $N_z$ count stored primal nodes and computational
-cells; the final computational cell on each axis has zero primal extent.
+cells; the final computational cell on each axis has zero primal extent. Mesh
+refinement and HDF5 loading preserve this convention: an axis array of length
+$N_x$ defines $N_x$ computational cells and $N_x-1$ physical intervals.
+MPI partitions the global primal nodes along $z$ and adds neighboring nodes
+for ghost exchange at internal interfaces. The beam origin remains the global
+low boundary, as in a serial simulation.
 
 This approach maps:
 - Line integrals → to grid **edges**
@@ -610,6 +615,31 @@ Thus $w$ denotes the point-charge response and $W$ the response to the bunch
 profile. `WakeSolver.WP`, `WPx`, and `WPy` store the latter in
 $\mathrm{V/pC}$. This distinction follows the definitions in
 [Teofili et al., *Phys. Rev. Accel. Beams* **24**, 041001 (2021)](https://doi.org/10.1103/PhysRevAccelBeams.24.041001).
+
+On the symmetric Wakis grid, the longitudinal electric field and beam current are
+located at $(x_i,y_j,z_{k+1/2})$, where
+$z_{k+1/2}=(z_k+z_{k+1})/2$. Electric fields are stored at $t_n=n\Delta t$,
+while the beam deposits $J_z$ at $t_n+\Delta t/2$. Its transverse location
+snaps to the nearest primal x/y nodes. The current density is normalized by
+the transverse dual-cell area at those nodes.
+
+`wakesolve` saves physical $E_z$ edges only: HDF5 `z` contains their midpoints,
+and `dz` their lengths. Domain boundaries follow from the end midpoints:
+$z_\min=z_{1/2}-\Delta z_0/2$ and
+$z_\max=z_{N-3/2}+\Delta z_{N-2}/2$ for $N$ primal nodes.
+The zero-length high-side edge contributes no physical integral.
+For a bunch entering the low boundary $z_\min$ at time $t_i$, the discrete
+longitudinal integration samples the trajectory
+
+$$
+t_k(s)=t_i+\frac{z_{k+1/2}-z_\min+s}{v}, \qquad
+W_\parallel(s)=\frac{1}{q}\sum_k E_z(x_t,y_t,z_{k+1/2},t_k(s))\,\Delta z_k.
+$$
+
+The saved field timestep immediately preceding the requested trajectory time
+is used. `skip_cells` removes the same physical edges and lengths at both ends;
+it does not move the bunch's reference origin. The 1D integration and the
+central point of the transverse stencil follow the same trajectory.
 
 Wakis obtains the transverse wake potential from the 3D longitudinal wake
 potential using the Panofsky--Wenzel relation. With the $s$ and force signs
