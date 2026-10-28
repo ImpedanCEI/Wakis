@@ -95,14 +95,14 @@ def _longitudinal_harris_probe(boundary):
     return trace
 
 
-def test_longitudinal_harris_pulse_boundary_signatures():
-    """PEC, PMC, and periodic faces give distinct expected pulse returns."""
+def test_longitudinal_harris_pulse_reflection():
+    """PEC returns the wave energy while first-order Mur absorbs most of it."""
     traces = {
         boundary: _longitudinal_harris_probe(boundary)
-        for boundary in ("pec", "pmc", "periodic")
+        for boundary in ("pec", "pmc", "periodic", "abc")
     }
 
-    # All three boundaries see the same incident pulse before its return.
+    # All boundaries see the same incident pulse before its return.
     for trace in traces.values():
         assert trace[65:85].max() > 0.8
 
@@ -114,6 +114,16 @@ def test_longitudinal_harris_pulse_boundary_signatures():
 
     # The periodic wave subsequently reaches the probe after wrapping around.
     assert traces["periodic"][155:175].max() > 0.6
+
+    # The incident and first returned pulses occupy separate time windows at
+    # this probe. For the same plane wave, sum(E²) is proportional to energy.
+    incident_pec = np.sum(traces["pec"][48:98] ** 2)
+    reflected_pec = np.sum(traces["pec"][98:148] ** 2)
+    np.testing.assert_allclose(reflected_pec / incident_pec, 1.0, rtol=0.03)
+
+    incident_abc = np.sum(traces["abc"][48:98] ** 2)
+    reflected_abc = np.sum(traces["abc"][98:148] ** 2)
+    assert reflected_abc / incident_abc < 0.02
 
 
 @pytest.mark.parametrize(
