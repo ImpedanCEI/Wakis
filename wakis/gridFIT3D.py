@@ -311,9 +311,9 @@ class GridFIT3D(PlotMixin):
         self.ty = (self.y[1:] + self.y[:-1]) / 2
         self.tz = (self.z[1:] + self.z[:-1]) / 2
 
-        self.tx = np.append(self.tx, self.tx[-1])
-        self.ty = np.append(self.ty, self.ty[-1])
-        self.tz = np.append(self.tz, self.tz[-1])
+        self.tx = np.append(self.tx, self.x[-1])
+        self.ty = np.append(self.ty, self.y[-1])
+        self.tz = np.append(self.tz, self.z[-1])
 
         tX, tY, tZ = np.meshgrid(self.tx, self.ty, self.tz, indexing="ij")
 

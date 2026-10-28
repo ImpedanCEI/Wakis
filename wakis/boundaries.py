@@ -165,12 +165,10 @@ class BCsMixin:
                 ylo = 0
             if self.bc_low[2].lower() in ("electric", "pec", "pml", "cpml"):
                 zlo = 0
-            if self.bc_high[0].lower() in ("electric", "pec", "pml", "cpml"):
-                xhi = 0
-            if self.bc_high[1].lower() in ("electric", "pec", "pml", "cpml"):
-                yhi = 0
-            if self.bc_high[2].lower() in ("electric", "pec", "pml", "cpml"):
-                zhi = 0
+
+            # Tangential E-field DOFs on the high-side boundaries are not
+            # part of the stored field vector. Therefore, no additional
+            # DOFs need to be set to zero for PEC/PML/CPML at xmax/ymax/zmax.
 
             # Assemble matrix
             self.BC = Field(self.Nx, self.Ny, self.Nz, dtype=np.int8, use_ones=True)
