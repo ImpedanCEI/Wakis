@@ -572,7 +572,22 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         tensor : {'ieps','imu','sigma','all'}, optional
             Which tensor to update. Default is 'all' which recomputes every
             tensor and refreshes the precomputed time-stepping matrices.
+
+        Raises
+        ------
+        RuntimeError
+            If called after the first time step: the metric matrices needed
+            to rebuild the operators are released by the first step.
+
+        Notes
+        -----
+        Call it after modifying the material Fields and before time
+        stepping; the first-step initialization still runs afterwards.
         """
+        if not self.step_0:
+            raise RuntimeError(
+                "update_tensors() must be called before the first time step."
+            )
         if self.verbose:
             print(f'Re-computing tensor "{tensor}"...')
 
@@ -615,7 +630,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             print("Re-Pre-computing ...")
         self.tDsiDmuiDaC = self.iDa * self.iDmu * self.C * self.Ds
         self.itDaiDepsDstC = self.iDeps * self.itDa * self.C.transpose() * self.tDs
-        self.step_0 = False
 
     def _apply_stl_materials(self):
         """
