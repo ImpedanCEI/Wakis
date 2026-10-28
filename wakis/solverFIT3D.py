@@ -236,7 +236,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             [0, 1],
             shape=(self.N, self.N),
             dtype=np.int8,
-            format="csr",
+            format="dia",
         )
         self.Px.eliminate_zeros()
 
@@ -246,7 +246,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             [0, self.Nx],
             shape=(self.N, self.N),
             dtype=np.int8,
-            format="csr",
+            format="dia",
         )
         self.Py.eliminate_zeros()
 
@@ -257,7 +257,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             [0, xy_stride],
             shape=(self.N, self.N),
             dtype=np.int8,
-            format="csr",
+            format="dia",
         )
         self.Pz.eliminate_zeros()
 

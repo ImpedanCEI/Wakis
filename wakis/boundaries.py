@@ -87,7 +87,7 @@ class BCsMixin:
                     shape=(self.Nx, self.Nx),
                 ).tocsc()
                 dx.eliminate_zeros()
-                self.Px = kron(iz, kron(iy, dx, format="csc"), format="csc")
+                self.Px = kron(iz, kron(iy, dx, format="csc"), format="csc").todia()
 
                 # Merge dual half-cells at low x; high x has no independent length.
                 lengths = self.grid.tL.to_matrix("x")
@@ -108,7 +108,7 @@ class BCsMixin:
                     shape=(self.Ny, self.Ny),
                 ).tocsc()
                 dy.eliminate_zeros()
-                self.Py = kron(iz, kron(dy, ix, format="csc"), format="csc")
+                self.Py = kron(iz, kron(dy, ix, format="csc"), format="csc").todia()
 
                 # Merge dual half-cells at low y; high y has no independent length.
                 lengths = self.grid.tL.to_matrix("y")
@@ -129,7 +129,7 @@ class BCsMixin:
                     shape=(self.Nz, self.Nz),
                 ).tocsc()
                 dz.eliminate_zeros()
-                self.Pz = kron(dz, kron(iy, ix, format="csc"), format="csc")
+                self.Pz = kron(dz, kron(iy, ix, format="csc"), format="csc").todia()
 
                 # Merge dual half-cells at low z; high z has no independent length.
                 lengths = self.grid.tL.to_matrix("z")
