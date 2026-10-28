@@ -502,7 +502,6 @@ class WakeSolver:
 
         # field subvolume in No.cells for x, y
         i0, j0 = self.n_transverse_cells, self.n_transverse_cells
-        WP = np.zeros_like(s)
         WP_3d = np.zeros((i0 * 2 + 1, j0 * 2 + 1, len(s)))
         Ezt = np.zeros((nz, nt))
         keys = sorted(
@@ -514,6 +513,10 @@ class WakeSolver:
         with tqdm(total=len(s) * (i0 * 2 + 1) * (j0 * 2 + 1)) as pbar:
             for i in range(-i0, i0 + 1, 1):
                 for j in range(-j0, j0 + 1, 1):
+                    # Each transverse point needs its own accumulator; reusing
+                    # it leaks the previous point's wake into WP_3d
+                    WP = np.zeros_like(s)
+
                     # Assembly Ez field
                     for n in range(nt):
                         Ez = self.Ez_hf[keys[n]]
