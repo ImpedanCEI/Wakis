@@ -47,15 +47,24 @@ def _wake_from_field(q, profile_xy, tmp_path):
 @pytest.mark.parametrize("q", [1e-9, 1e-12])
 def test_uniform_field_gives_no_transverse_wake(q, tmp_path):
     # Ez independent of (x, y): every stencil point sees the same longitudinal
-    # wake, so the Panofsky-Wenzel gradient must vanish exactly
+    # wake, so the Panofsky-Wenzel gradient must vanish up to roundoff.
     wake = _wake_from_field(q, lambda x, y: np.ones_like(x), tmp_path)
 
     for i in range(3):
         for j in range(3):
             np.testing.assert_array_equal(wake.WP_3d[i, j], wake.WP)
     assert np.max(np.abs(wake.WP)) > 0
-    np.testing.assert_array_equal(wake.WPx, 0.0)
-    np.testing.assert_array_equal(wake.WPy, 0.0)
+    # Bound cancellation error in the three-point derivative of the integrated
+    # wake. BLAS backends need not produce bitwise zero for a constant profile.
+    ds = wake.s[1] - wake.s[0]
+    scale = np.max(np.abs(np.cumsum(wake.WP) * ds))
+    roundoff = 8 * np.finfo(wake.WP.dtype).eps * scale
+    np.testing.assert_allclose(
+        wake.WPx, 0.0, rtol=0, atol=roundoff / np.min(np.diff(wake.xf))
+    )
+    np.testing.assert_allclose(
+        wake.WPy, 0.0, rtol=0, atol=roundoff / np.min(np.diff(wake.yf))
+    )
 
 
 def test_wake_potential_scales_with_inverse_charge(tmp_path):
@@ -94,9 +103,11 @@ def test_edge_wake_integration(tmp_path, compute_plane, skip_cells, use_domain_a
     nodes = np.array([-0.1, -0.08, -0.04, 0.02, 0.1])
     dz = np.diff(nodes)
     z = (nodes[:-1] + nodes[1:]) / 2
-    dt = 0.0005 / c
+    # Resolve the smallest edge with 20 timesteps and cover the longest
+    # counter-moving trajectory (0.19 + 0.025 + 0.01 m).
+    dt = 0.001 / c
     ti = 0.01 / c
-    t = np.arange(700) * dt
+    t = np.arange(240) * dt
     xy = np.array([-0.002, 0.0, 0.003])
     shape = 1 + 100 * xy[:, None] + 200 * xy[None, :]
     counter = compute_plane == "counter"
