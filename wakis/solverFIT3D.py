@@ -229,6 +229,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         # Incidence matrices Px Py Pz
         # Terminal nodes have no forward primal edge on their respective axis.
+        # Keep DIA storage for the precomputed CPML derivatives used each step.
         rows = np.arange(self.N)
         active_x = (rows % self.Nx != self.Nx - 1).astype(np.int8)
         self.Px = diags(
@@ -238,7 +239,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             dtype=np.int8,
             format="dia",
         )
-        self.Px.eliminate_zeros()
 
         active_y = ((rows // self.Nx) % self.Ny != self.Ny - 1).astype(np.int8)
         self.Py = diags(
@@ -248,7 +248,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             dtype=np.int8,
             format="dia",
         )
-        self.Py.eliminate_zeros()
 
         xy_stride = self.Nx * self.Ny
         active_z = ((rows // xy_stride) % self.Nz != self.Nz - 1).astype(np.int8)
@@ -259,7 +258,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             dtype=np.int8,
             format="dia",
         )
-        self.Pz.eliminate_zeros()
 
         # Curl matrix
         self.C = vstack(
