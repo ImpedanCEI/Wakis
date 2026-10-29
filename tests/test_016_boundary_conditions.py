@@ -34,7 +34,7 @@ def test_nonperiodic_derivative_stops_at_boundary(axis, name):
 
 
 def test_solver_grid_coordinates():
-    """Solver aliases axis coordinates and widths while the grid owns metrics."""
+    """Solver aliases coordinates and copies dual metrics for boundary setup."""
     grid = GridFIT3D(
         x=np.array([0.0, 0.2, 1.0]),
         y=np.array([0.0, 0.4, 1.0]),
@@ -51,8 +51,50 @@ def test_solver_grid_coordinates():
         np.testing.assert_allclose(
             getattr(solver, "td" + name), np.diff(getattr(solver, "t" + name))
         )
-    for name in ("L", "iA", "tL", "itA"):
-        assert not hasattr(solver, name)
+    for name in ("tL", "itA"):
+        np.testing.assert_array_equal(
+            getattr(solver, name).toarray(), getattr(grid, name).toarray()
+        )
+
+
+@pytest.mark.parametrize("boundaries", [("periodic", "pmc"), ("pmc", "periodic")])
+def test_grid_reuse(boundaries):
+    """Reusing a graded grid preserves metrics and independent field evolution."""
+    coordinates = dict(
+        x=np.array([0.0, 0.2, 1.0]),
+        y=np.array([0.0, 0.4, 1.0]),
+        z=np.array([0.0, 0.3, 1.0]),
+        verbose=0,
+    )
+    grid = GridFIT3D(**coordinates)
+    metrics = {name: getattr(grid, name).toarray().copy() for name in ("tL", "itA")}
+    solvers = [
+        SolverFIT3D(grid, bc_low=[bc] * 3, bc_high=[bc] * 3, verbose=0)
+        for bc in boundaries
+    ]
+    for name, expected in metrics.items():
+        np.testing.assert_array_equal(getattr(grid, name).toarray(), expected)
+
+    initial = np.random.default_rng(1).normal(size=3 * grid.Nx * grid.Ny * grid.Nz)
+    for bc, solver in zip(boundaries, solvers):
+        reference = SolverFIT3D(
+            GridFIT3D(**coordinates),
+            bc_low=[bc] * 3,
+            bc_high=[bc] * 3,
+            verbose=0,
+        )
+        for axis in "xyz":
+            np.testing.assert_allclose(
+                getattr(solver, "td" + axis), getattr(reference, "td" + axis)
+            )
+        for simulation in (solver, reference):
+            simulation.E.fromarray(initial.copy())
+            for _ in range(3):
+                simulation.one_step()
+        for field in ("E", "H"):
+            np.testing.assert_allclose(
+                getattr(solver, field).toarray(), getattr(reference, field).toarray()
+            )
 
 
 def test_constant_fields_survive_periodic_first_step():
@@ -260,11 +302,9 @@ def test_periodic_graded_cavity():
         )
         solver = SolverFIT3D(grid, verbose=0)
         np.testing.assert_allclose(solver.tdx.sum(), length)
-        np.testing.assert_allclose(
-            grid.tL[0, 0, 0, "x"], (grid.dx[0] + grid.dx[-1]) / 2
-        )
-        np.testing.assert_array_equal(grid.tL[-1, 0, 0, "x"], 0)
-        np.testing.assert_array_equal(solver.tdx, grid.tL[:, 0, 0, "x"])
+        np.testing.assert_allclose(solver.tdx[0], (grid.dx[0] + grid.dx[-1]) / 2)
+        np.testing.assert_array_equal(solver.tdx[-1], 0)
+        np.testing.assert_allclose(grid.tL[:, 0, 0, "x"], np.diff(grid.tx))
 
         operator = (solver.itDaiDepsDstC @ solver.tDsiDmuiDaC).tocsr()
         ez_operator = operator[2 * solver.N :, 2 * solver.N :].toarray()
