@@ -90,7 +90,7 @@ class BCsMixin:
                 self.Px = kron(iz, kron(iy, dx, format="csc"), format="csc").todia()
 
                 # Merge dual half-cells at low x; high x has no independent length.
-                lengths = self.grid.tL.to_matrix("x")
+                lengths = self.tL.to_matrix("x")
                 lengths[0, :, :] += lengths[-1, :, :]
                 lengths[-1, :, :] = 0
                 node_mask[-1, :, :] = 0
@@ -111,7 +111,7 @@ class BCsMixin:
                 self.Py = kron(iz, kron(dy, ix, format="csc"), format="csc").todia()
 
                 # Merge dual half-cells at low y; high y has no independent length.
-                lengths = self.grid.tL.to_matrix("y")
+                lengths = self.tL.to_matrix("y")
                 lengths[:, 0, :] += lengths[:, -1, :]
                 lengths[:, -1, :] = 0
                 node_mask[:, -1, :] = 0
@@ -132,22 +132,22 @@ class BCsMixin:
                 self.Pz = kron(dz, kron(iy, ix, format="csc"), format="csc").todia()
 
                 # Merge dual half-cells at low z; high z has no independent length.
-                lengths = self.grid.tL.to_matrix("z")
+                lengths = self.tL.to_matrix("z")
                 lengths[:, :, 0] += lengths[:, :, -1]
                 lengths[:, :, -1] = 0
                 node_mask[:, :, -1] = 0
 
             # Recompute dual face areas after all seam widths, including corners.
-            area_x = self.grid.tL.field_y * self.grid.tL.field_z
-            area_y = self.grid.tL.field_x * self.grid.tL.field_z
-            area_z = self.grid.tL.field_x * self.grid.tL.field_y
-            self.grid.itA.field_x = np.divide(
+            area_x = self.tL.field_y * self.tL.field_z
+            area_y = self.tL.field_x * self.tL.field_z
+            area_z = self.tL.field_x * self.tL.field_y
+            self.itA.field_x = np.divide(
                 1.0, area_x, out=np.zeros_like(area_x), where=area_x != 0
             )
-            self.grid.itA.field_y = np.divide(
+            self.itA.field_y = np.divide(
                 1.0, area_y, out=np.zeros_like(area_y), where=area_y != 0
             )
-            self.grid.itA.field_z = np.divide(
+            self.itA.field_z = np.divide(
                 1.0, area_z, out=np.zeros_like(area_z), where=area_z != 0
             )
 
@@ -579,18 +579,18 @@ class BCsMixin:
 
     def _initialize_CPML_matrices(self):
         N = self.N
-        self.tLx = diags(self.grid.tL.field_x, shape=(N, N), dtype=self.dtype)
-        self.tLy = diags(self.grid.tL.field_y, shape=(N, N), dtype=self.dtype)
-        self.tLz = diags(self.grid.tL.field_z, shape=(N, N), dtype=self.dtype)
-        self.iAx = diags(self.grid.iA.field_x, shape=(N, N), dtype=self.dtype)
-        self.iAy = diags(self.grid.iA.field_y, shape=(N, N), dtype=self.dtype)
-        self.iAz = diags(self.grid.iA.field_z, shape=(N, N), dtype=self.dtype)
-        self.Lx = diags(self.grid.L.field_x, shape=(N, N), dtype=self.dtype)
-        self.Ly = diags(self.grid.L.field_y, shape=(N, N), dtype=self.dtype)
-        self.Lz = diags(self.grid.L.field_z, shape=(N, N), dtype=self.dtype)
-        self.itAx = diags(self.grid.itA.field_x, shape=(N, N), dtype=self.dtype)
-        self.itAy = diags(self.grid.itA.field_y, shape=(N, N), dtype=self.dtype)
-        self.itAz = diags(self.grid.itA.field_z, shape=(N, N), dtype=self.dtype)
+        self.tLx = diags(self.tL.field_x, shape=(N, N), dtype=self.dtype)
+        self.tLy = diags(self.tL.field_y, shape=(N, N), dtype=self.dtype)
+        self.tLz = diags(self.tL.field_z, shape=(N, N), dtype=self.dtype)
+        self.iAx = diags(self.iA.field_x, shape=(N, N), dtype=self.dtype)
+        self.iAy = diags(self.iA.field_y, shape=(N, N), dtype=self.dtype)
+        self.iAz = diags(self.iA.field_z, shape=(N, N), dtype=self.dtype)
+        self.Lx = diags(self.L.field_x, shape=(N, N), dtype=self.dtype)
+        self.Ly = diags(self.L.field_y, shape=(N, N), dtype=self.dtype)
+        self.Lz = diags(self.L.field_z, shape=(N, N), dtype=self.dtype)
+        self.itAx = diags(self.itA.field_x, shape=(N, N), dtype=self.dtype)
+        self.itAy = diags(self.itA.field_y, shape=(N, N), dtype=self.dtype)
+        self.itAz = diags(self.itA.field_z, shape=(N, N), dtype=self.dtype)
         self.ikapx = diags(1.0 / self.kappa.field_x, shape=(N, N), dtype=self.dtype)
         self.ikapy = diags(1.0 / self.kappa.field_y, shape=(N, N), dtype=self.dtype)
         self.ikapz = diags(1.0 / self.kappa.field_z, shape=(N, N), dtype=self.dtype)
@@ -918,14 +918,14 @@ class BCsMixin:
         """
 
         N = self.N
-        tLx = diags(self.grid.tL.field_x, shape=(N, N), dtype=self.dtype)
-        tLy = diags(self.grid.tL.field_y, shape=(N, N), dtype=self.dtype)
-        iAx = diags(self.grid.iA.field_x, shape=(N, N), dtype=self.dtype)
-        iAy = diags(self.grid.iA.field_y, shape=(N, N), dtype=self.dtype)
-        Lx = diags(self.grid.L.field_x, shape=(N, N), dtype=self.dtype)
-        Ly = diags(self.grid.L.field_y, shape=(N, N), dtype=self.dtype)
-        itAx = diags(self.grid.itA.field_x, shape=(N, N), dtype=self.dtype)
-        itAy = diags(self.grid.itA.field_y, shape=(N, N), dtype=self.dtype)
+        tLx = diags(self.tL.field_x, shape=(N, N), dtype=self.dtype)
+        tLy = diags(self.tL.field_y, shape=(N, N), dtype=self.dtype)
+        iAx = diags(self.iA.field_x, shape=(N, N), dtype=self.dtype)
+        iAy = diags(self.iA.field_y, shape=(N, N), dtype=self.dtype)
+        Lx = diags(self.L.field_x, shape=(N, N), dtype=self.dtype)
+        Ly = diags(self.L.field_y, shape=(N, N), dtype=self.dtype)
+        itAx = diags(self.itA.field_x, shape=(N, N), dtype=self.dtype)
+        itAy = diags(self.itA.field_y, shape=(N, N), dtype=self.dtype)
 
         # In case of CPML the kappa stretching is not needed at the TFSF interface, since it is never inside the PML region.
         self.tf_dxz = iAx * Ly
