@@ -465,6 +465,15 @@ $$
 
 Here $\kappa \geq 1$ scales the coordinate stretch, $\sigma$ is the graded conductivity, and $\alpha$ is a non-negative frequency-shift parameter. Wakis constructs $\sigma$, $\kappa$, and $\alpha$ on both primal and dual field locations with a polynomial distance profile. It converts them into recursion coefficients and stores only the CPML auxiliary fields needed to correct curl terms inside each boundary layer.
 
+The layer thickness `n_pml` counts physical cells. Along an axis with $N$
+stored nodes and $m$ high-side CPML cells, the interface is at $x_{N-m-1}$.
+Electric profiles use nodes $N-m,\ldots,N-1$, while magnetic profiles use
+physical edges $N-m-1,\ldots,N-2$, evaluated at
+$(x_i+x_{i+1})/2$. Their high-side auxiliary corrections therefore use separate
+node and edge index ranges. The terminal plane has no forward physical edge
+and receives no magnetic CPML correction. Using the actual endpoint midpoint
+also preserves this placement on nonuniform meshes.
+
 CPML is therefore distinct from the scalar `pml` path: it does not modify the bulk material conductivity tensor to absorb waves, and its auxiliary convolution fields make it the preferred absorbing boundary for the beam and TF/SF workflows. As with all finite layers, its practical reflection level still depends on the number of cells and the selected profile parameters.
 
 

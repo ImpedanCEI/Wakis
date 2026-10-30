@@ -203,6 +203,10 @@ bc_low = ['pec', 'pec', 'cpml']
 bc_high = ['pec', 'pec', 'cpml']
 # Pass these lists when constructing SolverFIT3D.
 ```
+For CPML, `n_pml` counts physical cells. Electric and magnetic absorption
+profiles follow their staggered node and edge-midpoint positions, including
+on nonuniform grids; terminal storage is excluded from magnetic corrections.
+
 ### Accessing `solver`'s fields, matrices and simulation parameters
 Similarly to `grid`, the solver exposes its fields and parameters as attributes. Inspect the calculated timestep with:
 

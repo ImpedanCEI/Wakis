@@ -595,32 +595,37 @@ class BCsMixin:
         self.itkapx = diags(1.0 / self.tkappa.field_x, shape=(N, N), dtype=self.dtype)
         self.itkapy = diags(1.0 / self.tkappa.field_y, shape=(N, N), dtype=self.dtype)
         self.itkapz = diags(1.0 / self.tkappa.field_z, shape=(N, N), dtype=self.dtype)
+        # 2D simualtion compatibility: 1-cell periodic axes have empty incidence matrices.
+        # Use CSR only there to avoid SciPy's DIA-by-empty-DIA multiplication path.
+        px = self.Px.tocsr() if self.Px.nnz == 0 else self.Px
+        py = self.Py.tocsr() if self.Py.nnz == 0 else self.Py
+        pz = self.Pz.tocsr() if self.Pz.nnz == 0 else self.Pz
         # Compute combined derivative operators for CPML update equations
-        self.dxy = self.iAx * self.itkapy * self.Py * self.Dbc_z * self.Lz
-        self.dxz = self.iAx * self.itkapz * self.Pz * self.Dbc_y * self.Ly
-        self.dyz = self.iAy * self.itkapz * self.Pz * self.Dbc_x * self.Lx
-        self.dyx = self.iAy * self.itkapx * self.Px * self.Dbc_z * self.Lz
-        self.dzx = self.iAz * self.itkapx * self.Px * self.Dbc_y * self.Ly
-        self.dzy = self.iAz * self.itkapy * self.Py * self.Dbc_x * self.Lx
+        self.dxy = (self.iAx * self.itkapy * py * self.Dbc_z * self.Lz).todia()
+        self.dxz = (self.iAx * self.itkapz * pz * self.Dbc_y * self.Ly).todia()
+        self.dyz = (self.iAy * self.itkapz * pz * self.Dbc_x * self.Lx).todia()
+        self.dyx = (self.iAy * self.itkapx * px * self.Dbc_z * self.Lz).todia()
+        self.dzx = (self.iAz * self.itkapx * px * self.Dbc_y * self.Ly).todia()
+        self.dzy = (self.iAz * self.itkapy * py * self.Dbc_x * self.Lx).todia()
 
         self.dtxy = (
-            self.itAx * self.ikapy * self.Dbc_x * -self.Py.transpose() * self.tLz
-        )
+            self.itAx * self.ikapy * self.Dbc_x * -py.transpose() * self.tLz
+        ).todia()
         self.dtxz = (
-            self.itAx * self.ikapz * self.Dbc_x * -self.Pz.transpose() * self.tLy
-        )
+            self.itAx * self.ikapz * self.Dbc_x * -pz.transpose() * self.tLy
+        ).todia()
         self.dtyz = (
-            self.itAy * self.ikapz * self.Dbc_y * -self.Pz.transpose() * self.tLx
-        )
+            self.itAy * self.ikapz * self.Dbc_y * -pz.transpose() * self.tLx
+        ).todia()
         self.dtyx = (
-            self.itAy * self.ikapx * self.Dbc_y * -self.Px.transpose() * self.tLz
-        )
+            self.itAy * self.ikapx * self.Dbc_y * -px.transpose() * self.tLz
+        ).todia()
         self.dtzx = (
-            self.itAz * self.ikapx * self.Dbc_z * -self.Px.transpose() * self.tLy
-        )
+            self.itAz * self.ikapx * self.Dbc_z * -px.transpose() * self.tLy
+        ).todia()
         self.dtzy = (
-            self.itAz * self.ikapy * self.Dbc_z * -self.Py.transpose() * self.tLx
-        )
+            self.itAz * self.ikapy * self.Dbc_z * -py.transpose() * self.tLx
+        ).todia()
 
         del (
             self.iAx,
