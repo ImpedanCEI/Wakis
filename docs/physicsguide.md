@@ -375,7 +375,10 @@ $$
 
 The high stored plane is a copy for node-centred field components and an
 inactive ghost plane for components centred in primal cells. Wakis assembles
-the periodic metric corrections in the grid when the solver is initialized.
+the periodic metric corrections in solver-owned copies of the dual metrics
+when the solver is initialized, so the input grid can be reused with different
+boundary conditions. The solver aliases the primal metrics as `solver.L` and
+`solver.iA`, and owns the corrected dual metrics as `solver.tL` and `solver.itA`.
 This endpoint representation is a Wakis adaptation
 of the staggered-grid placement introduced by [Yee (1966)](https://doi.org/10.1109/TAP.1966.1138693).
 
@@ -470,6 +473,22 @@ CPML is therefore distinct from the scalar `pml` path: it does not modify the bu
 Wakis integrates with [**PyVista**](https://docs.pyvista.org/) to import CAD geometries in `.STL`, `.STEP`, or `.OBJ` formats. The mesh is overlaid onto the simulation domain and mapped onto the Cartesian grid using:
 - `pyvista`'s surface collision algorithm, based on VTK optimized ray-tracing, allows to detect where the input geometry intersects the primal and dual grids.
 - Assignment of material properties ($\varepsilon_r$, $\mu_r$, $\sigma$) in $x$, $y$, and $z$ to the intersected cells using a first-order subpixel smoothing, inspired by the open-source solver MEEP (MIT).
+
+For `stl_method="voxelize_rectilinear"`, the mesh must be uniform. Each
+physical cell is classified at its centre, with spacing $\Delta x=L_x/(N_x-1)$
+and first sample $x_{\min}+\Delta x/2$ (and similarly for $y,z$).
+Subpixel smoothing samples `factor` evenly spaced subcell centres per axis
+inside each physical cell. Its existing gradient enhancement, Gaussian filter,
+and threshold are retained; the resulting weights are not exact geometric
+volume fractions.
+
+Stored masks keep shape `(Nx, Ny, Nz)`. Terminal cells have zero physical
+volume, but boundary fields can still require material coefficients there.
+Their labels extend the nearest physical-cell values onto high domain faces,
+edges, and corners, after smoothing if enabled. This avoids extra geometry
+queries and assumes the material does not change within the final half-cell;
+features confined to that unresolved interval are not separately classified. Nonuniform grids should use
+`stl_method="interior_points"` instead.
 
 | STL geometry | Imported material mask |
 | ----- | ---- |

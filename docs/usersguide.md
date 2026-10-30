@@ -62,6 +62,14 @@ Note that the number of cells will heavily affect the simulation time (in partic
 ```
 
 ### `STL` geometry importing
+
+The `stl_method="voxelize_rectilinear"` option requires a uniform grid and
+samples the centres of its physical cells. Optional `subpixel_smoothing=True`
+uses aligned subcell samples. Stored masks retain the full grid dimensions;
+terminal boundary labels inherit the nearest physical-cell values, including
+smoothing when enabled. This assumes no material change within the final
+half-cell. For nonuniform meshes, use `stl_method="interior_points"`.
+
 In beam-coupling impedance simulations one is usually interested in the geometric impedance, together with the impedance coming from material properties. In `wakis`, the geometry to simulate (sometimes referred as Embedded boundaries) can be imported from a `.stl` file containing a CAD model, and the units should be meters [m].
 
 ```python

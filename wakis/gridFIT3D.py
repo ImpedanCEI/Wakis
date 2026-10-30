@@ -122,8 +122,12 @@ class GridFIT3D(PlotMixin):
         stl_method : str, optional
             Method for marking cells inside STL solids. Options are "legacy" (default),
             "interior_points", "implicit_distance", or "voxelize_rectilinear".
+            Voxelization requires a uniform grid and samples physical cell centres;
+            terminal storage planes inherit the nearest physical-cell labels.
         subpixel_smoothing : bool, optional
-            Whether to apply subpixel smoothing to the STL masks after voxelization. Default is False.
+            Whether to apply subpixel smoothing to physical STL cells after
+            voxelization. Terminal labels inherit the smoothed boundary cells.
+            Default is False.
         subpixel_smoothing_factor : int, optional
             Factor by which to increase the resolution for subpixel smoothing. Default is 4.
             Memory usage increases with the cube of this factor, so use with caution!
@@ -610,39 +614,46 @@ class GridFIT3D(PlotMixin):
                     )
 
             elif method.lower() == "voxelize_rectilinear":
-                dx, dy, dz = (
-                    (self.xmax - self.xmin) / (self.Nx),
-                    (self.ymax - self.ymin) / (self.Ny),
-                    (self.zmax - self.zmin) / (self.Nz),
+                # Check for uniform grid
+                widths = (self.dx, self.dy, self.dz)
+                if any(not np.allclose(axis, axis[0], atol=0) for axis in widths):
+                    raise ValueError(
+                        "voxelize_rectilinear requires a uniform grid; "
+                        "use interior_points for nonuniform grids."
+                    )
+
+                # PyVista reference points become the output voxel centres.
+                shape = (self.Nx - 1, self.Ny - 1, self.Nz - 1)
+                dx, dy, dz = self.dx[0], self.dy[0], self.dz[0]
+                origin = (  # physical cell centers
+                    self.xmin + dx / 2,
+                    self.ymin + dy / 2,
+                    self.zmin + dz / 2,
                 )
                 reference_vol = pv.ImageData(
-                    dimensions=(self.Nx, self.Ny, self.Nz),
-                    origin=(self.xmin, self.ymin, self.zmin),
-                    spacing=(dx, dy, dz),
+                    dimensions=shape, origin=origin, spacing=(dx, dy, dz)
+                )
+                vox = surf.voxelize_rectilinear(
+                    reference_volume=reference_vol, progress_bar=progress_bar
                 )
 
-                try:
-                    vox = surf.voxelize_rectilinear(
-                        reference_volume=reference_vol, progress_bar=progress_bar
-                    )
-                    mask = np.reshape(
-                        vox["mask"], (self.Nx, self.Ny, self.Nz), order="F"
-                    ).astype(bool)
+                # Extend material labels to degenerate ghost high-side storage cells.
+                # This assumes no material change within the final half-cell.
+                mask = np.empty((self.Nx, self.Ny, self.Nz), dtype=bool)
+                mask[:-1, :-1, :-1] = np.asarray(vox["mask"]).reshape(shape, order="F")
 
-                    self.grid[key] = np.reshape(mask, (self.Nx * self.Ny * self.Nz))
+                mask[-1, :-1, :-1] = mask[-2, :-1, :-1]
+                mask[:, -1, :-1] = mask[:, -2, :-1]
+                mask[:, :, -1] = mask[:, :, -2]
 
-                    # Apply subpixel smoothing if enabled
-                    if self.use_subpixel_smoothing:
-                        self._apply_subpixel_smoothing(
-                            key,
-                            factor=self.subpixel_smoothing_factor,
-                            threshold=self.subpixel_smoothing_threshold,
-                            make_bool=self.subpixel_smoothing_bool,
-                        )
+                self.grid.cell_data[key] = mask.ravel()
 
-                except Exception:
-                    print(
-                        f"[!] Warning: voxelization for stl solid {key} failed. Consider checking if the grid is uniform or using a different method."
+                if self.use_subpixel_smoothing:
+                    self._apply_subpixel_smoothing(
+                        key,
+                        factor=self.subpixel_smoothing_factor,
+                        threshold=self.subpixel_smoothing_threshold,
+                        make_bool=self.subpixel_smoothing_bool,
                     )
             else:
                 raise ValueError(
@@ -705,29 +716,36 @@ class GridFIT3D(PlotMixin):
 
         surface = self.read_stl(key)
 
-        # Create a higher resolution reference volume for voxelization
-        Nx, Ny, Nz = self.Nx * factor, self.Ny * factor, self.Nz * factor
-        dx = (self.xmax - self.xmin) / (Nx)
-        dy = (self.ymax - self.ymin) / (Ny)
-        dz = (self.zmax - self.zmin) / (Nz)
-
+        shape = tuple(factor * (n - 1) for n in (self.Nx, self.Ny, self.Nz))
+        dx = self.dx[0] / factor
+        dy = self.dy[0] / factor
+        dz = self.dz[0] / factor
+        # Place subcell centres inside each physical cell, including the first.
+        origin = (
+            self.x[0] + dx / 2,
+            self.y[0] + dy / 2,
+            self.z[0] + dz / 2,
+        )
         reference_vol = pv.ImageData(
-            dimensions=(Nx, Ny, Nz),
-            origin=(self.xmin, self.ymin, self.zmin),
-            spacing=(dx, dy, dz),
+            dimensions=shape, origin=origin, spacing=(dx, dy, dz)
         )
-        vox = surface.voxelize_rectilinear(
-            reference_volume=reference_vol,
-        )
-        mask_ref = np.reshape(vox["mask"], (Nx, Ny, Nz), order="F")
+        vox = surface.voxelize_rectilinear(reference_volume=reference_vol)
+        mask_ref = np.asarray(vox["mask"]).reshape(shape, order="F")
 
         # Combine the higher resolution mask back to the original grid resolution
-        mask = np.zeros((self.Nx, self.Ny, self.Nz)).astype(float)
+        mask = np.zeros((self.Nx - 1, self.Ny - 1, self.Nz - 1))
         for i in range(factor):
             for j in range(factor):
                 for k in range(factor):
                     sub_mask = mask_ref[i::factor, j::factor, k::factor].astype(float)
-                    sub_mask += np.sqrt(sum(g**2 for g in np.gradient(sub_mask)))
+                    # A one-cell axis has no resolved mask gradient.
+                    sub_mask += np.sqrt(
+                        sum(
+                            np.gradient(sub_mask, axis=axis) ** 2
+                            for axis, size in enumerate(sub_mask.shape)
+                            if size > 1
+                        )
+                    )
                     mask += gaussian_filter(np.clip(sub_mask, 0, 1), sigma=sigma)
 
         # Overwrite the previous binary/boolean mask in the PyVista grid
@@ -736,7 +754,7 @@ class GridFIT3D(PlotMixin):
         if make_bool:
             mask = mask > threshold
 
-        self.grid[key] = np.reshape(mask, (self.Nx * self.Ny * self.Nz))
+        self.grid.cell_data[key] = np.pad(mask, ((0, 1),) * 3, mode="edge").ravel()
 
     def check_stl_masks_overlap(self):
         """
