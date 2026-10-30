@@ -2,6 +2,7 @@ import os
 import sys
 
 import numpy as np
+import pytest
 import pyvista as pv
 from scipy.constants import c, mu_0
 from tqdm import tqdm
@@ -291,3 +292,48 @@ class TestCPML:
         peak = np.argmax(self.Zabs)
         assert frequencies[np.argmax(impedance)] == frequencies[peak]
         assert np.isclose(impedance[peak], self.Zabs[peak], rtol=5e-4, atol=5e-4)
+
+
+@pytest.mark.parametrize("axis", range(3), ids=list("xyz"))
+@pytest.mark.parametrize("n_pml", [1, 4])
+@pytest.mark.parametrize("graded", [False, True], ids=["uniform", "graded"])
+def test_cpml_symmetry(axis, n_pml, graded, plot_comparison):
+    """A centred pulse sees identical low/high CPML on every staggered axis.
+
+    Symmetric graded meshes exercise physical edge-midpoint sampling; a
+    one-cell layer also exposes corrections assigned only to terminal storage.
+    """
+    nodes = np.linspace(0, 1, 65)
+    if graded:
+        nodes += 0.3 * np.sin(2 * np.pi * nodes) / (2 * np.pi)
+    coordinates = {name: np.array([0.0, 1.0]) for name in "xyz"}
+    coordinates["xyz"[axis]] = nodes
+    grid = wakis.GridFIT3D(**coordinates, verbose=0)
+    boundaries = ["periodic"] * 3
+    boundaries[axis] = "cpml"
+    solver = wakis.SolverFIT3D(
+        grid,
+        bc_low=boundaries.copy(),
+        bc_high=boundaries.copy(),
+        n_pml=n_pml,
+        verbose=0,
+    )
+    electric = "xyz"[(axis + 1) % 3]
+    magnetic = "xyz"[(axis + 2) % 3]
+    shape = [1, 1, 1]
+    shape[axis] = len(nodes)
+    solver.E.to_matrix(electric)[:] = np.exp(-(((nodes - 0.5) / 0.05) ** 2)).reshape(
+        shape
+    )
+    line = [0, 0, 0]
+    line[axis] = slice(None)
+    traces = np.empty((240, 2))
+    for step in range(len(traces)):
+        solver.one_step()
+        field = solver.E.to_matrix(electric)[tuple(line)]
+        traces[step] = field[10], field[-11]
+    plot_comparison(traces[:, 1], traces[:, 0], "High / low CPML pulse symmetry")
+    np.testing.assert_allclose(traces[:, 1], traces[:, 0], rtol=1e-10, atol=1e-12)
+    np.testing.assert_allclose(field, field[::-1], rtol=1e-10, atol=1e-12)
+    field_h = solver.H.to_matrix(magnetic)[tuple(line)][:-1] * mu_0 * c
+    np.testing.assert_allclose(field_h, -field_h[::-1], rtol=1e-10, atol=1e-12)

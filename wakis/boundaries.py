@@ -406,10 +406,11 @@ class BCsMixin:
                     # self.ieps[:, :, -k, d] = 1/(np.mean(sz[-self.n_pml:])*eps_0)
 
     def _initialize_CPML(self):
-        """
-        Compute the CPML parameters for the low and high boundaries in each
-        direction. The CPML parameters are stored in the ``sigmaPml``, ``kappa``, and ``alpha`` fields, which are used to calculate the b and c parameters of the CPML for
-        the electric and magnetic fields. The CPML parameters are computed based on the distance into the CPML region and the specified CPML profile functions. The target reflection coefficient is set to 1e-8
+        """Compute CPML profiles from distance into each physical layer.
+
+        Electric profiles use primal nodes; magnetic profiles use physical
+        edge midpoints, excluding terminal storage. The profiles determine
+        the b/c recursion coefficients with a target reflection of 1e-8.
         """
 
         # Initialize
@@ -511,9 +512,8 @@ class BCsMixin:
             for i in range(-self.n_pml, 0):
                 # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
                 dist = self.grid.x[i] - interface  # distance into PML
-                tdist = (
-                    self.grid.x[i] + self.dx[i] / 2
-                ) - interface  # distance into PML for half-grid points
+                # Edge i-1 ends at node i; the terminal node has no forward edge.
+                tdist = (self.grid.x[i - 1] + self.grid.x[i]) / 2 - interface
                 tdist = max(0.0, min(tdist, L))
                 sx[i] = (dist / L) ** self.pml_exp
                 tsx[i] = (tdist / L) ** self.pml_exp
@@ -523,9 +523,9 @@ class BCsMixin:
                 self.sigmaPml[i, :, :, "x"] = sigma_max * sx[i]
                 self.kappa[i, :, :, "x"] = 1 + (self.kappa_max - 1) * sx[i]
                 self.alpha[i, :, :, "x"] = self.alpha_max * (1 - ax[i])
-                self.tsigmaPml[i, :, :, "x"] = sigma_max * tsx[i]
-                self.tkappa[i, :, :, "x"] = 1 + (self.kappa_max - 1) * tsx[i]
-                self.talpha[i, :, :, "x"] = self.alpha_max * (1 - tax[i])
+                self.tsigmaPml[i - 1, :, :, "x"] = sigma_max * tsx[i]
+                self.tkappa[i - 1, :, :, "x"] = 1 + (self.kappa_max - 1) * tsx[i]
+                self.talpha[i - 1, :, :, "x"] = self.alpha_max * (1 - tax[i])
 
         if self.bc_high[1].lower() == "cpml":
             interface = self.grid.y[-1 - self.n_pml]
@@ -536,9 +536,8 @@ class BCsMixin:
             for i in range(-self.n_pml, 0):
                 # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
                 dist = self.grid.y[i] - interface  # distance into PML
-                tdist = (
-                    self.grid.y[i] + self.dy[i] / 2
-                ) - interface  # distance into PML for half-grid points
+                # Edge i-1 ends at node i; the terminal node has no forward edge.
+                tdist = (self.grid.y[i - 1] + self.grid.y[i]) / 2 - interface
                 tdist = max(0.0, min(tdist, L))
                 sy[i] = (dist / L) ** self.pml_exp
                 tsy[i] = (tdist / L) ** self.pml_exp
@@ -548,9 +547,9 @@ class BCsMixin:
                 self.sigmaPml[:, i, :, "y"] = sigma_max * sy[i]
                 self.kappa[:, i, :, "y"] = 1 + (self.kappa_max - 1) * sy[i]
                 self.alpha[:, i, :, "y"] = self.alpha_max * (1 - ay[i])
-                self.tsigmaPml[:, i, :, "y"] = sigma_max * tsy[i]
-                self.tkappa[:, i, :, "y"] = 1 + (self.kappa_max - 1) * tsy[i]
-                self.talpha[:, i, :, "y"] = self.alpha_max * (1 - tay[i])
+                self.tsigmaPml[:, i - 1, :, "y"] = sigma_max * tsy[i]
+                self.tkappa[:, i - 1, :, "y"] = 1 + (self.kappa_max - 1) * tsy[i]
+                self.talpha[:, i - 1, :, "y"] = self.alpha_max * (1 - tay[i])
 
         if self.bc_high[2].lower() == "cpml":
             interface = self.grid.z[-1 - self.n_pml]
@@ -561,9 +560,8 @@ class BCsMixin:
             for i in range(-self.n_pml, 0):
                 # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
                 dist = self.grid.z[i] - interface  # distance into PML
-                tdist = (
-                    self.grid.z[i] + self.dz[i] / 2 - interface
-                )  # distance into PML for half-grid points
+                # Edge i-1 ends at node i; the terminal node has no forward edge.
+                tdist = (self.grid.z[i - 1] + self.grid.z[i]) / 2 - interface
                 tdist = max(0.0, min(tdist, L))
                 sz[i] = (dist / L) ** self.pml_exp
                 tsz[i] = (tdist / L) ** self.pml_exp
@@ -573,9 +571,9 @@ class BCsMixin:
                 self.sigmaPml[:, :, i, "z"] = sigma_max * sz[i]
                 self.kappa[:, :, i, "z"] = 1 + (self.kappa_max - 1) * sz[i]
                 self.alpha[:, :, i, "z"] = self.alpha_max * (1 - az[i])
-                self.tsigmaPml[:, :, i, "z"] = sigma_max * tsz[i]
-                self.tkappa[:, :, i, "z"] = 1 + (self.kappa_max - 1) * tsz[i]
-                self.talpha[:, :, i, "z"] = self.alpha_max * (1 - taz[i])
+                self.tsigmaPml[:, :, i - 1, "z"] = sigma_max * tsz[i]
+                self.tkappa[:, :, i - 1, "z"] = 1 + (self.kappa_max - 1) * tsz[i]
+                self.talpha[:, :, i - 1, "z"] = self.alpha_max * (1 - taz[i])
 
     def _initialize_CPML_matrices(self):
         N = self.N
@@ -822,13 +820,13 @@ class BCsMixin:
                 self.pml_c_E[-self.n_pml :, :, :, "x"].copy()
             ).flatten(order="F")
             self.pml_c_H_x_high = (
-                self.pml_c_H[-self.n_pml :, :, :, "x"].copy()
+                self.pml_c_H[-self.n_pml - 1 : -1, :, :, "x"].copy()
             ).flatten(order="F")
             self.pml_b_E_x_high = (
                 self.pml_b_E[-self.n_pml :, :, :, "x"].copy()
             ).flatten(order="F")
             self.pml_b_H_x_high = (
-                self.pml_b_H[-self.n_pml :, :, :, "x"].copy()
+                self.pml_b_H[-self.n_pml - 1 : -1, :, :, "x"].copy()
             ).flatten(order="F")
             self.idx_x_high = _get_f_order_indices(
                 np.arange(self.Nx - self.n_pml, self.Nx),
@@ -838,6 +836,8 @@ class BCsMixin:
                 self.Ny,
                 self.Nz,
             )
+            # H uses the physical edge ending at each high-side E node.
+            self.idx_H_x_high = self.idx_x_high - 1
         if self.bc_high[1].lower() == "cpml":
             self.psiHa_x_high = np.zeros(
                 (self.Nx * self.n_pml * self.Nz), dtype=self.dtype
@@ -855,13 +855,13 @@ class BCsMixin:
                 self.pml_c_E[:, -self.n_pml :, :, "y"].copy()
             ).flatten(order="F")
             self.pml_c_H_y_high = (
-                self.pml_c_H[:, -self.n_pml :, :, "y"].copy()
+                self.pml_c_H[:, -self.n_pml - 1 : -1, :, "y"].copy()
             ).flatten(order="F")
             self.pml_b_E_y_high = (
                 self.pml_b_E[:, -self.n_pml :, :, "y"].copy()
             ).flatten(order="F")
             self.pml_b_H_y_high = (
-                self.pml_b_H[:, -self.n_pml :, :, "y"].copy()
+                self.pml_b_H[:, -self.n_pml - 1 : -1, :, "y"].copy()
             ).flatten(order="F")
             self.idx_y_high = _get_f_order_indices(
                 np.arange(self.Nx),
@@ -871,6 +871,7 @@ class BCsMixin:
                 self.Ny,
                 self.Nz,
             )
+            self.idx_H_y_high = self.idx_y_high - self.Nx
         if self.bc_high[2].lower() == "cpml":
             self.psiHa_y_high = np.zeros(
                 (self.Nx * self.Ny * self.n_pml), dtype=self.dtype
@@ -888,13 +889,13 @@ class BCsMixin:
                 self.pml_c_E[:, :, -self.n_pml :, "z"].copy()
             ).flatten(order="F")
             self.pml_c_H_z_high = (
-                self.pml_c_H[:, :, -self.n_pml :, "z"].copy()
+                self.pml_c_H[:, :, -self.n_pml - 1 : -1, "z"].copy()
             ).flatten(order="F")
             self.pml_b_E_z_high = (
                 self.pml_b_E[:, :, -self.n_pml :, "z"].copy()
             ).flatten(order="F")
             self.pml_b_H_z_high = (
-                self.pml_b_H[:, :, -self.n_pml :, "z"].copy()
+                self.pml_b_H[:, :, -self.n_pml - 1 : -1, "z"].copy()
             ).flatten(order="F")
             self.idx_z_high = _get_f_order_indices(
                 np.arange(self.Nx),
@@ -904,6 +905,7 @@ class BCsMixin:
                 self.Ny,
                 self.Nz,
             )
+            self.idx_H_z_high = self.idx_z_high - self.Nx * self.Ny
 
         del self.pml_b_E, self.pml_c_E, self.pml_b_H, self.pml_c_H
 
