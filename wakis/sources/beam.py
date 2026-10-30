@@ -21,7 +21,10 @@ class Beam:
     ):
         """
         Updates the current J every timestep to introduce a gaussian beam moving in +z
-        direction.
+        direction. Jz is deposited at the nearest transverse primal nodes and
+        the longitudinal primal-edge midpoints, at time t + dt/2. The deposited
+        Gaussian center is zmin + v*(t + dt/2 - ti), where zmin is the global
+        low boundary.
 
         Parameters
         ----------
@@ -83,8 +86,11 @@ class Beam:
         if self.is_first_update:
             self._initialize(solver, t)
         profile = self._compute_longitudinal_profile(
-            solver.z, t + solver.dt / 2, self.zmin
+            solver.tz[1:], t + solver.dt / 2, self.zmin
         )
+        # The terminal Jz edge has zero primal length at the physical high face.
+        if not solver.use_mpi or solver.rank == solver.size - 1:
+            profile[-1] = 0.0
         if solver.source_type == "tfsf":
             self._update_tfsf(solver, t, profile)
         else:
@@ -104,8 +110,8 @@ class Beam:
         """Locate the beam and prepare the selected injection mode once."""
         self.is_first_update = False
         self.ixs, self.iys = (
-            np.abs(solver.grid.x - self.xsource).argmin(),
-            np.abs(solver.grid.y - self.ysource).argmin(),
+            np.abs(solver.x - self.xsource).argmin(),
+            np.abs(solver.y - self.ysource).argmin(),
         )
         if solver.source_type == "tfsf":
             self._initialize_tfsf(solver, t)
@@ -113,7 +119,7 @@ class Beam:
             self._initialize_direct(solver)
 
         if hasattr(solver, "ZMIN"):  # support for MPI
-            self.zmin = solver.ZMIN + solver.dz[0] / 2
+            self.zmin = solver.ZMIN
         else:
             self.zmin = solver.z.min()
 
@@ -187,24 +193,24 @@ class Beam:
         # pre-calculated 2D templates.
         if self.at_low_boundary:
             Einj_x, Einj_y, _, _ = self.get_injected_2D_slice(
-                solver, solver.grid.z[self.j_start], t, side="low"
+                solver, solver.z[self.j_start], t, side="low"
             )
             solver.E_trans[:, :, self.j_start, "x"] = Einj_x
             solver.E_trans[:, :, self.j_start, "y"] = Einj_y
             _, _, Hinj_x, Hinj_y = self.get_injected_2D_slice(
-                solver, solver.z[self.j_start], t + solver.dt / 2, side="low"
+                solver, solver.tz[self.j_start + 1], t + solver.dt / 2, side="low"
             )
             solver.H_trans[:, :, self.j_start, "x"] = -Hinj_x
             solver.H_trans[:, :, self.j_start, "y"] = -Hinj_y
 
         if self.at_high_boundary:
             Einj_x, Einj_y, _, _ = self.get_injected_2D_slice(
-                solver, solver.grid.z[self.j_stop], t, side="high"
+                solver, solver.z[self.j_stop], t, side="high"
             )
             solver.E_trans[:, :, self.j_stop, "x"] = -Einj_x
             solver.E_trans[:, :, self.j_stop, "y"] = -Einj_y
             _, _, Hinj_x, Hinj_y = self.get_injected_2D_slice(
-                solver, solver.z[self.j_stop], t + solver.dt / 2, side="high"
+                solver, solver.tz[self.j_stop + 1], t + solver.dt / 2, side="high"
             )
             solver.H_trans[:, :, self.j_stop, "x"] = Hinj_x
             solver.H_trans[:, :, self.j_stop, "y"] = Hinj_y
@@ -357,8 +363,8 @@ class Beam:
         potential = self._solve_tfsf_transverse_potential(solver, z_index)
         electric_x = np.zeros((solver.Nx, solver.Ny), dtype=solver.dtype)
         electric_y = np.zeros_like(electric_x)
-        electric_x[:-1, :] = -np.diff(potential, axis=0) / solver.dx[:-1, None]
-        electric_y[:, :-1] = -np.diff(potential, axis=1) / solver.dy[None, :-1]
+        electric_x[:-1, :] = -np.diff(potential, axis=0) / solver.dx[:, None]
+        electric_y[:, :-1] = -np.diff(potential, axis=1) / solver.dy[None, :]
 
         wave_impedance = np.dtype(solver.dtype).type(Z0)
         magnetic_x = -electric_y / wave_impedance

@@ -86,7 +86,8 @@ def test_plane_wave_propagates_uniform_impedance_matched_fields(
     )
 
     peak = np.argmax(np.abs(result["observed"]))
-    profile = result["profile_x"][peak]
+    # The terminal Ex sample has zero primal length on the periodic grid.
+    profile = result["profile_x"][peak, :-1]
     np.testing.assert_allclose(profile, profile[0], rtol=1e-12, atol=1e-12)
     assert result["observed"][peak] * result["companion"][peak] > 0.0
     assert result["observed"][peak] / result["companion"][peak] == pytest.approx(

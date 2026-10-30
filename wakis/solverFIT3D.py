@@ -103,7 +103,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         dtype : numpy dtype, optional
             Numeric dtype for solver arrays (default ``np.float64``).
         n_pml : int, optional
-            Number of PML cells for PML boundary regions.
+            Number of physical cells in each PML or CPML boundary layer.
+            CPML magnetic corrections exclude the terminal storage plane.
         kappa_max : float, optional
             Maximum kappa value for CPML boundaries.
         alpha_max : float, optional
@@ -131,7 +132,22 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             Material tensors (inverse permittivity, inverse permeability and
             conductivity) stored per field component.
         grid : GridFIT3D
-            Reference to the input grid object.
+            Reference to the input grid object, which owns the primal and dual
+            metric fields (L, iA, tL, itA). Boundary corrections use
+            solver-owned copies of the dual metrics, leaving this grid unchanged.
+        L, iA : wakis.Field
+            Aliases of the grid's primal edge lengths and inverse face areas.
+        tL, itA : wakis.Field
+            Solver-owned dual edge lengths and inverse dual face areas,
+            including periodic boundary corrections.
+        x, y, z : ndarray
+            Aliases of the grid's primal node coordinates.
+        tx, ty, tz : ndarray
+            Aliases of the grid's dual node coordinates.
+        dx, dy, dz : ndarray
+            Aliases of the grid's primal cell widths.
+        tdx, tdy, tdz : ndarray
+            Dual cell widths along each axis, including boundary half-cells.
         dt : float
             Time-step used for time integration.
         cfln : float
@@ -171,24 +187,19 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         # Grid
         self.grid = grid
+        self.L = grid.L
+        self.iA = grid.iA
+        self.tL = grid.tL.copy()  # will change with periodic BCs
+        self.itA = grid.itA.copy()  # will change with periodic BCs
         self.background = bg
         self.Nx = self.grid.Nx
         self.Ny = self.grid.Ny
         self.Nz = self.grid.Nz
         self.N = self.Nx * self.Ny * self.Nz
 
-        self.dx = self.grid.dx
-        self.dy = self.grid.dy
-        self.dz = self.grid.dz
-
-        self.x = self.grid.x[:-1] + self.dx / 2
-        self.y = self.grid.y[:-1] + self.dy / 2
-        self.z = self.grid.z[:-1] + self.dz / 2
-
-        self.L = self.grid.L
-        self.iA = self.grid.iA
-        self.tL = self.grid.tL
-        self.itA = self.grid.itA
+        self.dx, self.dy, self.dz = self.grid.dx, self.grid.dy, self.grid.dz
+        self.x, self.y, self.z = self.grid.x, self.grid.y, self.grid.z
+        self.tx, self.ty, self.tz = self.grid.tx, self.grid.ty, self.grid.tz
         self.update_logger(["grid", "background"])
 
         # Wake computation
@@ -223,39 +234,76 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                     `GridFIT3D` to enable MPI"
                 )
 
-        # Matrices
+        # Curl operator
         if verbose:
             print("Assembling operator matrices...")
-        N = self.N
-        self.Px = diags([-1, 1], [0, 1], shape=(N, N), dtype=np.int8)
-        self.Py = diags([-1, 1], [0, self.Nx], shape=(N, N), dtype=np.int8)
-        self.Pz = diags([-1, 1], [0, self.Nx * self.Ny], shape=(N, N), dtype=np.int8)
 
-        # original grid
-        self.Ds = diags(self.L.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
-        self.iDa = diags(self.iA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+        # Incidence matrices Px Py Pz
+        # Terminal nodes have no forward primal edge on their respective axis.
+        # Keep DIA storage for the precomputed CPML derivatives used each step.
+        rows = np.arange(self.N)
+        active_x = (rows % self.Nx != self.Nx - 1).astype(np.int8)
+        self.Px = diags(
+            [-active_x, active_x[:-1]],
+            [0, 1],
+            shape=(self.N, self.N),
+            dtype=np.int8,
+            format="dia",
+        )
 
-        # tilde grid
-        self.tDs = diags(self.tL.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
-        self.itDa = diags(self.itA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+        active_y = ((rows // self.Nx) % self.Ny != self.Ny - 1).astype(np.int8)
+        self.Py = diags(
+            [-active_y, active_y[: -self.Nx]],
+            [0, self.Nx],
+            shape=(self.N, self.N),
+            dtype=np.int8,
+            format="dia",
+        )
+
+        active_z = ((rows // (self.Nx * self.Ny)) % self.Nz != self.Nz - 1).astype(
+            np.int8
+        )
+        self.Pz = diags(
+            [-active_z, active_z[: (-self.Nx * self.Ny)]],
+            [0, (self.Nx * self.Ny)],
+            shape=(self.N, self.N),
+            dtype=np.int8,
+            format="dia",
+        )
 
         # Curl matrix
         self.C = vstack(
             [
-                hstack([sparse_mat((N, N)), -self.Pz, self.Py]),
-                hstack([self.Pz, sparse_mat((N, N)), -self.Px]),
-                hstack([-self.Py, self.Px, sparse_mat((N, N))]),
+                hstack([sparse_mat((self.N, self.N)), -self.Pz, self.Py]),
+                hstack([self.Pz, sparse_mat((self.N, self.N)), -self.Px]),
+                hstack([-self.Py, self.Px, sparse_mat((self.N, self.N))]),
             ],
+            format="csr",
             dtype=np.int8,
         )
 
-        # Boundaries
+        # Boundaries to C
         if verbose:
             print("Applying boundary conditions...")
         self.bc_low = bc_low
         self.bc_high = bc_high
         self.update_logger(["bc_low", "bc_high"])
         self._apply_bc_to_C()
+
+        # Diagonal matrices for grid metrics
+        self.Ds = diags(
+            self.L.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
+        )
+        self.iDa = diags(
+            self.iA.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
+        )
+
+        self.tDs = diags(
+            self.tL.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
+        )
+        self.itDa = diags(
+            self.itA.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
+        )
 
         # Materials
         if verbose:
@@ -345,9 +393,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.dt = cfln / (
                 c_light
                 * np.sqrt(
-                    1 / np.min(self.grid.dx) ** 2
-                    + 1 / np.min(self.grid.dy) ** 2
-                    + 1 / np.min(self.grid.dz) ** 2
+                    1 / np.min(self.dx) ** 2
+                    + 1 / np.min(self.dy) ** 2
+                    + 1 / np.min(self.dz) ** 2
                 )
             )
         else:
@@ -383,10 +431,14 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         # Pre-computing
         if verbose:
             print("Pre-computing...")
-        self.iDeps = diags(self.ieps.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
-        self.iDmu = diags(self.imu.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+        self.iDeps = diags(
+            self.ieps.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
+        )
+        self.iDmu = diags(
+            self.imu.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
+        )
         self.Dsigma = diags(
-            self.sigma.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
+            self.sigma.toarray(), shape=(3 * self.N, 3 * self.N), dtype=self.dtype
         )
 
         if self.activate_cpml:
@@ -406,6 +458,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self._initialize_tfsf()
         self.tdx = self.tL[:, 0, 0, "x"]
         self.tdy = self.tL[0, :, 0, "y"]
+        self.tdz = self.tL[0, 0, :, "z"]
 
         if imported_mkl and not self.use_gpu:  # MKL backend for CPU
             if verbose:
@@ -445,6 +498,10 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self._initialize_abc()
             self._one_step_backend = self.one_step
             self.one_step = self._one_step_with_abc
+
+        if any(bc.lower() == "periodic" for bc in self.bc_low):
+            self._one_step_periodic = self.one_step
+            self.one_step = self._one_step_with_periodic
 
         if verbose:
             print(f"Total solver initialization time: {time.time() - t0} s")
@@ -522,6 +579,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.pml_c_E_x_high = cp.asarray(self.pml_c_E_x_high)
             self.pml_c_H_x_high = cp.asarray(self.pml_c_H_x_high)
             self.idx_x_high = cp.asarray(self.idx_x_high)
+            self.idx_H_x_high = cp.asarray(self.idx_H_x_high)
         if self.bc_high[1].lower() == "cpml":
             self.psiHa_x_high = cp.asarray(self.psiHa_x_high)
             self.psiHb_z_high = cp.asarray(self.psiHb_z_high)
@@ -532,6 +590,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.pml_c_E_y_high = cp.asarray(self.pml_c_E_y_high)
             self.pml_c_H_y_high = cp.asarray(self.pml_c_H_y_high)
             self.idx_y_high = cp.asarray(self.idx_y_high)
+            self.idx_H_y_high = cp.asarray(self.idx_H_y_high)
         if self.bc_high[2].lower() == "cpml":
             self.psiHa_y_high = cp.asarray(self.psiHa_y_high)
             self.psiHb_x_high = cp.asarray(self.psiHb_x_high)
@@ -542,6 +601,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.pml_c_E_z_high = cp.asarray(self.pml_c_E_z_high)
             self.pml_c_H_z_high = cp.asarray(self.pml_c_H_z_high)
             self.idx_z_high = cp.asarray(self.idx_z_high)
+            self.idx_H_z_high = cp.asarray(self.idx_H_z_high)
 
     def _move_tfsf_to_mkl(self):
         self.tf_dxz = mkl_sparse_mat(self.tf_dxz)
@@ -718,6 +778,40 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self._one_step_backend()
         self._apply_abc()
 
+    def _one_step_with_periodic(self):
+        """Advance independent periodic samples, then fill boundary copies."""
+        self._one_step_periodic()
+        ex = self.E.to_matrix("x")
+        ey = self.E.to_matrix("y")
+        ez = self.E.to_matrix("z")
+        hx = self.H.to_matrix("x")
+        hy = self.H.to_matrix("y")
+        hz = self.H.to_matrix("z")
+
+        if self.bc_low[0].lower() == "periodic":
+            ex[-1, :, :] = 0
+            ey[-1, :, :] = ey[0, :, :]
+            ez[-1, :, :] = ez[0, :, :]
+            hx[-1, :, :] = hx[0, :, :]
+            hy[-1, :, :] = 0
+            hz[-1, :, :] = 0
+
+        if self.bc_low[1].lower() == "periodic":
+            ex[:, -1, :] = ex[:, 0, :]
+            ey[:, -1, :] = 0
+            ez[:, -1, :] = ez[:, 0, :]
+            hx[:, -1, :] = 0
+            hy[:, -1, :] = hy[:, 0, :]
+            hz[:, -1, :] = 0
+
+        if self.bc_low[2].lower() == "periodic":
+            ex[:, :, -1] = ex[:, :, 0]
+            ey[:, :, -1] = ey[:, :, 0]
+            ez[:, :, -1] = 0
+            hx[:, :, -1] = 0
+            hy[:, :, -1] = 0
+            hz[:, :, -1] = hz[:, :, 0]
+
     def _one_step(self):
         if self.step_0:
             self._set_ghosts_to_0()
@@ -820,29 +914,29 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         if self.bc_high[0].lower() == "cpml":
             self.psiHa_z_high = (
                 self.pml_b_H_x_high * self.psiHa_z_high
-                + self.pml_c_H_x_high * dzxEy[self.idx_x_high]
+                + self.pml_c_H_x_high * dzxEy[self.idx_H_x_high]
             )
             self.psiHb_y_high = (
                 self.pml_b_H_x_high * self.psiHb_y_high
-                + self.pml_c_H_x_high * dyxEz[self.idx_x_high]
+                + self.pml_c_H_x_high * dyxEz[self.idx_H_x_high]
             )
         if self.bc_high[1].lower() == "cpml":
             self.psiHa_x_high = (
                 self.pml_b_H_y_high * self.psiHa_x_high
-                + self.pml_c_H_y_high * dxyEz[self.idx_y_high]
+                + self.pml_c_H_y_high * dxyEz[self.idx_H_y_high]
             )
             self.psiHb_z_high = (
                 self.pml_b_H_y_high * self.psiHb_z_high
-                + self.pml_c_H_y_high * dzyEx[self.idx_y_high]
+                + self.pml_c_H_y_high * dzyEx[self.idx_H_y_high]
             )
         if self.bc_high[2].lower() == "cpml":
             self.psiHa_y_high = (
                 self.pml_b_H_z_high * self.psiHa_y_high
-                + self.pml_c_H_z_high * dyzEx[self.idx_z_high]
+                + self.pml_c_H_z_high * dyzEx[self.idx_H_z_high]
             )
             self.psiHb_x_high = (
                 self.pml_b_H_z_high * self.psiHb_x_high
-                + self.pml_c_H_z_high * dxzEy[self.idx_z_high]
+                + self.pml_c_H_z_high * dxzEy[self.idx_H_z_high]
             )
 
         # Update the magnetic field components using the curl of E
@@ -873,25 +967,25 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.dt * self.imu.field_y[self.idx_z_low] * self.psiHa_y_low
             )
         if self.bc_high[0].lower() == "cpml":
-            self.H.field_y[self.idx_x_high] -= (
-                self.dt * self.imu.field_y[self.idx_x_high] * -self.psiHb_y_high
+            self.H.field_y[self.idx_H_x_high] -= (
+                self.dt * self.imu.field_y[self.idx_H_x_high] * -self.psiHb_y_high
             )
-            self.H.field_z[self.idx_x_high] -= (
-                self.dt * self.imu.field_z[self.idx_x_high] * self.psiHa_z_high
+            self.H.field_z[self.idx_H_x_high] -= (
+                self.dt * self.imu.field_z[self.idx_H_x_high] * self.psiHa_z_high
             )
         if self.bc_high[1].lower() == "cpml":
-            self.H.field_x[self.idx_y_high] -= (
-                self.dt * self.imu.field_x[self.idx_y_high] * self.psiHa_x_high
+            self.H.field_x[self.idx_H_y_high] -= (
+                self.dt * self.imu.field_x[self.idx_H_y_high] * self.psiHa_x_high
             )
-            self.H.field_z[self.idx_y_high] -= (
-                self.dt * self.imu.field_z[self.idx_y_high] * -self.psiHb_z_high
+            self.H.field_z[self.idx_H_y_high] -= (
+                self.dt * self.imu.field_z[self.idx_H_y_high] * -self.psiHb_z_high
             )
         if self.bc_high[2].lower() == "cpml":
-            self.H.field_x[self.idx_z_high] -= (
-                self.dt * self.imu.field_x[self.idx_z_high] * -self.psiHb_x_high
+            self.H.field_x[self.idx_H_z_high] -= (
+                self.dt * self.imu.field_x[self.idx_H_z_high] * -self.psiHb_x_high
             )
-            self.H.field_y[self.idx_z_high] -= (
-                self.dt * self.imu.field_y[self.idx_z_high] * self.psiHa_y_high
+            self.H.field_y[self.idx_H_z_high] -= (
+                self.dt * self.imu.field_y[self.idx_H_z_high] * self.psiHa_y_high
             )
 
         if self.use_mpi:
@@ -1148,29 +1242,29 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         if self.bc_high[0].lower() == "cpml":
             self.psiHa_z_high = (
                 self.pml_b_H_x_high * self.psiHa_z_high
-                + self.pml_c_H_x_high * dzxEy[self.idx_x_high]
+                + self.pml_c_H_x_high * dzxEy[self.idx_H_x_high]
             )
             self.psiHb_y_high = (
                 self.pml_b_H_x_high * self.psiHb_y_high
-                + self.pml_c_H_x_high * dyxEz[self.idx_x_high]
+                + self.pml_c_H_x_high * dyxEz[self.idx_H_x_high]
             )
         if self.bc_high[1].lower() == "cpml":
             self.psiHa_x_high = (
                 self.pml_b_H_y_high * self.psiHa_x_high
-                + self.pml_c_H_y_high * dxyEz[self.idx_y_high]
+                + self.pml_c_H_y_high * dxyEz[self.idx_H_y_high]
             )
             self.psiHb_z_high = (
                 self.pml_b_H_y_high * self.psiHb_z_high
-                + self.pml_c_H_y_high * dzyEx[self.idx_y_high]
+                + self.pml_c_H_y_high * dzyEx[self.idx_H_y_high]
             )
         if self.bc_high[2].lower() == "cpml":
             self.psiHa_y_high = (
                 self.pml_b_H_z_high * self.psiHa_y_high
-                + self.pml_c_H_z_high * dyzEx[self.idx_z_high]
+                + self.pml_c_H_z_high * dyzEx[self.idx_H_z_high]
             )
             self.psiHb_x_high = (
                 self.pml_b_H_z_high * self.psiHb_x_high
-                + self.pml_c_H_z_high * dxzEy[self.idx_z_high]
+                + self.pml_c_H_z_high * dxzEy[self.idx_H_z_high]
             )
 
         # Update the magnetic field components using the curl of E
@@ -1201,25 +1295,25 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.dt * self.imu.field_y[self.idx_z_low] * self.psiHa_y_low
             )
         if self.bc_high[0].lower() == "cpml":
-            self.H.field_y[self.idx_x_high] -= (
-                self.dt * self.imu.field_y[self.idx_x_high] * -self.psiHb_y_high
+            self.H.field_y[self.idx_H_x_high] -= (
+                self.dt * self.imu.field_y[self.idx_H_x_high] * -self.psiHb_y_high
             )
-            self.H.field_z[self.idx_x_high] -= (
-                self.dt * self.imu.field_z[self.idx_x_high] * self.psiHa_z_high
+            self.H.field_z[self.idx_H_x_high] -= (
+                self.dt * self.imu.field_z[self.idx_H_x_high] * self.psiHa_z_high
             )
         if self.bc_high[1].lower() == "cpml":
-            self.H.field_x[self.idx_y_high] -= (
-                self.dt * self.imu.field_x[self.idx_y_high] * self.psiHa_x_high
+            self.H.field_x[self.idx_H_y_high] -= (
+                self.dt * self.imu.field_x[self.idx_H_y_high] * self.psiHa_x_high
             )
-            self.H.field_z[self.idx_y_high] -= (
-                self.dt * self.imu.field_z[self.idx_y_high] * -self.psiHb_z_high
+            self.H.field_z[self.idx_H_y_high] -= (
+                self.dt * self.imu.field_z[self.idx_H_y_high] * -self.psiHb_z_high
             )
         if self.bc_high[2].lower() == "cpml":
-            self.H.field_x[self.idx_z_high] -= (
-                self.dt * self.imu.field_x[self.idx_z_high] * -self.psiHb_x_high
+            self.H.field_x[self.idx_H_z_high] -= (
+                self.dt * self.imu.field_x[self.idx_H_z_high] * -self.psiHb_x_high
             )
-            self.H.field_y[self.idx_z_high] -= (
-                self.dt * self.imu.field_y[self.idx_z_high] * self.psiHa_y_high
+            self.H.field_y[self.idx_H_z_high] -= (
+                self.dt * self.imu.field_y[self.idx_H_z_high] * self.psiHa_y_high
             )
 
         if self.use_mpi:
@@ -1772,7 +1866,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
     def _attrcleanup(self):
         # Fields
-        del self.L, self.tL, self.iA, self.itA
         if hasattr(self, "BC"):
             del self.BC
             del self.Dbc

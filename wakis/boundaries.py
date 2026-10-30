@@ -9,8 +9,9 @@ import numpy as np
 from scipy.constants import c
 from scipy.constants import epsilon_0 as eps_0
 from scipy.constants import mu_0
+from scipy.sparse import coo_matrix
 from scipy.sparse import csc_matrix as sparse_mat
-from scipy.sparse import diags, hstack, vstack
+from scipy.sparse import diags, eye, hstack, kron, vstack
 
 from .field import Field
 
@@ -24,13 +25,11 @@ class BCsMixin:
 
     def _apply_bc_to_C(self):
         """
-        Apply boundary conditions by modifying curl and metric matrices.
+        Build the curl and apply boundary conditions.
 
-        Adjusts rows/columns of the curl operator ``C`` and the metric-diagonal
-        matrices (``tDs``, ``itDa``) according to the low/high boundary
-        condition lists ``bc_low`` and ``bc_high``. Handles periodic, PEC/PMC,
-        ABC and PML/CPML options and also configures MPI-internal faces when the
-        grid is subdivided.
+        Adjusts periodic derivative rows and dual grid metrics before assembling
+        ``C``. Masks inactive field samples according to ``bc_low`` and
+        ``bc_high``, and configures MPI-internal faces when the grid is subdivided.
         """
         xlo, ylo, zlo = 1, 1, 1
         xhi, yhi, zhi = 1, 1, 1
@@ -60,104 +59,126 @@ class BCsMixin:
             ):
                 raise ValueError(f"Periodic {direction} boundaries must be paired.")
 
-        if any(True for x in self.bc_low if x.lower() == "periodic"):
-            # Flat field indices: i + j*Nx + k*Nx*Ny.
-            indices = np.arange(self.N).reshape((self.Nx, self.Ny, self.Nz), order="F")
+        periodic_x = self.bc_low[0].lower() == "periodic"
+        periodic_y = self.bc_low[1].lower() == "periodic"
+        periodic_z = self.bc_low[2].lower() == "periodic"
+        has_periodic = periodic_x or periodic_y or periodic_z
+        if has_periodic:
+            node_mask = np.ones((self.Nx, self.Ny, self.Nz), dtype=np.int8)
+            # ix, iy, iz leave the other axes unchanged when a 1D difference
+            # is expanded to the full grid by a Kronecker product.
+            ix = eye(self.Nx, dtype=np.int8, format="csc")
+            iy = eye(self.Ny, dtype=np.int8, format="csc")
+            iz = eye(self.Nz, dtype=np.int8, format="csc")
 
-            if (
-                self.bc_low[0].lower() == "periodic"
-                and self.bc_high[0].lower() == "periodic"
-            ):
-                # Replace high-x rows: remove connections into the next y line.
-                high = indices[-1, :, :].ravel()
-                low = indices[0, :, :].ravel()
-                self.Px = self.Px.tolil()
-                self.Px[high, :] = 0
-                self.Px[high, high] = -1
-                self.Px[high, low] = 1 if self.Nx > 1 else 0
-                self.Px = self.Px.tocsc()
+            # Each 1D difference uses the physical cells, wraps the last cell
+            # to node zero, and leaves the duplicate high endpoint inactive.
+            # Kronecker products follow the solver's x-fastest field numbering.
+            if periodic_x:
+                start = np.arange(self.Nx - 1)
+                end = (start + 1) % (self.Nx - 1)
+                values = np.r_[
+                    np.full(self.Nx - 1, -1, dtype=np.int8),
+                    np.full(self.Nx - 1, 1, dtype=np.int8),
+                ]
+                # dx differentiates along x; iy and iz repeat it at every y, z.
+                dx = coo_matrix(
+                    (values, (np.r_[start, start], np.r_[start, end])),
+                    shape=(self.Nx, self.Nx),
+                ).tocsc()
+                dx.eliminate_zeros()
+                self.Px = kron(iz, kron(iy, dx, format="csc"), format="csc").todia()
 
-                self.tL[-1, :, :, "x"] = 0.5 * (
-                    self.L[-1, :, :, "x"] + self.L[0, :, :, "x"]
-                )
+                # Merge dual half-cells at low x; high x has no independent length.
+                lengths = self.tL.to_matrix("x")
+                lengths[0, :, :] += lengths[-1, :, :]
+                lengths[-1, :, :] = 0
+                node_mask[-1, :, :] = 0
 
-            if (
-                self.bc_low[1].lower() == "periodic"
-                and self.bc_high[1].lower() == "periodic"
-            ):
-                # Replace high-y rows: remove connections into the next z plane.
-                high = indices[:, -1, :].ravel()
-                low = indices[:, 0, :].ravel()
-                self.Py = self.Py.tolil()
-                self.Py[high, :] = 0
-                self.Py[high, high] = -1
-                self.Py[high, low] = 1 if self.Ny > 1 else 0
-                self.Py = self.Py.tocsc()
+            if periodic_y:
+                start = np.arange(self.Ny - 1)
+                end = (start + 1) % (self.Ny - 1)
+                values = np.r_[
+                    np.full(self.Ny - 1, -1, dtype=np.int8),
+                    np.full(self.Ny - 1, 1, dtype=np.int8),
+                ]
+                # dy differentiates along y; ix and iz repeat it at every x, z.
+                dy = coo_matrix(
+                    (values, (np.r_[start, start], np.r_[start, end])),
+                    shape=(self.Ny, self.Ny),
+                ).tocsc()
+                dy.eliminate_zeros()
+                self.Py = kron(iz, kron(dy, ix, format="csc"), format="csc").todia()
 
-                self.tL[:, -1, :, "y"] = 0.5 * (
-                    self.L[:, -1, :, "y"] + self.L[:, 0, :, "y"]
-                )
+                # Merge dual half-cells at low y; high y has no independent length.
+                lengths = self.tL.to_matrix("y")
+                lengths[:, 0, :] += lengths[:, -1, :]
+                lengths[:, -1, :] = 0
+                node_mask[:, -1, :] = 0
 
-            if (
-                self.bc_low[2].lower() == "periodic"
-                and self.bc_high[2].lower() == "periodic"
-            ):
-                # Replace high-z rows with last-to-first plane differences.
-                high = indices[:, :, -1].ravel()
-                low = indices[:, :, 0].ravel()
-                self.Pz = self.Pz.tolil()
-                self.Pz[high, :] = 0
-                self.Pz[high, high] = -1
-                self.Pz[high, low] = 1 if self.Nz > 1 else 0
-                self.Pz = self.Pz.tocsc()
+            if periodic_z:
+                start = np.arange(self.Nz - 1)
+                end = (start + 1) % (self.Nz - 1)
+                values = np.r_[
+                    np.full(self.Nz - 1, -1, dtype=np.int8),
+                    np.full(self.Nz - 1, 1, dtype=np.int8),
+                ]
+                # dz differentiates along z; ix and iy repeat it at every x, y.
+                dz = coo_matrix(
+                    (values, (np.r_[start, start], np.r_[start, end])),
+                    shape=(self.Nz, self.Nz),
+                ).tocsc()
+                dz.eliminate_zeros()
+                self.Pz = kron(dz, kron(iy, ix, format="csc"), format="csc").todia()
 
-                self.tL[:, :, -1, "z"] = 0.5 * (
-                    self.L[:, :, -1, "z"] + self.L[:, :, 0, "z"]
-                )
+                # Merge dual half-cells at low z; high z has no independent length.
+                lengths = self.tL.to_matrix("z")
+                lengths[:, :, 0] += lengths[:, :, -1]
+                lengths[:, :, -1] = 0
+                node_mask[:, :, -1] = 0
 
-            # Recompute dual areas after all periodic lengths, including corners.
-            aux = self.tL.field_y * self.tL.field_z
+            # Recompute dual face areas after all seam widths, including corners.
+            area_x = self.tL.field_y * self.tL.field_z
+            area_y = self.tL.field_x * self.tL.field_z
+            area_z = self.tL.field_x * self.tL.field_y
             self.itA.field_x = np.divide(
-                1.0, aux, out=np.zeros_like(aux), where=aux != 0
+                1.0, area_x, out=np.zeros_like(area_x), where=area_x != 0
             )
-            aux = self.tL.field_x * self.tL.field_z
             self.itA.field_y = np.divide(
-                1.0, aux, out=np.zeros_like(aux), where=aux != 0
+                1.0, area_y, out=np.zeros_like(area_y), where=area_y != 0
             )
-            aux = self.tL.field_x * self.tL.field_y
             self.itA.field_z = np.divide(
-                1.0, aux, out=np.zeros_like(aux), where=aux != 0
+                1.0, area_z, out=np.zeros_like(area_z), where=area_z != 0
             )
 
-            self.tDs = diags(
-                self.tL.toarray(),
-                shape=(3 * self.N, 3 * self.N),
-                dtype=self.dtype,
-            )
-            self.itDa = diags(
-                self.itA.toarray(),
-                shape=(3 * self.N, 3 * self.N),
-                dtype=self.dtype,
-            )
+            # High-side periodic samples are copies or inactive ghosts.
+            periodic_mask = np.tile(node_mask.ravel(order="F"), 3)
 
-            # Rebuild before PEC/PMC masks; CPML also uses the updated P matrices.
-            N = self.N
-            self.C = vstack(
-                [
-                    hstack([sparse_mat((N, N)), -self.Pz, self.Py]),
-                    hstack([self.Pz, sparse_mat((N, N)), -self.Px]),
-                    hstack([-self.Py, self.Px, sparse_mat((N, N))]),
-                ],
-                dtype=np.int8,
-            )
+        # Build the curl once, after any periodic P rows have been adjusted.
+        N = self.N
+        self.C = vstack(
+            [
+                hstack([sparse_mat((N, N)), -self.Pz, self.Py]),
+                hstack([self.Pz, sparse_mat((N, N)), -self.Px]),
+                hstack([-self.Py, self.Px, sparse_mat((N, N))]),
+            ],
+            format="csr",
+            dtype=np.int8,
+        )
 
         # Dirichlet PEC: tangential E field = 0 at boundary
-        if any(
-            True for x in self.bc_low if x.lower() in ("electric", "pec", "pml", "cpml")
-        ) or any(
-            True
-            for x in self.bc_high
-            if x.lower() in ("electric", "pec", "pml", "cpml")
+        if (
+            has_periodic
+            or any(
+                True
+                for x in self.bc_low
+                if x.lower() in ("electric", "pec", "pml", "cpml")
+            )
+            or any(
+                True
+                for x in self.bc_high
+                if x.lower() in ("electric", "pec", "pml", "cpml")
+            )
         ):
             if self.bc_low[0].lower() in ("electric", "pec", "pml", "cpml"):
                 xlo = 0
@@ -189,6 +210,9 @@ class BCsMixin:
                     self.BC[:, :, 0, d] *= zlo
                     self.BC[:, :, -1, d] *= zhi
 
+            if has_periodic:
+                self.BC.array *= periodic_mask
+
             self.Dbc = diags(
                 self.BC.toarray(),
                 shape=(3 * self.N, 3 * self.N),
@@ -210,69 +234,13 @@ class BCsMixin:
                 dtype=np.int8,
             )
 
-            # Update C (columns)
+            # Masking high periodic columns also zeros their curl rows because
+            # terminal P rows have no edge into the physical domain.
             self.C = self.C * self.Dbc
 
-        # Dirichlet PMC: tangential H field = 0 at boundary
-        if any(True for x in self.bc_low if x.lower() in ("magnetic", "pmc")) or any(
-            True for x in self.bc_high if x.lower() in ("magnetic", "pmc")
-        ):
-            # Reset the face factors so that PEC faces do not also mask H
-            xlo, ylo, zlo = 1, 1, 1
-            xhi, yhi, zhi = 1, 1, 1
-            if self.bc_low[0].lower() == "magnetic" or self.bc_low[0] == "pmc":
-                xlo = 0
-            if self.bc_low[1].lower() == "magnetic" or self.bc_low[1] == "pmc":
-                ylo = 0
-            if self.bc_low[2].lower() == "magnetic" or self.bc_low[2] == "pmc":
-                zlo = 0
-            if self.bc_high[0].lower() == "magnetic" or self.bc_high[0] == "pmc":
-                xhi = 0
-            if self.bc_high[1].lower() == "magnetic" or self.bc_high[1] == "pmc":
-                yhi = 0
-            if self.bc_high[2].lower() == "magnetic" or self.bc_high[2] == "pmc":
-                zhi = 0
-
-            # Assemble matrix
-            self.BC = Field(self.Nx, self.Ny, self.Nz, dtype=np.int8, use_ones=True)
-
-            # Multiply the face factors: assigning them would let a non-masked
-            # face (e.g. periodic) unmask the edge lines it shares with a
-            # masked face.
-            for d in ["x", "y", "z"]:  # tangential to zero
-                if d != "x":
-                    self.BC[0, :, :, d] *= xlo
-                    self.BC[-1, :, :, d] *= xhi
-                if d != "y":
-                    self.BC[:, 0, :, d] *= ylo
-                    self.BC[:, -1, :, d] *= yhi
-                if d != "z":
-                    self.BC[:, :, 0, d] *= zlo
-                    self.BC[:, :, -1, d] *= zhi
-
-            self.Dbc = diags(
-                self.BC.toarray(),
-                shape=(3 * self.N, 3 * self.N),
-                dtype=np.int8,
-            )
-            self.Dbc_x = diags(
-                self.BC.field_x,
-                shape=(self.N, self.N),
-                dtype=np.int8,
-            )
-            self.Dbc_y = diags(
-                self.BC.field_y,
-                shape=(self.N, self.N),
-                dtype=np.int8,
-            )
-            self.Dbc_z = diags(
-                self.BC.field_z,
-                shape=(self.N, self.N),
-                dtype=np.int8,
-            )
-
-            # Update C (rows)
-            self.C = self.Dbc * self.C
+        # PMC is the natural boundary of the staggered FIT grid. Tangential H
+        # samples lie in the first and last physical half-cells, not on the wall.
+        # The high-side ghost samples have zero primal area and cannot evolve.
 
         # First-order Mur absorbing boundary conditions (ABC)
         if any(True for x in self.bc_low if x.lower() == "abc") or any(
@@ -315,7 +283,7 @@ class BCsMixin:
 
         # Fill
         if self.bc_low[0].lower() == "pml":
-            # sx[0:self.n_pml] = eps_0/(2*self.dt)*((self.x[self.n_pml] - self.x[:self.n_pml])/(self.n_pml*self.dx))**pml_exp
+            # sx[0:self.n_pml] = eps_0/(2*self.dt)*((self.grid.x[self.n_pml] - self.grid.x[:self.n_pml])/(self.n_pml*self.dx))**pml_exp
             sx[0 : self.n_pml] = self.pml_func(self.pml_hi, self.pml_lo, self.n_pml)
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -335,7 +303,7 @@ class BCsMixin:
                     # if sx[i] > 0 : self.ieps[i, :, :, d] = 1/(eps_0+sx[i]*(2*self.dt))
 
         if self.bc_low[1].lower() == "pml":
-            # sy[0:self.n_pml] = 1/(2*self.dt)*((self.y[self.n_pml] - self.y[:self.n_pml])/(self.n_pml*self.dy))**pml_exp
+            # sy[0:self.n_pml] = 1/(2*self.dt)*((self.grid.y[self.n_pml] - self.grid.y[:self.n_pml])/(self.n_pml*self.dy))**pml_exp
             sy[0 : self.n_pml] = self.pml_func(self.pml_hi, self.pml_lo, self.n_pml)
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -355,7 +323,7 @@ class BCsMixin:
                     # if sy[j] > 0 : self.ieps[:, j, :, d] = 1/(eps_0+sy[j]*(2*self.dt))
 
         if self.bc_low[2].lower() == "pml":
-            # sz[0:self.n_pml] = eps_0/(2*self.dt)*((self.z[self.n_pml] - self.z[:self.n_pml])/(self.n_pml*self.dz))**pml_exp
+            # sz[0:self.n_pml] = eps_0/(2*self.dt)*((self.grid.z[self.n_pml] - self.grid.z[:self.n_pml])/(self.n_pml*self.dz))**pml_exp
             sz[0 : self.n_pml] = self.pml_func(self.pml_hi, self.pml_lo, self.n_pml)
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -375,7 +343,7 @@ class BCsMixin:
                     # if sz[k] > 0. : self.ieps[:, :, k, d] = 1/(np.mean(sz[:self.n_pml])*eps_0)
 
         if self.bc_high[0].lower() == "pml":
-            # sx[-self.n_pml:] = 1/(2*self.dt)*((self.x[-self.n_pml:] - self.x[-self.n_pml])/(self.n_pml*self.dx))**pml_exp
+            # sx[-self.n_pml:] = 1/(2*self.dt)*((self.grid.x[-self.n_pml:] - self.grid.x[-self.n_pml])/(self.n_pml*self.dx))**pml_exp
             sx[-self.n_pml :] = self.pml_func(self.pml_lo, self.pml_hi, self.n_pml)
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -396,7 +364,7 @@ class BCsMixin:
                     # if sx[-i] > 0 : self.ieps[-i, :, :, d] = 1/(eps_0+sx[-i]*(2*self.dt))
 
         if self.bc_high[1].lower() == "pml":
-            # sy[-self.n_pml:] = 1/(2*self.dt)*((self.y[-self.n_pml:] - self.y[-self.n_pml])/(self.n_pml*self.dy))**pml_exp
+            # sy[-self.n_pml:] = 1/(2*self.dt)*((self.grid.y[-self.n_pml:] - self.grid.y[-self.n_pml])/(self.n_pml*self.dy))**pml_exp
             sy[-self.n_pml :] = self.pml_func(self.pml_lo, self.pml_hi, self.n_pml)
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -417,7 +385,7 @@ class BCsMixin:
                     # if sy[-j] > 0 : self.ieps[:, -j, :, d] = 1/(eps_0+sy[-j]*(2*self.dt))
 
         if self.bc_high[2].lower() == "pml":
-            # sz[-self.n_pml:] = eps_0/(2*self.dt)*((self.z[-self.n_pml:] - self.z[-self.n_pml])/(self.n_pml*self.dz))**pml_exp
+            # sz[-self.n_pml:] = eps_0/(2*self.dt)*((self.grid.z[-self.n_pml:] - self.grid.z[-self.n_pml])/(self.n_pml*self.dz))**pml_exp
             sz[-self.n_pml :] = self.pml_func(self.pml_lo, self.pml_hi, self.n_pml)
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -438,10 +406,11 @@ class BCsMixin:
                     # self.ieps[:, :, -k, d] = 1/(np.mean(sz[-self.n_pml:])*eps_0)
 
     def _initialize_CPML(self):
-        """
-        Compute the CPML parameters for the low and high boundaries in each
-        direction. The CPML parameters are stored in the ``sigmaPml``, ``kappa``, and ``alpha`` fields, which are used to calculate the b and c parameters of the CPML for
-        the electric and magnetic fields. The CPML parameters are computed based on the distance into the CPML region and the specified CPML profile functions. The target reflection coefficient is set to 1e-8
+        """Compute CPML profiles from distance into each physical layer.
+
+        Electric profiles use primal nodes; magnetic profiles use physical
+        edge midpoints, excluding terminal storage. The profiles determine
+        the b/c recursion coefficients with a target reflection of 1e-8.
         """
 
         # Initialize
@@ -543,9 +512,8 @@ class BCsMixin:
             for i in range(-self.n_pml, 0):
                 # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
                 dist = self.grid.x[i] - interface  # distance into PML
-                tdist = (
-                    self.grid.x[i] + self.dx[i] / 2
-                ) - interface  # distance into PML for half-grid points
+                # Edge i-1 ends at node i; the terminal node has no forward edge.
+                tdist = (self.grid.x[i - 1] + self.grid.x[i]) / 2 - interface
                 tdist = max(0.0, min(tdist, L))
                 sx[i] = (dist / L) ** self.pml_exp
                 tsx[i] = (tdist / L) ** self.pml_exp
@@ -555,9 +523,9 @@ class BCsMixin:
                 self.sigmaPml[i, :, :, "x"] = sigma_max * sx[i]
                 self.kappa[i, :, :, "x"] = 1 + (self.kappa_max - 1) * sx[i]
                 self.alpha[i, :, :, "x"] = self.alpha_max * (1 - ax[i])
-                self.tsigmaPml[i, :, :, "x"] = sigma_max * tsx[i]
-                self.tkappa[i, :, :, "x"] = 1 + (self.kappa_max - 1) * tsx[i]
-                self.talpha[i, :, :, "x"] = self.alpha_max * (1 - tax[i])
+                self.tsigmaPml[i - 1, :, :, "x"] = sigma_max * tsx[i]
+                self.tkappa[i - 1, :, :, "x"] = 1 + (self.kappa_max - 1) * tsx[i]
+                self.talpha[i - 1, :, :, "x"] = self.alpha_max * (1 - tax[i])
 
         if self.bc_high[1].lower() == "cpml":
             interface = self.grid.y[-1 - self.n_pml]
@@ -568,9 +536,8 @@ class BCsMixin:
             for i in range(-self.n_pml, 0):
                 # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
                 dist = self.grid.y[i] - interface  # distance into PML
-                tdist = (
-                    self.grid.y[i] + self.dy[i] / 2
-                ) - interface  # distance into PML for half-grid points
+                # Edge i-1 ends at node i; the terminal node has no forward edge.
+                tdist = (self.grid.y[i - 1] + self.grid.y[i]) / 2 - interface
                 tdist = max(0.0, min(tdist, L))
                 sy[i] = (dist / L) ** self.pml_exp
                 tsy[i] = (tdist / L) ** self.pml_exp
@@ -580,9 +547,9 @@ class BCsMixin:
                 self.sigmaPml[:, i, :, "y"] = sigma_max * sy[i]
                 self.kappa[:, i, :, "y"] = 1 + (self.kappa_max - 1) * sy[i]
                 self.alpha[:, i, :, "y"] = self.alpha_max * (1 - ay[i])
-                self.tsigmaPml[:, i, :, "y"] = sigma_max * tsy[i]
-                self.tkappa[:, i, :, "y"] = 1 + (self.kappa_max - 1) * tsy[i]
-                self.talpha[:, i, :, "y"] = self.alpha_max * (1 - tay[i])
+                self.tsigmaPml[:, i - 1, :, "y"] = sigma_max * tsy[i]
+                self.tkappa[:, i - 1, :, "y"] = 1 + (self.kappa_max - 1) * tsy[i]
+                self.talpha[:, i - 1, :, "y"] = self.alpha_max * (1 - tay[i])
 
         if self.bc_high[2].lower() == "cpml":
             interface = self.grid.z[-1 - self.n_pml]
@@ -593,9 +560,8 @@ class BCsMixin:
             for i in range(-self.n_pml, 0):
                 # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
                 dist = self.grid.z[i] - interface  # distance into PML
-                tdist = (
-                    self.grid.z[i] + self.dz[i] / 2 - interface
-                )  # distance into PML for half-grid points
+                # Edge i-1 ends at node i; the terminal node has no forward edge.
+                tdist = (self.grid.z[i - 1] + self.grid.z[i]) / 2 - interface
                 tdist = max(0.0, min(tdist, L))
                 sz[i] = (dist / L) ** self.pml_exp
                 tsz[i] = (tdist / L) ** self.pml_exp
@@ -605,9 +571,9 @@ class BCsMixin:
                 self.sigmaPml[:, :, i, "z"] = sigma_max * sz[i]
                 self.kappa[:, :, i, "z"] = 1 + (self.kappa_max - 1) * sz[i]
                 self.alpha[:, :, i, "z"] = self.alpha_max * (1 - az[i])
-                self.tsigmaPml[:, :, i, "z"] = sigma_max * tsz[i]
-                self.tkappa[:, :, i, "z"] = 1 + (self.kappa_max - 1) * tsz[i]
-                self.talpha[:, :, i, "z"] = self.alpha_max * (1 - taz[i])
+                self.tsigmaPml[:, :, i - 1, "z"] = sigma_max * tsz[i]
+                self.tkappa[:, :, i - 1, "z"] = 1 + (self.kappa_max - 1) * tsz[i]
+                self.talpha[:, :, i - 1, "z"] = self.alpha_max * (1 - taz[i])
 
     def _initialize_CPML_matrices(self):
         N = self.N
@@ -629,32 +595,37 @@ class BCsMixin:
         self.itkapx = diags(1.0 / self.tkappa.field_x, shape=(N, N), dtype=self.dtype)
         self.itkapy = diags(1.0 / self.tkappa.field_y, shape=(N, N), dtype=self.dtype)
         self.itkapz = diags(1.0 / self.tkappa.field_z, shape=(N, N), dtype=self.dtype)
+        # 2D simualtion compatibility: 1-cell periodic axes have empty incidence matrices.
+        # Use CSR only there to avoid SciPy's DIA-by-empty-DIA multiplication path.
+        px = self.Px.tocsr() if self.Px.nnz == 0 else self.Px
+        py = self.Py.tocsr() if self.Py.nnz == 0 else self.Py
+        pz = self.Pz.tocsr() if self.Pz.nnz == 0 else self.Pz
         # Compute combined derivative operators for CPML update equations
-        self.dxy = self.iAx * self.itkapy * self.Py * self.Dbc_z * self.Lz
-        self.dxz = self.iAx * self.itkapz * self.Pz * self.Dbc_y * self.Ly
-        self.dyz = self.iAy * self.itkapz * self.Pz * self.Dbc_x * self.Lx
-        self.dyx = self.iAy * self.itkapx * self.Px * self.Dbc_z * self.Lz
-        self.dzx = self.iAz * self.itkapx * self.Px * self.Dbc_y * self.Ly
-        self.dzy = self.iAz * self.itkapy * self.Py * self.Dbc_x * self.Lx
+        self.dxy = (self.iAx * self.itkapy * py * self.Dbc_z * self.Lz).todia()
+        self.dxz = (self.iAx * self.itkapz * pz * self.Dbc_y * self.Ly).todia()
+        self.dyz = (self.iAy * self.itkapz * pz * self.Dbc_x * self.Lx).todia()
+        self.dyx = (self.iAy * self.itkapx * px * self.Dbc_z * self.Lz).todia()
+        self.dzx = (self.iAz * self.itkapx * px * self.Dbc_y * self.Ly).todia()
+        self.dzy = (self.iAz * self.itkapy * py * self.Dbc_x * self.Lx).todia()
 
         self.dtxy = (
-            self.itAx * self.ikapy * self.Dbc_x * -self.Py.transpose() * self.tLz
-        )
+            self.itAx * self.ikapy * self.Dbc_x * -py.transpose() * self.tLz
+        ).todia()
         self.dtxz = (
-            self.itAx * self.ikapz * self.Dbc_x * -self.Pz.transpose() * self.tLy
-        )
+            self.itAx * self.ikapz * self.Dbc_x * -pz.transpose() * self.tLy
+        ).todia()
         self.dtyz = (
-            self.itAy * self.ikapz * self.Dbc_y * -self.Pz.transpose() * self.tLx
-        )
+            self.itAy * self.ikapz * self.Dbc_y * -pz.transpose() * self.tLx
+        ).todia()
         self.dtyx = (
-            self.itAy * self.ikapx * self.Dbc_y * -self.Px.transpose() * self.tLz
-        )
+            self.itAy * self.ikapx * self.Dbc_y * -px.transpose() * self.tLz
+        ).todia()
         self.dtzx = (
-            self.itAz * self.ikapx * self.Dbc_z * -self.Px.transpose() * self.tLy
-        )
+            self.itAz * self.ikapx * self.Dbc_z * -px.transpose() * self.tLy
+        ).todia()
         self.dtzy = (
-            self.itAz * self.ikapy * self.Dbc_z * -self.Py.transpose() * self.tLx
-        )
+            self.itAz * self.ikapy * self.Dbc_z * -py.transpose() * self.tLx
+        ).todia()
 
         del (
             self.iAx,
@@ -854,13 +825,13 @@ class BCsMixin:
                 self.pml_c_E[-self.n_pml :, :, :, "x"].copy()
             ).flatten(order="F")
             self.pml_c_H_x_high = (
-                self.pml_c_H[-self.n_pml :, :, :, "x"].copy()
+                self.pml_c_H[-self.n_pml - 1 : -1, :, :, "x"].copy()
             ).flatten(order="F")
             self.pml_b_E_x_high = (
                 self.pml_b_E[-self.n_pml :, :, :, "x"].copy()
             ).flatten(order="F")
             self.pml_b_H_x_high = (
-                self.pml_b_H[-self.n_pml :, :, :, "x"].copy()
+                self.pml_b_H[-self.n_pml - 1 : -1, :, :, "x"].copy()
             ).flatten(order="F")
             self.idx_x_high = _get_f_order_indices(
                 np.arange(self.Nx - self.n_pml, self.Nx),
@@ -870,6 +841,8 @@ class BCsMixin:
                 self.Ny,
                 self.Nz,
             )
+            # H uses the physical edge ending at each high-side E node.
+            self.idx_H_x_high = self.idx_x_high - 1
         if self.bc_high[1].lower() == "cpml":
             self.psiHa_x_high = np.zeros(
                 (self.Nx * self.n_pml * self.Nz), dtype=self.dtype
@@ -887,13 +860,13 @@ class BCsMixin:
                 self.pml_c_E[:, -self.n_pml :, :, "y"].copy()
             ).flatten(order="F")
             self.pml_c_H_y_high = (
-                self.pml_c_H[:, -self.n_pml :, :, "y"].copy()
+                self.pml_c_H[:, -self.n_pml - 1 : -1, :, "y"].copy()
             ).flatten(order="F")
             self.pml_b_E_y_high = (
                 self.pml_b_E[:, -self.n_pml :, :, "y"].copy()
             ).flatten(order="F")
             self.pml_b_H_y_high = (
-                self.pml_b_H[:, -self.n_pml :, :, "y"].copy()
+                self.pml_b_H[:, -self.n_pml - 1 : -1, :, "y"].copy()
             ).flatten(order="F")
             self.idx_y_high = _get_f_order_indices(
                 np.arange(self.Nx),
@@ -903,6 +876,7 @@ class BCsMixin:
                 self.Ny,
                 self.Nz,
             )
+            self.idx_H_y_high = self.idx_y_high - self.Nx
         if self.bc_high[2].lower() == "cpml":
             self.psiHa_y_high = np.zeros(
                 (self.Nx * self.Ny * self.n_pml), dtype=self.dtype
@@ -920,13 +894,13 @@ class BCsMixin:
                 self.pml_c_E[:, :, -self.n_pml :, "z"].copy()
             ).flatten(order="F")
             self.pml_c_H_z_high = (
-                self.pml_c_H[:, :, -self.n_pml :, "z"].copy()
+                self.pml_c_H[:, :, -self.n_pml - 1 : -1, "z"].copy()
             ).flatten(order="F")
             self.pml_b_E_z_high = (
                 self.pml_b_E[:, :, -self.n_pml :, "z"].copy()
             ).flatten(order="F")
             self.pml_b_H_z_high = (
-                self.pml_b_H[:, :, -self.n_pml :, "z"].copy()
+                self.pml_b_H[:, :, -self.n_pml - 1 : -1, "z"].copy()
             ).flatten(order="F")
             self.idx_z_high = _get_f_order_indices(
                 np.arange(self.Nx),
@@ -936,6 +910,7 @@ class BCsMixin:
                 self.Ny,
                 self.Nz,
             )
+            self.idx_H_z_high = self.idx_z_high - self.Nx * self.Ny
 
         del self.pml_b_E, self.pml_c_E, self.pml_b_H, self.pml_c_H
 

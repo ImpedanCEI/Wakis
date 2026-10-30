@@ -62,6 +62,14 @@ Note that the number of cells will heavily affect the simulation time (in partic
 ```
 
 ### `STL` geometry importing
+
+The `stl_method="voxelize_rectilinear"` option requires a uniform grid and
+samples the centres of its physical cells. Optional `subpixel_smoothing=True`
+uses aligned subcell samples. Stored masks retain the full grid dimensions;
+terminal boundary labels inherit the nearest physical-cell values, including
+smoothing when enabled. This assumes no material change within the final
+half-cell. For nonuniform meshes, use `stl_method="interior_points"`.
+
 In beam-coupling impedance simulations one is usually interested in the geometric impedance, together with the impedance coming from material properties. In `wakis`, the geometry to simulate (sometimes referred as Embedded boundaries) can be imported from a `.stl` file containing a CAD model, and the units should be meters [m].
 
 ```python
@@ -131,6 +139,11 @@ grid = GridFIT3D(xmin, xmax, ymin, ymax, zmin, zmax,
                 )
 ```
 
+`Nx`, `Ny`, and `Nz` count stored primal nodes, including the high boundary
+node. There are `Nx - 1`, `Ny - 1`, and `Nz - 1` physical intervals.
+The same convention applies to refined grids and grids restored with
+`GridFIT3D(load_from_h5=...)`.
+
 Optionally, the `grid` of the simulation can be inspected interactively in 3D (thanks to PyVista):
 
 ```python
@@ -190,6 +203,10 @@ bc_low = ['pec', 'pec', 'cpml']
 bc_high = ['pec', 'pec', 'cpml']
 # Pass these lists when constructing SolverFIT3D.
 ```
+For CPML, `n_pml` counts physical cells. Electric and magnetic absorption
+profiles follow their staggered node and edge-midpoint positions, including
+on nonuniform grids; terminal storage is excluded from magnetic corrections.
+
 ### Accessing `solver`'s fields, matrices and simulation parameters
 Similarly to `grid`, the solver exposes its fields and parameters as attributes. Inspect the calculated timestep with:
 
@@ -343,6 +360,19 @@ As can be deduced from the instantiation, the `wake` object contains the informa
 ```{tip}
 The `skip_cells` parameter excludes the specified number of cells at each end of the wake integration path. For example, `skip_cells=10` can avoid perturbations near the beam injection or reflections from the domain boundaries. The older `add_space` argument to `wakesolve` remains available for compatibility.
 ```
+
+The beam and test positions snap to the nearest primal x/y nodes. Longitudinal
+`Jz` and `Ez` samples lie at the midpoints of the physical z-edges. In the saved
+HDF5 file, `z` holds these midpoints and `dz` their integration lengths.
+The domain boundaries are recovered from the end midpoints and half-lengths.
+When reading this file, `WakeSolver.zf` holds the saved field positions;
+`WakeSolver.z` optionally supplies full-domain coordinates to define the beam's
+flight-time reference. Supply `z` explicitly for a field monitor covering only
+part of the longitudinal domain. `skip_cells` trims the integration path without
+changing that reference.
+`Ez` snapshots use
+`t=n*dt`; optional `Jz` snapshots use `t=(n+1/2)*dt`. Transverse wakes require
+neighboring x/y nodes around the selected test position.
 
 ### Running a wakefield simulation
 A wakefield simulation can be run using `solver.wakesolve()`. It advances the electromagnetic fields until the requested `wakelength` is reached, saves the longitudinal electric field to the wake solver's `Ez_file`, and computes wake potentials and impedances. Reset the fields if reusing the solver from the preceding examples:

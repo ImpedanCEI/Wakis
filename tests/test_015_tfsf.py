@@ -91,7 +91,7 @@ def test_serial_tfsf_field_update_preserves_precision(dtype):
 
     # The public slice method returns E and H in the solver precision.
     injected_fields = beam.get_injected_2D_slice(
-        solver, solver.grid.z[beam.j_start], 0.0, side="low"
+        solver, solver.z[beam.j_start], 0.0, side="low"
     )
     assert all(field.dtype == dtype for field in injected_fields)
     electric_x, electric_y, magnetic_x, magnetic_y = injected_fields
@@ -152,6 +152,21 @@ def test_serial_tfsf_injection_lifecycle():
     assert np.any(solver.E.toarray())
 
 
+def test_mpi_single_rank():
+    """Reject MPI decomposition without multiple ranks; serial remains valid."""
+    MPI = pytest.importorskip("mpi4py.MPI")
+    if MPI.COMM_WORLD.Get_size() != 1:
+        pytest.skip("run with one MPI rank")
+
+    bounds = (0, 1, 0, 1, 0, 1, 4, 4, 6)
+    with pytest.raises(ValueError):
+        GridFIT3D(*bounds, use_mpi=True, verbose=0)
+    grid = GridFIT3D(*bounds, use_mpi=False, verbose=0)
+    solver = SolverFIT3D(grid, verbose=0)
+    solver.one_step()
+    assert np.isfinite(solver.E.toarray()).all()
+
+
 def test_tfsf_matches_serial_across_mpi_boundary():
     MPI = pytest.importorskip("mpi4py.MPI")
     comm = MPI.COMM_WORLD
@@ -180,6 +195,7 @@ def test_tfsf_matches_serial_across_mpi_boundary():
         solver.one_step()
 
     mpi_ez = solver.mpi_gather("Ez", x=3, y=3)
+    mpi_e = solver.mpi_gather_asField("E")
     if comm.Get_rank() == 0:
         serial_grid = GridFIT3D(*bounds, verbose=0)
         serial_solver = SolverFIT3D(serial_grid, **solver_kw)
@@ -189,6 +205,9 @@ def test_tfsf_matches_serial_across_mpi_boundary():
             serial_solver.one_step()
         np.testing.assert_allclose(
             mpi_ez, serial_solver.E[3, 3, :, "z"], rtol=1e-8, atol=1e-9
+        )
+        np.testing.assert_allclose(
+            mpi_e.toarray(), serial_solver.E.toarray(), rtol=1e-8, atol=1e-9
         )
 
 
@@ -275,3 +294,55 @@ def test_007_geometry_with_tfsf_across_mpi_boundaries(request):
         np.testing.assert_allclose(
             mpi_ez, serial_solver.E[x_probe, y_probe, :, "z"], rtol=5e-3, atol=1e-3
         )
+
+
+def test_mpi_wake_output(tmp_path):
+    """Gather physical Ez edges and reproduce serial wake integration."""
+    import h5py
+
+    from wakis import WakeSolver
+
+    MPI = pytest.importorskip("mpi4py.MPI")
+    comm = MPI.COMM_WORLD
+    if comm.Get_size() not in (2, 3):
+        pytest.skip("run with two or three MPI ranks")
+    folder = comm.bcast(str(tmp_path) if comm.Get_rank() == 0 else None, root=0)
+    bounds = (-0.04, 0.04, -0.04, 0.04, -0.04, 0.08, 6, 6, 24)
+    options = dict(
+        bc_low=["pec", "pec", "cpml"],
+        bc_high=["pec", "pec", "cpml"],
+        n_pml=2,
+        verbose=0,
+    )
+    wake_options = dict(
+        q=1e-12,
+        sigmaz=0.01,
+        ti=0.01 / c,
+        skip_cells=2,
+        results_folder=folder,
+        save=False,
+        verbose=0,
+    )
+    wake = WakeSolver(Ez_file=folder + "/mpi.h5", **wake_options)
+    grid = GridFIT3D(*bounds, use_mpi=True, verbose=0)
+    solver = SolverFIT3D(grid, wake, use_mpi=True, **options)
+    solver.wakesolve(wakelength=0.03)
+
+    if comm.Get_rank() == 0:
+        serial_wake = WakeSolver(Ez_file=folder + "/serial.h5", **wake_options)
+        serial_grid = GridFIT3D(*bounds, verbose=0)
+        serial_solver = SolverFIT3D(serial_grid, serial_wake, **options)
+        serial_solver.wakesolve(wakelength=0.03)
+        with (
+            h5py.File(wake.Ez_file) as mpi_hf,
+            h5py.File(serial_wake.Ez_file) as serial_hf,
+        ):
+            for key in ("x", "y", "z", "dz", "t"):
+                np.testing.assert_allclose(mpi_hf[key][()], serial_hf[key][()])
+            for key in mpi_hf:
+                if key.startswith("#"):
+                    np.testing.assert_allclose(
+                        mpi_hf[key][()], serial_hf[key][()], rtol=1e-8, atol=1e-9
+                    )
+        np.testing.assert_allclose(wake.s, serial_wake.s)
+        np.testing.assert_allclose(wake.WP, serial_wake.WP, rtol=1e-8, atol=1e-12)

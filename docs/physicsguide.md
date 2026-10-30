@@ -118,8 +118,17 @@ In these equations, $\varepsilon$, $\mu$, $\sigma$ can be considered tensors and
 Wakis discretizes the integral form of Maxwell's equations using the **Finite Integration Technique (FIT)** on a structured three-dimensional Cartesian grid.
 
 $$
-N_\text{cells} = N_x \times N_y \times N_z
+N_\text{comp} = N_xN_yN_z, \qquad
+N_\text{phys} = (N_x-1)(N_y-1)(N_z-1)
 $$
+
+Here $N_x$, $N_y$, and $N_z$ count stored primal nodes and computational
+cells; the final computational cell on each axis has zero primal extent. Mesh
+refinement and HDF5 loading preserve this convention: an axis array of length
+$N_x$ defines $N_x$ computational cells and $N_x-1$ physical intervals.
+MPI partitions the global primal nodes along $z$ and adds neighboring nodes
+for ghost exchange at internal interfaces. The beam origin remains the global
+low boundary, as in a serial simulation.
 
 This approach maps:
 - Line integrals → to grid **edges**
@@ -339,11 +348,39 @@ A source callback can be easily created as:
 
 Wakis supports several boundary condition (BC) types:
 - **PEC (Perfect Electric Conductor)**: masks tangential electric-field degrees of freedom, enforcing $\vec{E}_{\parallel} = 0$ at the selected face.
-- **PMC (Perfect Magnetic Conductor)**: masks tangential magnetic-field degrees of freedom, enforcing $\vec{H}_{\parallel} = 0$. Face masks combine by multiplication: an edge line shared by a PEC face and a periodic or PMC face stays masked, and a PMC face masks only magnetic degrees of freedom on its own faces. Mixed boundaries such as a parallel-plate line (PEC plates, periodic or PMC side faces) therefore keep their exact TEM solution.
-- **Periodic**: pairs the low and high faces of an axis and closes the corresponding FIT derivative stencil (`Px`, `Py`, or `Pz`) across that seam. The curl matrix is then rebuilt from the corrected derivative matrices and the periodic dual metrics are updated. A periodic face must be paired with the opposite face. Serial periodic boundaries are available in all three directions; longitudinal periodic MPI requires cyclic ghost exchange and is intentionally not enabled yet.
+- **PMC (Perfect Magnetic Conductor)**: uses the natural boundary of the staggered FIT grid. Tangential magnetic-field samples lie inside the first and last physical half-cells, rather than on the wall, so no interior H sample is masked. The high-side ghost samples have zero primal area. Tangential electric-field samples on a PMC face remain free.
+- **Periodic**: connects opposite faces so fields repeat across the boundary. The last physical cell wraps to the first node, and the boundary half-cells form one dual cell. Both faces of an axis must be periodic. All three directions work in serial runs but periodic $z$ is not supported with MPI.
 - **ABC**: a first-order Mur radiation condition for selected domain faces.
 - **PML**: a finite, graded, electrically lossy layer terminated by the usual electric boundary mask.
 - **CPML**: a convolutional absorbing layer that adds auxiliary curl-correction fields.
+
+#### Periodic stencil
+
+For an axis with $N_x$ stored primal nodes, the $N_x-1$ physical cells span
+$x_0$ to $x_{N_x-1}$. On a periodic axis, the two endpoint nodes represent
+the same location. The final physical forward difference and the terminal
+computational row are therefore
+
+$$
+(P_x u)_{N_x-2} = u_0-u_{N_x-2}, \qquad
+(P_x u)_{N_x-1} = 0.
+$$
+
+The dual width of the identified seam node combines the half-cells on either
+side:
+
+$$
+\widetilde L_{x,0} = \frac{\Delta x_0+\Delta x_{N_x-2}}{2}.
+$$
+
+The high stored plane is a copy for node-centred field components and an
+inactive ghost plane for components centred in primal cells. Wakis assembles
+the periodic metric corrections in solver-owned copies of the dual metrics
+when the solver is initialized, so the input grid can be reused with different
+boundary conditions. The solver aliases the primal metrics as `solver.L` and
+`solver.iA`, and owns the corrected dual metrics as `solver.tL` and `solver.itA`.
+This endpoint representation is a Wakis adaptation
+of the staggered-grid placement introduced by [Yee (1966)](https://doi.org/10.1109/TAP.1966.1138693).
 
 #### Mur ABC implementation
 
@@ -428,6 +465,15 @@ $$
 
 Here $\kappa \geq 1$ scales the coordinate stretch, $\sigma$ is the graded conductivity, and $\alpha$ is a non-negative frequency-shift parameter. Wakis constructs $\sigma$, $\kappa$, and $\alpha$ on both primal and dual field locations with a polynomial distance profile. It converts them into recursion coefficients and stores only the CPML auxiliary fields needed to correct curl terms inside each boundary layer.
 
+The layer thickness `n_pml` counts physical cells. Along an axis with $N$
+stored nodes and $m$ high-side CPML cells, the interface is at $x_{N-m-1}$.
+Electric profiles use nodes $N-m,\ldots,N-1$, while magnetic profiles use
+physical edges $N-m-1,\ldots,N-2$, evaluated at
+$(x_i+x_{i+1})/2$. Their high-side auxiliary corrections therefore use separate
+node and edge index ranges. The terminal plane has no forward physical edge
+and receives no magnetic CPML correction. Using the actual endpoint midpoint
+also preserves this placement on nonuniform meshes.
+
 CPML is therefore distinct from the scalar `pml` path: it does not modify the bulk material conductivity tensor to absorb waves, and its auxiliary convolution fields make it the preferred absorbing boundary for the beam and TF/SF workflows. As with all finite layers, its practical reflection level still depends on the number of cells and the selected profile parameters.
 
 
@@ -436,6 +482,22 @@ CPML is therefore distinct from the scalar `pml` path: it does not modify the bu
 Wakis integrates with [**PyVista**](https://docs.pyvista.org/) to import CAD geometries in `.STL`, `.STEP`, or `.OBJ` formats. The mesh is overlaid onto the simulation domain and mapped onto the Cartesian grid using:
 - `pyvista`'s surface collision algorithm, based on VTK optimized ray-tracing, allows to detect where the input geometry intersects the primal and dual grids.
 - Assignment of material properties ($\varepsilon_r$, $\mu_r$, $\sigma$) in $x$, $y$, and $z$ to the intersected cells using a first-order subpixel smoothing, inspired by the open-source solver MEEP (MIT).
+
+For `stl_method="voxelize_rectilinear"`, the mesh must be uniform. Each
+physical cell is classified at its centre, with spacing $\Delta x=L_x/(N_x-1)$
+and first sample $x_{\min}+\Delta x/2$ (and similarly for $y,z$).
+Subpixel smoothing samples `factor` evenly spaced subcell centres per axis
+inside each physical cell. Its existing gradient enhancement, Gaussian filter,
+and threshold are retained; the resulting weights are not exact geometric
+volume fractions.
+
+Stored masks keep shape `(Nx, Ny, Nz)`. Terminal cells have zero physical
+volume, but boundary fields can still require material coefficients there.
+Their labels extend the nearest physical-cell values onto high domain faces,
+edges, and corners, after smoothing if enabled. This avoids extra geometry
+queries and assumes the material does not change within the final half-cell;
+features confined to that unresolved interval are not separately classified. Nonuniform grids should use
+`stl_method="interior_points"` instead.
 
 | STL geometry | Imported material mask |
 | ----- | ---- |
@@ -581,6 +643,31 @@ Thus $w$ denotes the point-charge response and $W$ the response to the bunch
 profile. `WakeSolver.WP`, `WPx`, and `WPy` store the latter in
 $\mathrm{V/pC}$. This distinction follows the definitions in
 [Teofili et al., *Phys. Rev. Accel. Beams* **24**, 041001 (2021)](https://doi.org/10.1103/PhysRevAccelBeams.24.041001).
+
+On the symmetric Wakis grid, the longitudinal electric field and beam current are
+located at $(x_i,y_j,z_{k+1/2})$, where
+$z_{k+1/2}=(z_k+z_{k+1})/2$. Electric fields are stored at $t_n=n\Delta t$,
+while the beam deposits $J_z$ at $t_n+\Delta t/2$. Its transverse location
+snaps to the nearest primal x/y nodes. The current density is normalized by
+the transverse dual-cell area at those nodes.
+
+`wakesolve` saves physical $E_z$ edges only: HDF5 `z` contains their midpoints,
+and `dz` their lengths. Domain boundaries follow from the end midpoints:
+$z_\min=z_{1/2}-\Delta z_0/2$ and
+$z_\max=z_{N-3/2}+\Delta z_{N-2}/2$ for $N$ primal nodes.
+The zero-length high-side edge contributes no physical integral.
+For a bunch entering the low boundary $z_\min$ at time $t_i$, the discrete
+longitudinal integration samples the trajectory
+
+$$
+t_k(s)=t_i+\frac{z_{k+1/2}-z_\min+s}{v}, \qquad
+W_\parallel(s)=\frac{1}{q}\sum_k E_z(x_t,y_t,z_{k+1/2},t_k(s))\,\Delta z_k.
+$$
+
+The saved field timestep immediately preceding the requested trajectory time
+is used. `skip_cells` removes the same physical edges and lengths at both ends;
+it does not move the bunch's reference origin. The 1D integration and the
+central point of the transverse stencil follow the same trajectory.
 
 Wakis obtains the transverse wake potential from the 3D longitudinal wake
 potential using the Panofsky--Wenzel relation. With the $s$ and force signs

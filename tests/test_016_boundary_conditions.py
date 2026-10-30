@@ -1,14 +1,8 @@
-"""Regression coverage for FIT boundary topology and longitudinal Mur ABC.
-
-The topology checks verify that the periodic derivative matrices wrap in all
-three Cartesian directions, preserve constants and translation invariance, and
-retain correct metrics and PEC/PMC masks after the curl operator is rebuilt.
-The short Harris-pulse case complements those algebraic checks by confirming
-the expected longitudinal response of PEC, PMC, periodic, and Mur ABC faces.
-"""
+"""FIT boundary modes, periodic wave propagation, and longitudinal Mur ABC."""
 
 import numpy as np
 import pytest
+from scipy.constants import c
 
 from wakis import GridFIT3D, SolverFIT3D
 from wakis.sources import Pulse
@@ -21,25 +15,101 @@ def make_solver(bcs=None, **kwargs):
 
 
 @pytest.mark.parametrize("axis,name", enumerate("xyz"))
-def test_periodic_derivative_matches_coordinate_roll(axis, name):
-    solver = make_solver()
-    values = np.random.default_rng(1).normal(size=(4, 5, 6))
+def test_nonperiodic_derivative_stops_at_boundary(axis, name):
+    """Forward differences reach the boundary node without crossing it."""
+    solver = make_solver(bcs=["pec"] * 3)
+    shape = (solver.Nx, solver.Ny, solver.Nz)
+    values = np.random.default_rng(1).normal(size=shape)
+    expected = np.zeros(shape)
+    interior = [slice(None)] * 3
+    neighbor = [slice(None)] * 3
+    interior[axis] = slice(None, -1)
+    neighbor[axis] = slice(1, None)
+    expected[tuple(interior)] = values[tuple(neighbor)] - values[tuple(interior)]
+
     derivative = getattr(solver, "P" + name)
-    expected = np.roll(values, -1, axis=axis) - values
     np.testing.assert_allclose(
         derivative @ values.ravel(order="F"), expected.ravel(order="F")
     )
-    np.testing.assert_array_equal(derivative @ np.ones(solver.N), 0)
-    np.testing.assert_array_equal(derivative.T @ np.ones(solver.N), 0)
+
+
+def test_solver_grid_coordinates():
+    """Solver aliases coordinates and copies dual metrics for boundary setup."""
+    grid = GridFIT3D(
+        x=np.array([0.0, 0.2, 1.0]),
+        y=np.array([0.0, 0.4, 1.0]),
+        z=np.array([0.0, 0.3, 1.0]),
+        verbose=0,
+    )
+    solver = SolverFIT3D(grid, bc_low=["pec"] * 3, bc_high=["pec"] * 3, verbose=0)
+    for name in "xyz":
+        assert getattr(solver, name) is getattr(grid, name)
+        assert getattr(solver, "t" + name) is getattr(grid, "t" + name)
+        assert getattr(solver, "d" + name) is getattr(grid, "d" + name)
+        assert len(getattr(solver, name)) == getattr(solver, "N" + name)
+        assert len(getattr(solver, "t" + name)) == getattr(solver, "N" + name) + 1
+        np.testing.assert_allclose(
+            getattr(solver, "td" + name), np.diff(getattr(solver, "t" + name))
+        )
+    for name in ("tL", "itA"):
+        np.testing.assert_array_equal(
+            getattr(solver, name).toarray(), getattr(grid, name).toarray()
+        )
+
+
+@pytest.mark.parametrize("boundaries", [("periodic", "pmc"), ("pmc", "periodic")])
+def test_grid_reuse(boundaries):
+    """Reusing a graded grid preserves metrics and independent field evolution."""
+    coordinates = dict(
+        x=np.array([0.0, 0.2, 1.0]),
+        y=np.array([0.0, 0.4, 1.0]),
+        z=np.array([0.0, 0.3, 1.0]),
+        verbose=0,
+    )
+    grid = GridFIT3D(**coordinates)
+    metrics = {name: getattr(grid, name).toarray().copy() for name in ("tL", "itA")}
+    solvers = [
+        SolverFIT3D(grid, bc_low=[bc] * 3, bc_high=[bc] * 3, verbose=0)
+        for bc in boundaries
+    ]
+    for name, expected in metrics.items():
+        np.testing.assert_array_equal(getattr(grid, name).toarray(), expected)
+
+    initial = np.random.default_rng(1).normal(size=3 * grid.Nx * grid.Ny * grid.Nz)
+    for bc, solver in zip(boundaries, solvers):
+        reference = SolverFIT3D(
+            GridFIT3D(**coordinates),
+            bc_low=[bc] * 3,
+            bc_high=[bc] * 3,
+            verbose=0,
+        )
+        for axis in "xyz":
+            np.testing.assert_allclose(
+                getattr(solver, "td" + axis), getattr(reference, "td" + axis)
+            )
+        for simulation in (solver, reference):
+            simulation.E.fromarray(initial.copy())
+            for _ in range(3):
+                simulation.one_step()
+        for field in ("E", "H"):
+            np.testing.assert_allclose(
+                getattr(solver, field).toarray(), getattr(reference, field).toarray()
+            )
 
 
 def test_constant_fields_survive_periodic_first_step():
+    """Constant physical fields stay constant after periodic seam syncing."""
     solver = make_solver()
     solver.E.array[:] = 2.0
     solver.H.array[:] = 3.0
     solver.one_step()
-    np.testing.assert_allclose(solver.E.array, 2.0, atol=1e-12)
-    np.testing.assert_allclose(solver.H.array, 3.0, atol=1e-12)
+    for component in "xyz":
+        np.testing.assert_allclose(
+            solver.E.to_matrix(component)[:-1, :-1, :-1], 2.0, atol=1e-12
+        )
+        np.testing.assert_allclose(
+            solver.H.to_matrix(component)[:-1, :-1, :-1], 3.0, atol=1e-12
+        )
 
 
 def _longitudinal_harris_probe(boundary):
@@ -63,29 +133,39 @@ def _longitudinal_harris_probe(boundary):
     for step in range(len(trace)):
         source.update(solver, step * solver.dt)
         solver.one_step()
-        trace[step] = solver.E[1, 1, 8, "x"]
+        trace[step] = solver.E[0, 0, 8, "x"]
     return trace
 
 
-def test_longitudinal_harris_pulse_boundary_signatures():
-    """PEC, PMC, and periodic faces give distinct expected pulse returns."""
+def test_longitudinal_harris_pulse_reflection():
+    """PEC returns the wave energy while first-order Mur absorbs most of it."""
     traces = {
         boundary: _longitudinal_harris_probe(boundary)
-        for boundary in ("pec", "pmc", "periodic")
+        for boundary in ("pec", "pmc", "periodic", "abc")
     }
 
-    # The initial left-going pulse has not reached a longitudinal face yet.
+    # All boundaries see the same incident pulse before its return.
     for trace in traces.values():
-        assert trace[100:130].max() > 0.8
+        assert trace[65:85].max() > 0.8
 
     # A tangential electric field reflects with opposite sign at PEC and the
     # same sign at PMC.  A periodic face has no conductor-style return here.
-    assert traces["pec"][155:195].min() < -0.7
-    assert traces["pmc"][155:195].max() > 0.7
-    assert np.abs(traces["periodic"][155:195]).max() < 0.1
+    assert traces["pec"][105:125].min() < -0.7
+    assert traces["pmc"][105:125].max() > 0.7
+    assert np.abs(traces["periodic"][105:125]).max() < 0.1
 
     # The periodic wave subsequently reaches the probe after wrapping around.
-    assert traces["periodic"][220:275].max() > 0.6
+    assert traces["periodic"][155:175].max() > 0.6
+
+    # The incident and first returned pulses occupy separate time windows at
+    # this probe. For the same plane wave, sum(E²) is proportional to energy.
+    incident_pec = np.sum(traces["pec"][48:98] ** 2)
+    reflected_pec = np.sum(traces["pec"][98:148] ** 2)
+    np.testing.assert_allclose(reflected_pec / incident_pec, 1.0, rtol=0.03)
+
+    incident_abc = np.sum(traces["abc"][48:98] ** 2)
+    reflected_abc = np.sum(traces["abc"][98:148] ** 2)
+    assert reflected_abc / incident_abc < 0.02
 
 
 @pytest.mark.parametrize(
@@ -110,6 +190,12 @@ def test_abc_applies_mur_to_tangential_electric_field(
     solver.H.array[:] = rng.normal(size=solver.H.array.size)
     old_E = {d: solver.E.to_matrix(d).copy() for d in "xyz"}
     solver.one_step()
+    active = np.ones((solver.Nx, solver.Ny, solver.Nz), dtype=bool)
+    for periodic_axis, boundary in enumerate(bc):
+        if boundary == "periodic":
+            high = [slice(None)] * 3
+            high[periodic_axis] = -1
+            active[tuple(high)] = False
 
     for d in components:
         values = solver.E.to_matrix(d)
@@ -131,8 +217,14 @@ def test_abc_applies_mur_to_tangential_electric_field(
         expected_high = old_E[d][high_interior] + getattr(solver, high_coeff) * (
             values[high_interior] - old_E[d][high_boundary]
         )
-        np.testing.assert_allclose(values[low_boundary], expected_low)
-        np.testing.assert_allclose(values[high_boundary], expected_high)
+        np.testing.assert_allclose(
+            values[low_boundary][active[low_boundary]],
+            expected_low[active[low_boundary]],
+        )
+        np.testing.assert_allclose(
+            values[high_boundary][active[high_boundary]],
+            expected_high[active[high_boundary]],
+        )
 
 
 def test_abc_does_not_modify_metric_operators():
@@ -167,62 +259,120 @@ def test_abc_warns_when_faces_share_edges():
         )
 
 
-@pytest.mark.parametrize("axis", [0, 1, 2])
-def test_periodic_evolution_is_translation_invariant(axis):
-    reference = make_solver()
-    shifted = make_solver()
-    rng = np.random.default_rng(12)
-    for field in ("E", "H"):
-        for component in "xyz":
-            values = rng.normal(size=(4, 5, 6))
-            getattr(reference, field).from_matrix(values, component)
-            getattr(shifted, field).from_matrix(
-                np.roll(values, 1, axis=axis), component
-            )
-    for _ in range(5):
-        reference.one_step()
-        shifted.one_step()
-    for field in ("E", "H"):
-        for component in "xyz":
-            np.testing.assert_allclose(
-                getattr(shifted, field).to_matrix(component),
-                np.roll(getattr(reference, field).to_matrix(component), 1, axis=axis),
-                rtol=1e-11,
-                atol=1e-11,
-            )
-
-
-def test_nonuniform_periodic_metrics():
-    grid = GridFIT3D(
-        x=np.array([0.0, 0.1, 0.4, 1.0]),
-        y=np.array([0.0, 0.2, 0.5, 1.0]),
-        z=np.array([0.0, 0.3, 0.7, 1.0]),
-        verbose=0,
-    )
+@pytest.mark.parametrize("axis,component", [(0, "z"), (1, "x"), (2, "y")])
+def test_periodic_wave_mode(axis, component):
+    """A periodic Fourier mode follows the discrete dispersion on every axis."""
+    coordinates = [np.array([0.0, 0.01]) for _ in range(3)]
+    coordinates[axis] = np.linspace(0.0, 0.05, 11)
+    grid = GridFIT3D(x=coordinates[0], y=coordinates[1], z=coordinates[2], verbose=0)
     solver = SolverFIT3D(grid, verbose=0)
-    for axis, name in enumerate("xyz"):
-        widths = getattr(grid, "d" + name)
-        expected = np.concatenate(
-            ((widths[:-1] + widths[1:]) / 2, [(widths[-1] + widths[0]) / 2])
-        )
-        shape = [1, 1, 1]
-        shape[axis] = len(widths)
-        np.testing.assert_allclose(
-            solver.tL.to_matrix(name),
-            np.broadcast_to(expected.reshape(shape), (3, 3, 3)),
-        )
-    np.testing.assert_allclose(
-        solver.itA.field_x, 1 / (solver.tL.field_y * solver.tL.field_z)
-    )
+    profile = np.cos(2 * np.pi * coordinates[axis] / 0.05)
+    shape = [1, 1, 1]
+    shape[axis] = len(profile)
+    solver.E[:, :, :, component] = profile.reshape(shape)
+
+    dx = 0.05 / 10
+    omega = 2 * c / dx * np.sin(np.pi / 10)
+    previous, amplitude = 1.0, 1.0
+    line = [0, 0, 0]
+    line[axis] = slice(None)
+    for step in range(4):
+        solver.one_step()
+        if step == 0:
+            next_amplitude = 1 - (solver.dt * omega) ** 2
+        else:
+            next_amplitude = (2 - (solver.dt * omega) ** 2) * amplitude - previous
+        expected = next_amplitude * profile
+        np.testing.assert_allclose(solver.E[(*line, component)], expected, atol=1e-12)
+        previous, amplitude = amplitude, next_amplitude
 
 
-@pytest.mark.parametrize("boundary", ["pec", "pmc"])
-def test_rebuilt_curl_preserves_conductor_masks(boundary):
-    solver = make_solver(["periodic", "periodic", boundary])
+def test_periodic_graded_cavity():
+    """The periodic mode converges quadratically on a graded physical mesh."""
+    length = 0.05
+    errors = []
+    for cells in (12, 24, 48):
+        widths = np.geomspace(1.0, 3.0, cells)
+        coordinates = np.r_[0.0, np.cumsum(widths)] * length / widths.sum()
+        grid = GridFIT3D(
+            x=coordinates,
+            y=np.array([0.0, 0.01]),
+            z=np.array([0.0, 0.01]),
+            verbose=0,
+        )
+        solver = SolverFIT3D(grid, verbose=0)
+        np.testing.assert_allclose(solver.tdx.sum(), length)
+        np.testing.assert_allclose(solver.tdx[0], (grid.dx[0] + grid.dx[-1]) / 2)
+        np.testing.assert_array_equal(solver.tdx[-1], 0)
+        np.testing.assert_allclose(grid.tL[:, 0, 0, "x"], np.diff(grid.tx))
+
+        operator = (solver.itDaiDepsDstC @ solver.tDsiDmuiDaC).tocsr()
+        ez_operator = operator[2 * solver.N :, 2 * solver.N :].toarray()
+        eigenvalues = np.linalg.eigvals(ez_operator).real
+        eigenvalues = eigenvalues[eigenvalues > eigenvalues.max() * 1e-8]
+        measured = np.sqrt(eigenvalues.min())
+        errors.append(abs(measured / (2 * np.pi * c / length) - 1))
+
+    assert errors[0] > 3.5 * errors[1]
+    assert errors[1] > 3.5 * errors[2]
+
+
+def test_rebuilt_curl_preserves_pec_mask():
+    solver = make_solver(["periodic", "periodic", "pec"])
     masked = np.flatnonzero(solver.BC.toarray() == 0)
     curl = solver.C.tocsr()
-    selected = curl[:, masked] if boundary == "pec" else curl[masked, :]
+    selected = curl[:, masked]
     assert np.count_nonzero(selected.toarray()) == 0
+
+
+@pytest.mark.parametrize("nx", [11, 21])
+@pytest.mark.parametrize(
+    "low,high,half_waves",
+    [
+        ("pec", "pec", 1.0),
+        ("pmc", "pec", 0.5),
+        ("pec", "pmc", 0.5),
+        ("pmc", "pmc", 1.0),
+    ],
+)
+def test_pec_pmc_cavity_modes(nx, low, high, half_waves):
+    """The lowest Ez mode follows the discrete PEC/PMC cavity dispersion.
+
+    One-cell periodic transverse axes isolate an x-directed mode. PEC/PMC
+    walls use the requested 50 mm length, with no missing half-cell at PMC.
+    A leapfrog step preserves the corresponding sampled mode profile.
+    """
+    length = 0.05
+    grid = GridFIT3D(
+        x=np.linspace(0.0, length, nx),
+        y=np.array([0.0, 0.01]),
+        z=np.array([0.0, 0.01]),
+        verbose=0,
+    )
+    solver = SolverFIT3D(
+        grid,
+        bc_low=[low, "periodic", "periodic"],
+        bc_high=[high, "periodic", "periodic"],
+        verbose=0,
+    )
+    operator = (solver.itDaiDepsDstC @ solver.tDsiDmuiDaC).tocsr()
+    ez_operator = operator[2 * solver.N :, 2 * solver.N :].toarray()
+    eigenvalues = np.linalg.eigvals(ez_operator).real
+    eigenvalues = eigenvalues[eigenvalues > eigenvalues.max() * 1e-8]
+    measured = np.sqrt(eigenvalues.min())
+    dx = length / (nx - 1)
+    expected = 2 * c / dx * np.sin(np.pi * half_waves * dx / (2 * length))
+    np.testing.assert_allclose(measured, expected, rtol=1e-10)
+
+    phase = np.pi * half_waves * solver.x / length
+    profile = np.sin(phase) if low == "pec" else np.cos(phase)
+    solver.E[:, :, :, "z"] = profile[:, None, None]
+    solver.one_step()
+    np.testing.assert_allclose(
+        solver.E[:, 0, 0, "z"],
+        (1 - (solver.dt * expected) ** 2) * profile,
+        atol=1e-12,
+    )
 
 
 @pytest.mark.parametrize("bc_y", ["periodic", "pmc"])
@@ -244,7 +394,7 @@ def test_parallel_plate_tem_with_mixed_boundaries(bc_y, bc_z):
         verbose=0,
     )
     Ex = np.zeros((solver.Nx, solver.Ny, solver.Nz))
-    Ex[:-1] = np.cos(np.pi * grid.z[:-1])  # last x index is outside the plates
+    Ex[:-1] = np.cos(np.pi * grid.z)[None, None, :]
     solver.E.from_matrix(Ex, "x")
     for _ in range(300):
         solver.one_step()
