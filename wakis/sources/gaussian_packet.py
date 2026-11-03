@@ -147,10 +147,11 @@ class GaussianPacket(WaveformSource):
         z = solver.tz[1:][self.zs] if self.field == "H" else solver.z[self.zs]
         spatial = self.gaussian_spatial_profile(X, Y, self.sigmaxy)
 
-        # Apply roataion
+        # Project each field position onto the propagation direction.
         w = X * np.sin(self.theta) + z * np.cos(self.theta)
         temporal = self.gaussian_profile(
-            w - z + self.tinj - self.beta * c_light * t, self.sigmaz
+            w - solver.z[self.zs] + self.tinj - self.beta * c_light * t,
+            self.sigmaz,
         )
 
         # Final waveform

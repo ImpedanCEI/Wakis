@@ -122,9 +122,19 @@ class PlaneWave(WaveformSource):
         self._ensure_initialized(solver)
 
         # Evaluate each component at its staggered field position.
-        x_edge = solver.tx[1:][self.xs, None]
+        x_edge = solver.tx[1:][self.xs]
         z_node = solver.z[self.zs]
         z_edge = solver.tz[1:][self.zs]
+
+        z_slice = isinstance(self.zs, slice)
+        if z_slice:
+            z_node = z_node[None, None, :]
+            z_edge = z_edge[None, None, :]
+            x_edge = x_edge[:, None, None]
+        else:
+            x_edge = x_edge[:, None]
+
+        # Compute fields
         magnetic_y = self._waveform(
             t,
             x_edge * np.sin(self.theta) + (z_edge - z_node) * np.cos(self.theta),
@@ -142,7 +152,8 @@ class PlaneWave(WaveformSource):
 
         # Inject the z-component of the electric field if the wave is tilted.
         if self.theta != 0.0:
-            x_node = solver.x[self.xs, None]
+            x_node = solver.x[self.xs]
+            x_node = x_node[:, None, None] if z_slice else x_node[:, None]
             electric_z = (
                 -impedance
                 * np.sin(self.theta)
