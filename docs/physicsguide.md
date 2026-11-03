@@ -272,6 +272,10 @@ $$
 
 The pulse peaks at $t=t_{\mathrm{inj}}/(\beta c)$. Selecting `field="E"` imposes $E_x=S$ with amplitude in V/m; selecting `field="H"` preserves the existing convention $H_y=-S$ with amplitude in A/m. Only the selected field is prescribed, and Maxwell's equations evolve the companion field. This differs from `WavePacket`, which explicitly imposes an impedance-matched electric and magnetic pair with an oscillating carrier.
 
+The source arrays are sampled at their staggered field positions: $E_x$ at an $x$-edge midpoint and primal $y,z$ nodes; $H_y$ at $x,z$ edge midpoints and a primal $y$ node. A tilted `WavePacket` also samples $E_z$ at a primal $x,y$ node and a $z$-edge midpoint. Its electric and magnetic amplitudes therefore obey the impedance relation for the underlying continuous packet, rather than at identical array indices.
+
+`PlaneWave` uses the same component positions for its carrier phase and finite-duration window; the half-cell offset delays the magnetic sample at normal incidence.
+
 `PlaneWave` and `WavePacket` use the same TM polarization and propagation angle $\theta$, measured from $+z$ towards $+x$. The propagation direction is
 
 $$
@@ -286,8 +290,7 @@ The `Beam` source does not belong to this table because it prescribes a moving p
 
 #### Common waveform-source lifecycle
 
-The predefined waveform sources inherit from `WaveformSource` (`Source` remains
-an alias for compatibility). Their common update sequence is:
+The predefined waveform sources inherit from `WaveformSource` (`Source` remains an alias for compatibility). Their common update sequence is:
 
 1. Resolve mesh-dependent defaults once through `_initialize()`.
 2. Evaluate the shared spatial profile, temporal envelope, and carrier helpers.

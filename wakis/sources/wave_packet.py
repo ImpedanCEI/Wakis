@@ -153,32 +153,44 @@ class WavePacket(WaveformSource):
         """Inject the matched TM Gaussian wave packet at time ``t``."""
         self._ensure_initialized(solver)
 
-        X, Y = np.meshgrid(solver.x[self.xs], solver.y[self.ys], indexing="ij")
-        z_pos = solver.z[self.zs]
-        direction = self._direction_from_theta()
-        u, v, w = self._to_source_frame(
-            X, Y, z_pos, direction, origin=(0.0, 0.0, z_pos)
+        # tx[0] is the boundary, H starts at tx[1]
+        x_edge, y_node = np.meshgrid(
+            solver.tx[1:][self.xs], solver.y[self.ys], indexing="ij"
         )
-        envelope_coordinate = w - self.vp * t + self.tinj
-        spatial = self.gaussian_spatial_profile(u, v, self.sigmaxy)
-        temporal = self.gaussian_profile(envelope_coordinate, self.sigmaz)
-        carrier_phase = self.omega * t - self.k * w + self.phase
-        carrier = self.harmonic_carrier(carrier_phase)
-
-        magnetic_y = self.amplitude * spatial * temporal * carrier
+        z_edge = solver.tz[1:][self.zs]
+        z_node = solver.z[self.zs]
         impedance = mu_0 * self.vp
-        electric_x = impedance * np.cos(self.theta) * magnetic_y
-        electric_z = -impedance * np.sin(self.theta) * magnetic_y
-
         index = (self.xs, self.ys, self.zs)
-        self._inject(solver.H, (*index, "y"), magnetic_y)
-        self._inject(solver.E, (*index, "x"), electric_x)
-        if self.theta != 0.0:
-            self._inject(solver.E, (*index, "z"), electric_z)
 
-    def _direction_from_theta(self):
-        """Return the propagation vector represented by the legacy angle."""
-        return np.array([np.sin(self.theta), 0.0, np.cos(self.theta)])
+        # H_y: (x edge, y node, z edge); E_x: (x edge, y node, z node).
+        components = [
+            (solver.H, "y", x_edge, z_edge, 1.0),
+            (solver.E, "x", x_edge, z_node, impedance * np.cos(self.theta)),
+        ]
+
+        # Apply rotation, add Ez if the packet is tilted
+        if self.theta != 0.0:
+            # The tilted packet also has E_z at (x node, y node, z edge).
+            x_node, _ = np.meshgrid(solver.x[self.xs], solver.y[self.ys], indexing="ij")
+            components.append(
+                (solver.E, "z", x_node, z_edge, -impedance * np.sin(self.theta))
+            )
+
+        sin_theta = np.sin(self.theta)
+        cos_theta = np.cos(self.theta)
+        for field, axis, x, z, scale in components:
+            # Measure each component's z position from the source's z node.
+            offset_z = z - z_node
+            u = x * cos_theta - offset_z * sin_theta
+            w = x * sin_theta + offset_z * cos_theta
+            waveform = (
+                scale
+                * self.amplitude
+                * self.gaussian_spatial_profile(u, y_node, self.sigmaxy)
+                * self.gaussian_profile(w - self.vp * t + self.tinj, self.sigmaz)
+                * self.harmonic_carrier(self.omega * t - self.k * w + self.phase)
+            )
+            self._inject(field, (*index, axis), waveform)
 
     def plot(self, t, zmin=0):
         """

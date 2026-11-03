@@ -10,14 +10,15 @@ from wakis.sources import PlaneWave
 
 def test_source_updates_component(unit_solver):
     source = PlaneWave(zs=2, nodes=1, f=1e9, amplitude=2.0)
+    delay = (unit_solver.tz[1:][2] - unit_solver.z[2]) / source.vp
 
-    source.update(unit_solver, 0.0)
+    source.update(unit_solver, delay)
 
     np.testing.assert_allclose(unit_solver.H[:, :, 2, "y"], 2.0)
     assert np.all(unit_solver.E[:, :, 2, "x"] > 0.0)
     assert not np.any(unit_solver.H[:, :, 1, "y"])
 
-    source.update(unit_solver, source.tmax + unit_solver.dt)
+    source.update(unit_solver, source.tmax + delay + unit_solver.dt)
 
     assert not np.any(unit_solver.H[:, :, 2, "y"])
     assert not np.any(unit_solver.E[:, :, 2, "x"])
@@ -26,33 +27,67 @@ def test_source_updates_component(unit_solver):
 def test_plane_wave_follows_harmonic_phase_and_positive_z_direction(unit_solver):
     source = PlaneWave(zs=2, f=1e9, amplitude=2.0)
     period = 1.0 / source.f
+    delay = (unit_solver.tz[1:][2] - unit_solver.z[2]) / source.vp
 
-    source.update(unit_solver, 0.0)
+    source.update(unit_solver, delay)
     assert np.all(unit_solver.E[:, :, 2, "x"] * unit_solver.H[:, :, 2, "y"] > 0)
-    source.update(unit_solver, period / 4)
+    source.update(unit_solver, delay + period / 4)
     np.testing.assert_allclose(unit_solver.H[:, :, 2, "y"], 0.0, atol=1e-14)
-    source.update(unit_solver, period / 2)
+    source.update(unit_solver, delay + period / 2)
     np.testing.assert_allclose(unit_solver.H[:, :, 2, "y"], -2.0)
 
 
 def test_plane_wave_uses_medium_wave_impedance(unit_solver):
     source = PlaneWave(zs=2, f=1e9, amplitude=2.0, beta=0.8)
-
-    source.update(unit_solver, 0.0)
+    delay = (unit_solver.tz[1:][2] - unit_solver.z[2]) / source.vp
+    source.update(unit_solver, delay)
 
     electric = unit_solver.E[unit_solver.Nx // 2, unit_solver.Ny // 2, 2, "x"]
     magnetic = unit_solver.H[unit_solver.Nx // 2, unit_solver.Ny // 2, 2, "y"]
-    np.testing.assert_allclose(electric / magnetic, mu_0 * source.vp)
+    np.testing.assert_allclose(
+        electric / magnetic, mu_0 * source.vp * np.cos(source.omega * delay)
+    )
 
 
 def test_plane_wave_uses_vacuum_impedance_at_beta_one(unit_solver):
     source = PlaneWave(zs=2, f=1e9, amplitude=2.0, beta=1.0)
-
-    source.update(unit_solver, 0.0)
+    delay = (unit_solver.tz[1:][2] - unit_solver.z[2]) / source.vp
+    source.update(unit_solver, delay)
 
     electric = unit_solver.E[unit_solver.Nx // 2, unit_solver.Ny // 2, 2, "x"]
     magnetic = unit_solver.H[unit_solver.Nx // 2, unit_solver.Ny // 2, 2, "y"]
-    np.testing.assert_allclose(electric / magnetic, mu_0 * c)
+    np.testing.assert_allclose(
+        electric / magnetic, mu_0 * c * np.cos(source.omega * delay)
+    )
+
+
+def test_plane_wave_oblique_phase_uses_staggered_positions(unit_solver):
+    """The oblique carrier reaches each field at its own physical position."""
+    theta = np.pi / 6
+    source = PlaneWave(zs=2, f=1e9, theta=theta, amplitude=2.0)
+    time = 1 / source.f
+    source.update(unit_solver, time)
+
+    x_edge = unit_solver.tx[1:][:, None]
+    x_node = unit_solver.x[:, None]
+    dz = unit_solver.tz[1:][2] - unit_solver.z[2]
+    phase_h = source.omega * time - source.k * (
+        x_edge * np.sin(theta) + dz * np.cos(theta)
+    )
+    phase_ex = source.omega * time - source.k * x_edge * np.sin(theta)
+    phase_ez = source.omega * time - source.k * (
+        x_node * np.sin(theta) + dz * np.cos(theta)
+    )
+
+    np.testing.assert_allclose(unit_solver.H[:, 0, 2, "y"], 2 * np.cos(phase_h[:, 0]))
+    np.testing.assert_allclose(
+        unit_solver.E[:, 0, 2, "x"],
+        2 * mu_0 * source.vp * np.cos(theta) * np.cos(phase_ex[:, 0]),
+    )
+    np.testing.assert_allclose(
+        unit_solver.E[:, 0, 2, "z"],
+        -2 * mu_0 * source.vp * np.sin(theta) * np.cos(phase_ez[:, 0]),
+    )
 
 
 def test_plane_wave_requires_positive_frequency():

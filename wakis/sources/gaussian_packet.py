@@ -142,13 +142,18 @@ class GaussianPacket(WaveformSource):
         """Inject the selected carrier-free Gaussian field at time ``t``."""
         self._ensure_initialized(solver)
 
-        X, Y = np.meshgrid(solver.x[self.xs], solver.y[self.ys], indexing="ij")
-        zs_physical = solver.z[self.zs]
-        w = X * np.sin(self.theta) + zs_physical * np.cos(self.theta)
+        # Retrieve physical coordinates of the staggered fields
+        X, Y = np.meshgrid(solver.tx[1:][self.xs], solver.y[self.ys], indexing="ij")
+        z = solver.tz[1:][self.zs] if self.field == "H" else solver.z[self.zs]
         spatial = self.gaussian_spatial_profile(X, Y, self.sigmaxy)
+
+        # Apply roataion
+        w = X * np.sin(self.theta) + z * np.cos(self.theta)
         temporal = self.gaussian_profile(
-            w - zs_physical + self.tinj - self.beta * c_light * t, self.sigmaz
+            w - z + self.tinj - self.beta * c_light * t, self.sigmaz
         )
+
+        # Final waveform
         waveform = self.amplitude * spatial * temporal
 
         index = (self.xs, self.ys, self.zs)
