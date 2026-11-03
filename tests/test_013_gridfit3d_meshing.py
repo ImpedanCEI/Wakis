@@ -19,6 +19,8 @@ def test_grid_h5_roundtrip_without_solids(tmp_path):
     path = str(tmp_path / "grid.h5")
     grid.save_to_h5(path)
     loaded = GridFIT3D(load_from_h5=path, verbose=0)
+    with pytest.raises(NotImplementedError, match="MPI decomposition"):
+        GridFIT3D(load_from_h5=path, use_mpi=True, verbose=0)
 
     for attr in ("x", "y", "z", "dx", "dy", "dz", "tx", "ty", "tz"):
         np.testing.assert_array_equal(getattr(loaded, attr), getattr(grid, attr))

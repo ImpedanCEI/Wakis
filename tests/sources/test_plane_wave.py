@@ -90,6 +90,22 @@ def test_plane_wave_oblique_phase_uses_staggered_positions(unit_solver):
     )
 
 
+def test_plane_wave_injects_multiple_z_planes(unit_solver):
+    """A z slice broadcasts the oblique phase across x, y, and z."""
+    source = PlaneWave(zs=slice(2, 4), f=1e9, theta=np.pi / 6)
+    source.update(unit_solver, 1 / source.f)
+
+    x_edge = unit_solver.tx[1:][:, None]
+    z_offset = unit_solver.tz[1:][2:4] - unit_solver.z[2:4]
+    phase = source.omega / source.f - source.k * (
+        x_edge * np.sin(source.theta) + z_offset * np.cos(source.theta)
+    )
+    np.testing.assert_allclose(
+        unit_solver.H[:, 0, 2:4, "y"], source.amplitude * np.cos(phase)
+    )
+    assert np.any(unit_solver.E[:, :, 2:4, "z"])
+
+
 def test_plane_wave_requires_positive_frequency():
     with pytest.raises(ValueError, match="positive frequency"):
         PlaneWave()

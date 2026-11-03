@@ -86,7 +86,10 @@ class GridFIT3D(PlotMixin):
             Their lengths define Nx, Ny, and Nz. Non-uniform grids are supported.
         use_mpi : bool, optional
             Enable MPI domain decomposition in the z direction. Default is False.
-            Requires more than one MPI rank; otherwise raises ValueError.
+            Requires more than one MPI rank. Uniform-grid Nz is rounded up to
+            a multiple of the rank count before the z coordinates are built.
+            Explicit z arrays must already have a length divisible by the rank
+            count; their coordinates are preserved.
         use_mesh_refinement : bool, optional
             Enable mesh refinement based on snap points extracted from the STL solids.
             Default is False.
@@ -179,15 +182,19 @@ class GridFIT3D(PlotMixin):
         # Grid data
         # generate from file
         if load_from_h5 is not None:
+            if self.use_mpi:
+                raise NotImplementedError(
+                    "MPI decomposition of loaded HDF5 grids is not supported."
+                )
             self.load_from_h5(load_from_h5)
             return  # TODO: support MPI decomposition
 
         # generate from custom x,y,z arrays
         elif x is not None and y is not None and z is not None:
             # allow user to set the grid axis manually
-            self.x = x
-            self.y = y
-            self.z = z
+            self.x = np.asarray(x)
+            self.y = np.asarray(y)
+            self.z = np.asarray(z)
             self.Nx = len(self.x)
             self.Ny = len(self.y)
             self.Nz = len(self.z)
@@ -195,9 +202,12 @@ class GridFIT3D(PlotMixin):
             self.ymin, self.ymax = self.y[0], self.y[-1]
             self.zmin, self.zmax = self.z[0], self.z[-1]
             if self.use_mpi:
-                raise ValueError(
-                    "[!] Error: use_mpi=True is not compatible with custom x,y,z arrays."
-                )
+                self._setup_mpi()
+                if self.Nz % self.size:
+                    raise ValueError(
+                        f"Custom z has {self.Nz} nodes, which is not divisible "
+                        f"by the number of MPI ranks ({self.size})."
+                    )
 
         # generate from domain extents and number of cells [LEGACY]
         elif all(v is not None for v in [xmin, xmax, ymin, ymax, zmin, zmax]):
@@ -206,6 +216,10 @@ class GridFIT3D(PlotMixin):
             self.ymin, self.ymax = ymin, ymax
             self.zmin, self.zmax = zmin, zmax
             self.Nx, self.Ny, self.Nz = Nx, Ny, Nz
+            if self.use_mpi:
+                self._setup_mpi()
+                self.Nz = self._adjust_Nz_for_mpi()
+
             self.x = np.linspace(self.xmin, self.xmax, self.Nx)
             self.y = np.linspace(self.ymin, self.ymax, self.Ny)
             self.z = np.linspace(self.zmin, self.zmax, self.Nz)
@@ -258,6 +272,7 @@ class GridFIT3D(PlotMixin):
             if self.snap_points is None and stl_solids is not None:
                 self._compute_snap_points(snap_solids=snap_solids, snap_tol=snap_tol)
             self._refine_xyz_axis(method=refinement_method, tol=refinement_tol)
+            self.update_logger(["Nx", "Ny", "Nz", "dx", "dy", "dz"])
 
         print(f"Generating grid with {self.Nx * self.Ny * self.Nz} mesh cells...")
         if verbose > 1:
@@ -279,14 +294,9 @@ class GridFIT3D(PlotMixin):
             self.ZMAX = None
             self.NZ = None
             self.Z = None
-            if imported_mpi:
-                self._mpi_initialize()
-                if self.verbose:
-                    print(f"MPI initialized for {self.rank} of {self.size}")
-            else:
-                raise ImportError(
-                    "[!] mpi4py is required when use_mpi=True but was not found"
-                )
+            self._partition_mpi_grid()
+            if self.verbose:
+                print(f"MPI grid partitioned for rank {self.rank} of {self.size}")
 
         # grid G and tilde grid ~G, lengths and inverse areas
         self._compute_grid()
@@ -369,35 +379,53 @@ class GridFIT3D(PlotMixin):
         self.itA.field_y = np.divide(1.0, self.tL.field_x * self.tL.field_z)
         self.itA.field_z = np.divide(1.0, self.tL.field_x * self.tL.field_y)
 
-    def _mpi_initialize(self):
-        """
-        Initialize MPI domain decomposition in the z direction.
-
-        Sets up MPI communicator, rank, size, and subdomain grid quantities.
-        """
-        comm = MPI.COMM_WORLD  # Get MPI communicator
-        self.comm = comm
+    def _setup_mpi(self):
+        """Initialize and validate the communicator for grid decomposition."""
+        if not imported_mpi:
+            raise ImportError(
+                "[!] mpi4py is required when use_mpi=True but was not found"
+            )
+        self.comm = MPI.COMM_WORLD
         self.rank = self.comm.Get_rank()
         self.size = self.comm.Get_size()
-
         if self.size == 1:
             raise ValueError(
                 "use_mpi=True requires more than one MPI rank. "
                 "Launch with mpiexec -n 2 (or more), or set use_mpi=False."
             )
-
-        # Error handling for Nz < size
         if self.Nz < self.size:
             raise ValueError(
-                f"Nz ({self.Nz}) must be greater than or equal to the number of \
-                MPI processes ({self.size})."
+                f"Nz ({self.Nz}) must be greater than or equal to the "
+                f"number of MPI processes ({self.size})."
+            )
+
+    def _adjust_Nz_for_mpi(self):
+        """Round a uniform grid's global node count before creating its z axis."""
+        nz = self.Nz
+        if nz % self.size == 0:
+            return nz
+
+        adjusted_nz = nz + self.size - nz % self.size
+        if self.rank == 0:
+            print(
+                f"\033[33m[!] MPI increased Nz from {nz} to {adjusted_nz} "
+                f"for {self.size} ranks; longitudinal spacing changed.\033[0m"
+            )
+        return adjusted_nz
+
+    def _partition_mpi_grid(self):
+        """Partition the global z nodes after the MPI communicator is set up."""
+        if self.Nz % self.size:
+            raise ValueError(
+                "Mesh refinement produced an Nz that is not divisible by "
+                f"the number of MPI ranks ({self.size})."
             )
 
         # global z quantities [ALLCAPS]
         self.ZMIN = self.zmin
         self.ZMAX = self.zmax
-        self.NZ = self.Nz - self.Nz % (self.size)  # ensure multiple of MPI size
-        self.Z = np.linspace(self.ZMIN, self.ZMAX, self.NZ)
+        self.NZ = self.Nz
+        self.Z = self.z.copy()
 
         # Partition computational nodes, retaining one neighboring node for
         # each MPI exchange. Only the final rank owns the high boundary node.
@@ -423,15 +451,9 @@ class GridFIT3D(PlotMixin):
         if self.rank == 0:
             print(f"Generating global grid from {self.ZMIN} to {self.ZMAX}")
             _grid = GridFIT3D(
-                self.xmin,
-                self.xmax,
-                self.ymin,
-                self.ymax,
-                self.ZMIN,
-                self.ZMAX,
-                self.Nx,
-                self.Ny,
-                self.NZ,
+                x=self.x,
+                y=self.y,
+                z=self.Z,
                 use_mpi=False,
                 stl_solids=self.stl_solids,
                 stl_materials=self.stl_materials,

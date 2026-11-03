@@ -113,15 +113,14 @@ class Beam:
             np.abs(solver.x - self.xsource).argmin(),
             np.abs(solver.y - self.ysource).argmin(),
         )
-        if solver.source_type == "tfsf":
-            self._initialize_tfsf(solver, t)
-        else:
-            self._initialize_direct(solver)
-
         if hasattr(solver, "ZMIN"):  # support for MPI
             self.zmin = solver.ZMIN
         else:
             self.zmin = solver.z.min()
+        if solver.source_type == "tfsf":
+            self._initialize_tfsf(solver, t)
+        else:
+            self._initialize_direct(solver)
 
     def _initialize_direct(self, solver):
         """Allocate the previous current profile for direct injection."""

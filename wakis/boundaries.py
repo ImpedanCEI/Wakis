@@ -595,7 +595,7 @@ class BCsMixin:
         self.itkapx = diags(1.0 / self.tkappa.field_x, shape=(N, N), dtype=self.dtype)
         self.itkapy = diags(1.0 / self.tkappa.field_y, shape=(N, N), dtype=self.dtype)
         self.itkapz = diags(1.0 / self.tkappa.field_z, shape=(N, N), dtype=self.dtype)
-        # 2D simualtion compatibility: 1-cell periodic axes have empty incidence matrices.
+        # 2D simulation compatibility: 1-cell periodic axes have empty incidence matrices.
         # Use CSR only there to avoid SciPy's DIA-by-empty-DIA multiplication path.
         px = self.Px.tocsr() if self.Px.nnz == 0 else self.Px
         py = self.Py.tocsr() if self.Py.nnz == 0 else self.Py

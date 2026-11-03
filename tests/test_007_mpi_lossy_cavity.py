@@ -18,6 +18,67 @@ from wakis.sources import Beam
 # mpiexec -n 2 python -m pytest --color=yes -v -s tests/test_007_mpi_lossy_cavity.py
 
 
+def test_mpi_single_rank():
+    """Reject MPI decomposition without multiple ranks; serial remains valid."""
+    MPI = pytest.importorskip("mpi4py.MPI")
+    if MPI.COMM_WORLD.Get_size() != 1:
+        pytest.skip("run with one MPI rank")
+
+    bounds = (0, 1, 0, 1, 0, 1, 4, 4, 6)
+    with pytest.raises(ValueError):
+        GridFIT3D(*bounds, use_mpi=True, verbose=0)
+    grid = GridFIT3D(*bounds, use_mpi=False, verbose=0)
+    solver = SolverFIT3D(grid, verbose=0)
+    solver.one_step()
+    assert np.isfinite(solver.E.toarray()).all()
+
+
+def test_mpi_rounds_uneven_node_count():
+    """Round up the global node count while preserving the domain bounds."""
+    MPI = pytest.importorskip("mpi4py.MPI")
+    size = MPI.COMM_WORLD.Get_size()
+    if size < 2:
+        pytest.skip("run with multiple MPI ranks")
+
+    grid = GridFIT3D(0, 1, 0, 1, 0, 1, 4, 4, 2 * size + 1, use_mpi=True, verbose=0)
+    assert grid.NZ == 3 * size
+    np.testing.assert_allclose(grid.Z, np.linspace(0, 1, 3 * size))
+    assert grid.logger.grid["Nz"] == grid.NZ
+    np.testing.assert_allclose(grid.logger.grid["dz"], np.diff(grid.Z))
+
+
+def test_mpi_custom_axes():
+    """MPI partitions supplied nonuniform nodes without changing their positions."""
+    MPI = pytest.importorskip("mpi4py.MPI")
+    rank = MPI.COMM_WORLD.Get_rank()
+    size = MPI.COMM_WORLD.Get_size()
+    if size < 2:
+        pytest.skip("run with multiple MPI ranks")
+
+    x = np.array([0.0, 0.2, 1.0])
+    y = np.array([0.0, 0.3, 1.0])
+    z = np.linspace(0.0, 1.0, 3 * size) ** 2
+    grid = GridFIT3D(x=x, y=y, z=z, use_mpi=True, verbose=0)
+    start = 3 * rank - (rank > 0)
+    stop = 3 * (rank + 1) + (rank < size - 1)
+    np.testing.assert_array_equal(grid.Z, z)
+    np.testing.assert_array_equal(grid.z, z[start:stop])
+    np.testing.assert_allclose(grid.dz, np.diff(grid.z))
+    solver = SolverFIT3D(
+        grid, use_mpi=True, bc_low=["pec"] * 3, bc_high=["pec"] * 3, verbose=0
+    )
+    solver.one_step()
+    assert np.isfinite(solver.E.toarray()).all()
+    gathered = grid.mpi_gather_asGrid()
+    if rank == 0:
+        np.testing.assert_array_equal(gathered.x, x)
+        np.testing.assert_array_equal(gathered.y, y)
+        np.testing.assert_array_equal(gathered.z, z)
+
+    with pytest.raises(ValueError, match="Custom z"):
+        GridFIT3D(x=x, y=y, z=z[:-1], use_mpi=True, verbose=0)
+
+
 @pytest.mark.slow
 class TestMPILossyCavity:
     # Float32 regression samples on the boundary-inclusive symmetric grid.

@@ -152,21 +152,6 @@ def test_serial_tfsf_injection_lifecycle():
     assert np.any(solver.E.toarray())
 
 
-def test_mpi_single_rank():
-    """Reject MPI decomposition without multiple ranks; serial remains valid."""
-    MPI = pytest.importorskip("mpi4py.MPI")
-    if MPI.COMM_WORLD.Get_size() != 1:
-        pytest.skip("run with one MPI rank")
-
-    bounds = (0, 1, 0, 1, 0, 1, 4, 4, 6)
-    with pytest.raises(ValueError):
-        GridFIT3D(*bounds, use_mpi=True, verbose=0)
-    grid = GridFIT3D(*bounds, use_mpi=False, verbose=0)
-    solver = SolverFIT3D(grid, verbose=0)
-    solver.one_step()
-    assert np.isfinite(solver.E.toarray()).all()
-
-
 def test_tfsf_matches_serial_across_mpi_boundary():
     MPI = pytest.importorskip("mpi4py.MPI")
     comm = MPI.COMM_WORLD
