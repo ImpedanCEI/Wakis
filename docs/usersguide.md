@@ -144,6 +144,8 @@ node. There are `Nx - 1`, `Ny - 1`, and `Nz - 1` physical intervals.
 The same convention applies to refined grids and grids restored with
 `GridFIT3D(load_from_h5=...)`.
 
+`grid.save_to_h5("grid.h5")` saves the primal nodes and any STL cell masks in the current stencil layout. Loading rebuilds the dual coordinates and FIT metrics from those nodes; the file does not store separate metric arrays.
+
 Optionally, the `grid` of the simulation can be inspected interactively in 3D (thanks to PyVista):
 
 ```python

@@ -8,6 +8,55 @@ from scipy.constants import epsilon_0, mu_0
 from wakis import GridFIT3D, SolverFIT3D
 
 
+def test_grid_h5_roundtrip_without_solids(tmp_path):
+    """Nonuniform node axes rebuild the symmetric FIT metrics after loading."""
+    grid = GridFIT3D(
+        x=np.array([0.0, 0.2, 0.5, 1.0]),
+        y=np.array([-1.0, -0.4, 0.5]),
+        z=np.array([0.0, 0.1, 0.4, 1.0]),
+        verbose=0,
+    )
+    path = str(tmp_path / "grid.h5")
+    grid.save_to_h5(path)
+    loaded = GridFIT3D(load_from_h5=path, verbose=0)
+
+    for attr in ("x", "y", "z", "dx", "dy", "dz", "tx", "ty", "tz"):
+        np.testing.assert_array_equal(getattr(loaded, attr), getattr(grid, attr))
+    for attr in ("L", "iA", "tL", "itA"):
+        np.testing.assert_array_equal(
+            getattr(loaded, attr).toarray(), getattr(grid, attr).toarray()
+        )
+    assert loaded.grid.n_cells == grid.Nx * grid.Ny * grid.Nz
+    assert not loaded.grid.cell_data
+
+
+def test_grid_h5_roundtrip_with_solid(tmp_path):
+    """A saved STL mask remains aligned with the rebuilt computational grid."""
+    solid = tmp_path / "solid.stl"
+    pv.Cube(bounds=(0.2, 0.8, 0.2, 0.8, 0.2, 0.8)).triangulate().save(solid)
+    grid = GridFIT3D(
+        x=np.array([0.0, 0.25, 0.6, 1.0]),
+        y=np.array([0.0, 0.3, 0.7, 1.0]),
+        z=np.array([0.0, 0.2, 0.5, 1.0]),
+        stl_solids={"solid": str(solid)},
+        stl_materials={"solid": [2.0, 1.0, 0.0]},
+        stl_method="implicit_distance",
+        verbose=0,
+    )
+    path = str(tmp_path / "grid.h5")
+    grid.save_to_h5(path)
+    loaded = GridFIT3D(load_from_h5=path, verbose=0)
+
+    np.testing.assert_array_equal(
+        loaded.grid.cell_data["solid"], grid.grid.cell_data["solid"]
+    )
+    for attr in ("L", "iA", "tL", "itA"):
+        np.testing.assert_array_equal(
+            getattr(loaded, attr).toarray(), getattr(grid, attr).toarray()
+        )
+    assert loaded.stl_materials["solid"] == pytest.approx([2.0, 1.0, 0.0])
+
+
 class TestVoxelize:
     # Physical mid-z cross-sections sampled every third x/y cell, factor=3,
     # threshold=0.3. These weights protect smoothing, not wake postprocessing.

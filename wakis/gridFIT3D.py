@@ -1132,8 +1132,9 @@ class GridFIT3D(PlotMixin):
         """
         Save the generated grid and STL metadata to an HDF5 file.
 
-        The file contains axis arrays, STL masks suitable for ``grid.cell_data``,
-        and all ``stl_`` related variables (materials, colors, transforms).
+        The file contains primal node arrays and full-size computational-cell
+        STL masks, when present. Dual coordinates and FIT metrics are rebuilt
+        from the node arrays when loading.
 
         Parameters
         ----------
@@ -1163,6 +1164,8 @@ class GridFIT3D(PlotMixin):
             ]:
                 grp = hf.create_group(attr)
                 dct = getattr(self, attr)
+                if dct is None or not isinstance(dct, dict):
+                    dct = {}
                 for key, val in dct.items():
                     # Use dtype='S' for strings, otherwise np.array
                     if isinstance(val, str):
@@ -1170,16 +1173,17 @@ class GridFIT3D(PlotMixin):
                     else:
                         grp.create_dataset(str(key), data=np.array(val))
 
-            for key in self.stl_solids.keys():
-                hf.create_dataset("grid_" + key, data=np.array(self.grid[key]))
+            for key in self.stl_solids or {}:
+                hf.create_dataset(
+                    "grid_" + key, data=np.asarray(self.grid.cell_data[key])
+                )
 
     def load_from_h5(self, filename):
         """
         Load grid axis arrays and STL metadata from an HDF5 file.
 
-        The function restores axis arrays, recomputes grid metrics and fills
-        ``self.grid`` cell_data with imported STL masks saved previously by
-        ``save_to_h5``.
+        Restore primal node arrays and current-format STL masks. Dual
+        coordinates and all FIT metrics are recomputed from the node arrays.
 
         Parameters
         ----------
@@ -1231,10 +1235,18 @@ class GridFIT3D(PlotMixin):
         # recommpute grid and L, iA, tL, itA
         self._compute_grid()
 
-        # asign masks to grid.cell_data
+        # Current-format masks include the terminal computational planes.
         with h5py.File(filename, "r") as hf:
             for key in self.stl_solids.keys():
-                self.grid[key] = hf["grid_" + key][()]
+                mask = hf["grid_" + key][()]
+                if mask.shape != (self.grid.n_cells,):
+                    raise ValueError(
+                        f"STL mask '{key}' has shape {mask.shape}; "
+                        f"the current grid requires ({self.grid.n_cells},) "
+                        "including terminal storage cells. Recreate and save "
+                        "the grid with the current Wakis version."
+                    )
+                self.grid.cell_data[key] = mask
 
         # add verbosity
         if self.verbose > 1:
