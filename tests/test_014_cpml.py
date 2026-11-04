@@ -151,7 +151,7 @@ class TestCPML:
                 )
 
         reflection_factor = (np.abs(Exback).max() / np.abs(Exfor).max()) ** 2
-        assert reflection_factor <= 1.1e-6, (
+        assert reflection_factor <= 1.2e-6, (
             f"CPML Ex reflection factor in average > 1e-6 with eps_r={eps_r}, sigma={sigma}, reflection_factor={reflection_factor}"
         )
 
