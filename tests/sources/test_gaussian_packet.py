@@ -24,6 +24,19 @@ def test_source_updates_component(unit_solver):
     assert not np.any(unit_solver.H[:, :, 2, "x"])
 
 
+def test_gaussian_packet_magnetic_z_offset(unit_solver):
+    """The Hy envelope samples its z edge relative to the source z node."""
+    source = GaussianPacket(zs=2, sigmaz=0.01, sigmaxy=1.0, tinj=0.0, field="H")
+    source.update(unit_solver, 0.0)
+
+    x = unit_solver.tx[1:][2]
+    y = unit_solver.y[2]
+    dz = unit_solver.tz[1:][2] - unit_solver.z[2]
+    expected = -np.exp(-(x**2 + y**2) / (2 * source.sigmaxy**2))
+    expected *= np.exp(-(dz**2) / (2 * source.sigmaz**2))
+    np.testing.assert_allclose(unit_solver.H[2, 2, 2, "y"], expected)
+
+
 def test_gaussian_packet_can_inject_electric_field(unit_solver):
     source = GaussianPacket(
         field="E",
@@ -49,7 +62,9 @@ def test_gaussian_packet_envelope_peak_and_width(unit_solver):
         tinj=0.03,
         beta=0.5,
     )
-    peak_time = source.tinj / (source.beta * c)
+    peak_time = (source.tinj + unit_solver.tz[1:][2] - unit_solver.z[2]) / (
+        source.beta * c
+    )
     sigma_time = source.sigmaz / (source.beta * c)
     center = unit_solver.Nx // 2
 
@@ -59,7 +74,11 @@ def test_gaussian_packet_envelope_peak_and_width(unit_solver):
     source.update(unit_solver, peak_time + sigma_time)
     one_sigma_t = -unit_solver.H[center, center, 2, "y"]
 
-    np.testing.assert_allclose(one_sigma_x / peak, np.exp(-0.5))
+    x = unit_solver.tx[1:]
+    np.testing.assert_allclose(
+        one_sigma_x / peak,
+        np.exp(-0.5 * (x[center + 1] ** 2 - x[center] ** 2) / source.sigmaxy**2),
+    )
     np.testing.assert_allclose(one_sigma_t / peak, np.exp(-0.5))
 
 
@@ -75,11 +94,13 @@ def test_gaussian_packet_oblique_envelope_arrival_delay(unit_solver):
     )
     left, right = 1, 3
     center_y = unit_solver.Ny // 2
-    z_pos = unit_solver.z[source.zs]
+    z_pos = unit_solver.tz[1:][source.zs]
+    x = unit_solver.tx[1:]
     peak_times = (
         source.tinj
-        + unit_solver.x[[left, right]] * np.sin(theta)
-        + z_pos * (np.cos(theta) - 1)
+        + x[[left, right]] * np.sin(theta)
+        + z_pos * np.cos(theta)
+        - unit_solver.z[source.zs]
     ) / (source.beta * c)
 
     source.update(unit_solver, peak_times[0])
@@ -89,11 +110,11 @@ def test_gaussian_packet_oblique_envelope_arrival_delay(unit_solver):
     right_peak = -unit_solver.H[right, center_y, source.zs, "y"]
 
     expected_profile = np.exp(
-        -(unit_solver.x[[left, right]] ** 2 + unit_solver.y[center_y] ** 2)
+        -(x[[left, right]] ** 2 + unit_solver.y[center_y] ** 2)
         / (2 * source.sigmaxy**2)
     )
     np.testing.assert_allclose([left_peak, right_peak], expected_profile)
-    arrival_distance = (unit_solver.x[right] - unit_solver.x[left]) * np.sin(theta)
+    arrival_distance = (x[right] - x[left]) * np.sin(theta)
     np.testing.assert_allclose(
         right_before_peak / right_peak,
         np.exp(-(arrival_distance**2) / (2 * source.sigmaz**2)),

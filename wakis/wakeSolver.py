@@ -333,8 +333,15 @@ class WakeSolver:
         ----------
         t : ndarray
             Vector containing time values [s].
-        z : ndarray
-            Vector containing z-coordinates [m].
+        z : ndarray, optional
+            Full simulation-domain coordinates [m]. Their extrema define the
+            beam's flight-time reference boundaries; they are not Ez positions.
+        zf : ndarray, optional
+            Longitudinal positions of saved Ez samples [m], loaded from the HDF5
+            z dataset. Wakis output uses physical primal-edge midpoints.
+        dz : ndarray, optional
+            Primal-edge lengths [m], one per zf sample, loaded from HDF5.
+            These are integration weights, not dual-edge lengths.
         sigmaz : float
             Beam longitudinal sigma, to calculate injection time [m].
         q : float
@@ -347,6 +354,14 @@ class WakeSolver:
             HDF5 file containing the Ez(x, y, z) field data for every timestep.
         **kwargs
             Additional parameters to set as attributes.
+
+        Notes
+        -----
+        If z is absent, the field monitor must cover the full longitudinal
+        domain: its boundaries are inferred from the end midpoints and dz/2.
+        Supply z explicitly for a monitor covering only part of the domain.
+        For compatibility, if zf is absent, z is also used as the field positions.
+        skip_cells trims zf, dz, and Ez together without moving the domain origin.
         """
         for key, val in kwargs.items():
             setattr(self, key, val)
@@ -363,17 +378,29 @@ class WakeSolver:
         dt = self.t[2] - self.t[1]
         ti = self.ti
 
-        # longitudinal variables
+        # zf locates the saved Ez samples; z optionally describes the full
+        # simulation domain. Keep the legacy z-only input convention.
         if self.zf is None:
             self.zf = self.z
-        zmax = np.max(self.zf)  # should it be domain's edge instead?
-        zmin = np.min(self.zf)
 
+        # The beam's flight-time reference is the domain boundary, not the
+        # first retained field sample. Find boundaries before applying skip_cells.
+        if self.z is not None:
+            zmin = np.min(self.z)
+            zmax = np.max(self.z)
+        else:
+            # With full-domain midpoint data, recover the outer edge boundaries.
+            zmin = self.zf[0] - self.dz[0] / 2
+            zmax = self.zf[-1] + self.dz[-1] / 2
+
+        # Local z contains retained field positions from zf, not domain nodes.
+        # Apply the same slice to their primal-edge integration lengths.
         if self.skip_cells != 0:
             zz = slice(self.skip_cells, -self.skip_cells)
         else:
             zz = np.s_[:]
         z = self.zf[zz]
+        dz = self.dz[zz]
         nz = len(z)
 
         # Set Wake length and s
@@ -403,22 +430,23 @@ class WakeSolver:
         if len(Ez.shape) == 3:
             for n in range(nt):
                 Ez = self.Ez_hf[keys[n]]
-                Ezt[:, n] = Ez[Ez.shape[0] // 2 + 1, Ez.shape[1] // 2 + 1, zz]
+                Ezt[:, n] = Ez[Ez.shape[0] // 2, Ez.shape[1] // 2, zz]
 
         elif len(Ez.shape) == 1:
             for n in range(nt):
                 Ezt[:, n] = self.Ez_hf[keys[n]][zz]
         self.Ezt = Ezt
 
-        # integral of (Ez(xtest, ytest, z, t=(s+z)/c))dz
+        # Sample the moving test charge at ti + (z - zmin + s)/v.
+        # ts is measured from the first saved field time.
         print("Calculating longitudinal wake potential WP(s)...")
         with tqdm(total=len(s) * len(z)) as pbar:
             for n in range(len(s)):
                 for k in range(nz):
                     ts = (z[k] + s[n]) / self.v - zmin / self.v - self.t[0] + ti
-                    it = int(ts / dt)  # find index for t
-                    if it < nt:
-                        WP[n] = WP[n] + (Ezt[k, it]) * self.dz[k]  # compute integral
+                    it = int(ts / dt)  # preceding saved timestep
+                    if 0 <= it < nt:
+                        WP[n] = WP[n] + (Ezt[k, it]) * dz[k]  # compute integral
                     pbar.update(1)
 
         WP = WP / (self.q * 1e12)  # [V/pC]
@@ -447,14 +475,29 @@ class WakeSolver:
             HDF5 file containing the Ez(x,y,z) field data for every timestep.
         t : ndarray
             Vector containing time values [s].
-        z : ndarray
-            Vector containing z-coordinates [m].
+        z : ndarray, optional
+            Full simulation-domain coordinates [m]. Their extrema define the
+            beam's flight-time reference boundaries; they are not Ez positions.
+        zf : ndarray, optional
+            Longitudinal positions of saved Ez samples [m], loaded from the HDF5
+            z dataset. Wakis output uses physical primal-edge midpoints.
+        dz : ndarray, optional
+            Primal-edge lengths [m], one per zf sample, loaded from HDF5.
+            These are integration weights, not dual-edge lengths.
         q : float
             Total beam charge in [C].
         n_transverse_cells : int, optional
             Number of transverse cells used for the 3d calculation: 2*n+1.
         **kwargs
             Additional parameters to set as attributes.
+
+        Notes
+        -----
+        If z is absent, the field monitor must cover the full longitudinal
+        domain: its boundaries are inferred from the end midpoints and dz/2.
+        Supply z explicitly for a monitor covering only part of the domain.
+        For compatibility, if zf is absent, z is also used as the field positions.
+        skip_cells trims zf, dz, and Ez together without moving the domain origin.
         """
         for key, val in kwargs.items():
             setattr(self, key, val)
@@ -468,17 +511,29 @@ class WakeSolver:
         dt = self.t[2] - self.t[1]
         ti = self.ti
 
-        # longitudinal variables
+        # zf locates the saved Ez samples; z optionally describes the full
+        # simulation domain. Keep the legacy z-only input convention.
         if self.zf is None:
             self.zf = self.z
-        zmax = np.max(self.zf)
-        zmin = np.min(self.zf)
 
+        # The beam's flight-time reference is the domain boundary, not the
+        # first retained field sample. Find boundaries before applying skip_cells.
+        if self.z is not None:
+            zmin = np.min(self.z)
+            zmax = np.max(self.z)
+        else:
+            # With full-domain midpoint data, recover the outer edge boundaries.
+            zmin = self.zf[0] - self.dz[0] / 2
+            zmax = self.zf[-1] + self.dz[-1] / 2
+
+        # Local z contains retained field positions from zf, not domain nodes.
+        # Apply the same slice to their primal-edge integration lengths.
         if self.skip_cells != 0:
             zz = slice(self.skip_cells, -self.skip_cells)
         else:
             zz = np.s_[:]
         z = self.zf[zz]
+        dz = self.dz[zz]
         nz = len(z)
 
         # Set Wake length and s
@@ -522,7 +577,8 @@ class WakeSolver:
                         Ez = self.Ez_hf[keys[n]]
                         Ezt[:, n] = Ez[Ez.shape[0] // 2 + i, Ez.shape[1] // 2 + j, zz]
 
-                    # integral of (Ez(xtest, ytest, z, t=(s+z)/c))dz
+                    # Follow the test charge from zmin (+z) or zmax (-z).
+                    # ts is relative to the first saved field time.
                     if self.counter_moving:
                         for n in range(len(s)):
                             for k in range(nz):
@@ -532,10 +588,10 @@ class WakeSolver:
                                     - self.t[0]
                                     + ti
                                 )
-                                it = int(ts / dt)  # find index for t
-                                if it < nt:
+                                it = int(ts / dt)  # preceding saved timestep
+                                if 0 <= it < nt:
                                     WP[n] = WP[n] + (Ezt[-k - 1, it]) * (
-                                        -1 * self.dz[k]
+                                        -1 * dz[-k - 1]
                                     )  # compute integral
                             pbar.update(1)
 
@@ -548,10 +604,10 @@ class WakeSolver:
                                     - self.t[0]
                                     + ti
                                 )
-                                it = int(ts / dt)  # find index for t
-                                if it < nt:
+                                it = int(ts / dt)  # preceding saved timestep
+                                if 0 <= it < nt:
                                     WP[n] = (
-                                        WP[n] + (Ezt[k, it]) * self.dz[k]
+                                        WP[n] + (Ezt[k, it]) * dz[k]
                                     )  # compute integral
 
                             pbar.update(1)
@@ -1480,6 +1536,11 @@ class WakeSolver:
     def read_Ez(self, filename=None, return_value=False):
         """
         Read the Ez.h5 file containing the Ez field information.
+
+        For wakesolve output, z contains the physical Ez edge midpoints and dz
+        contains their lengths. These restore zf and dz; the integration recovers
+        the domain boundaries from the end midpoints and their half-lengths.
+        An explicitly supplied full-domain z axis overrides these boundaries.
 
         Parameters
         ----------
