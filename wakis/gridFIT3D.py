@@ -80,10 +80,12 @@ class GridFIT3D(PlotMixin):
         Nx, Ny, Nz : int, optional
             Number of computational cells (primal nodes) per direction,
             including both domain boundaries. The numbers of physical cells
-            are Nx - 1, Ny - 1, and Nz - 1. If None, must provide x, y, z arrays.
+            are Nx - 1, Ny - 1, and Nz - 1. Each count must be at least 2.
+            If None, must provide x, y, z arrays.
         x, y, z : array_like, optional
             Primal node coordinates, including both domain boundaries.
-            Their lengths define Nx, Ny, and Nz. Non-uniform grids are supported.
+            Their lengths define Nx, Ny, and Nz and must each be at least 2.
+            Non-uniform grids are supported.
         use_mpi : bool, optional
             Enable MPI domain decomposition in the z direction. Default is False.
             Requires more than one MPI rank. Uniform-grid Nz is rounded up to
@@ -232,6 +234,9 @@ class GridFIT3D(PlotMixin):
                     xmin, xmax, ymin, ymax, zmin, zmax, Nx, Ny, Nz\n"
                 "  - OR load from a HDF5 file using load_from_h5"
             )
+
+        if any(n is None or n < 2 for n in (self.Nx, self.Ny, self.Nz)):
+            raise ValueError("Nx, Ny, and Nz must each be at least 2 primal nodes.")
 
         # TODO: allow non uniform dx, dy, dz from input
         self.dx = np.diff(self.x)
@@ -1223,6 +1228,8 @@ class GridFIT3D(PlotMixin):
             self.x = hf["x"][()]
             self.y = hf["y"][()]
             self.z = hf["z"][()]
+            self.Nx, self.Ny, self.Nz = len(self.x), len(self.y), len(self.z)
+            self._validate_node_counts()
 
             # Load stl_ variables from groups
             for attr in [
@@ -1243,10 +1250,7 @@ class GridFIT3D(PlotMixin):
                     dct[key] = val
                 setattr(self, attr, dct)
 
-        # recompute dx, dy, dz, Nx, Ny, Nz
-        self.Nx = len(self.x)
-        self.Ny = len(self.y)
-        self.Nz = len(self.z)
+        # recompute dx, dy, dz
         self.dx = np.diff(self.x)
         self.dy = np.diff(self.y)
         self.dz = np.diff(self.z)
