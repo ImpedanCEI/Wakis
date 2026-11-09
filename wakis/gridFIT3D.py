@@ -1229,7 +1229,6 @@ class GridFIT3D(PlotMixin):
             self.y = hf["y"][()]
             self.z = hf["z"][()]
             self.Nx, self.Ny, self.Nz = len(self.x), len(self.y), len(self.z)
-            self._validate_node_counts()
 
             # Load stl_ variables from groups
             for attr in [
