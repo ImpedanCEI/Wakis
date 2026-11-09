@@ -67,9 +67,8 @@ class TestPML:
         # Simulation time is extended by a factor eps_r
         # to ensure the wave is fully absorbed in the PML
 
-        z_pml = 0
-        for k in range(solver.n_pml):
-            z_pml += solver.dz[Nz - 1 - k]
+        # dz contains physical cell widths, with no terminal ghost entry.
+        z_pml = solver.dz[-solver.n_pml :].sum()
         Nt = int(eps_r * 2.0 * (zmax - zmin - z_pml) / c / solver.dt)
 
         for n in tqdm(range(Nt)):
@@ -187,9 +186,8 @@ class TestPML:
 
         # Simulation time is extended by a factor eps_r
         # to ensure the wave is fully absorbed in the PML
-        z_pml = 0
-        for k in range(solver.n_pml):
-            z_pml += solver.dz[Nz - 1 - k]
+        # dz contains physical cell widths, with no terminal ghost entry.
+        z_pml = solver.dz[-solver.n_pml :].sum()
         Nt = int(eps_r * 2.0 * (zmax - zmin - z_pml) / c / solver.dt)
 
         for n in tqdm(range(Nt)):
@@ -307,9 +305,8 @@ class TestPML:
 
         # Simulation time is extended by a factor eps_r
         # to ensure the wave is fully absorbed in the PML
-        z_pml = 0
-        for k in range(solver.n_pml):
-            z_pml += solver.dz[Nz - 1 - k]
+        # dz contains physical cell widths, with no terminal ghost entry.
+        z_pml = solver.dz[-solver.n_pml :].sum()
         Nt = int(eps_r * 2.0 * (zmax - zmin - z_pml) / c / solver.dt)
 
         for n in tqdm(range(Nt)):

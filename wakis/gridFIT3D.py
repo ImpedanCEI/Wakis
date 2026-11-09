@@ -26,8 +26,12 @@ except ImportError:
 
 class GridFIT3D(PlotMixin):
     """
-    Class holding the grid information and
-    stl importing handling using PyVista
+    Store symmetric FIT grid geometry and handle STL solids using PyVista.
+
+    Each axis includes both physical boundary nodes. Computational cell counts
+    equal the numbers of primal nodes; the final computational cell has zero
+    primal extent along that axis. Thus, an axis with ``Nx`` computational
+    cells contains ``Nx - 1`` physical cells.
     """
 
     def __init__(
@@ -74,12 +78,20 @@ class GridFIT3D(PlotMixin):
         xmin, xmax, ymin, ymax, zmin, zmax : float, optional
             Extent of the simulation domain. If None, must provide x, y, z arrays.
         Nx, Ny, Nz : int, optional
-            Number of cells per direction. If None, must provide x, y, z arrays.
+            Number of computational cells (primal nodes) per direction,
+            including both domain boundaries. The numbers of physical cells
+            are Nx - 1, Ny - 1, and Nz - 1. Each count must be at least 2.
+            If None, must provide x, y, z arrays.
         x, y, z : array_like, optional
-            Custom grid axis arrays to be used in the meshgrid generation.
+            Primal node coordinates, including both domain boundaries.
+            Their lengths define Nx, Ny, and Nz and must each be at least 2.
             Non-uniform grids are supported.
         use_mpi : bool, optional
             Enable MPI domain decomposition in the z direction. Default is False.
+            Requires more than one MPI rank. Uniform-grid Nz is rounded up to
+            a multiple of the rank count before the z coordinates are built.
+            Explicit z arrays must already have a length divisible by the rank
+            count; their coordinates are preserved.
         use_mesh_refinement : bool, optional
             Enable mesh refinement based on snap points extracted from the STL solids.
             Default is False.
@@ -115,8 +127,12 @@ class GridFIT3D(PlotMixin):
         stl_method : str, optional
             Method for marking cells inside STL solids. Options are "legacy" (default),
             "interior_points", "implicit_distance", or "voxelize_rectilinear".
+            Voxelization requires a uniform grid and samples physical cell centres;
+            terminal storage planes inherit the nearest physical-cell labels.
         subpixel_smoothing : bool, optional
-            Whether to apply subpixel smoothing to the STL masks after voxelization. Default is False.
+            Whether to apply subpixel smoothing to physical STL cells after
+            voxelization. Terminal labels inherit the smoothed boundary cells.
+            Default is False.
         subpixel_smoothing_factor : int, optional
             Factor by which to increase the resolution for subpixel smoothing. Default is 4.
             Memory usage increases with the cube of this factor, so use with caution!
@@ -135,13 +151,26 @@ class GridFIT3D(PlotMixin):
         Attributes
         ----------
         x, y, z : ndarray
-            Grid axis arrays.
+            Primal node coordinates, including both domain boundaries, with
+            lengths Nx, Ny, and Nz.
         Nx, Ny, Nz : int
-            Number of cells in each direction.
+            Computational cell counts, equal to the primal node counts.
+            Physical cell counts are Nx - 1, Ny - 1, and Nz - 1.
         dx, dy, dz : ndarray
-            Cell sizes in each direction.
+            Physical cell widths, with lengths Nx - 1, Ny - 1, and Nz - 1.
+        tx, ty, tz : ndarray
+            Dual grid coordinates: the domain boundaries and the intervening
+            primal cell midpoints, with lengths Nx + 1, Ny + 1, and Nz + 1.
         grid : pyvista.StructuredGrid
-            PyVista grid object.
+            Computational primal grid, including zero-extent high-side cells.
+        L, iA : Field
+            Primal edge lengths and inverse face areas on the computational
+            grid. Edge lengths vanish along the corresponding high-side
+            boundary axis; inverse areas are zero for zero-area faces.
+        tL, itA : Field
+            Dual edge lengths and inverse face areas on the same computational
+            index space. Dual edges initially have half-cell lengths at both
+            boundaries; a periodic solver combines them at the low boundary.
         stl_solids, stl_materials, stl_colors : dict
             STL solid file paths, materials, and colors.
         (...)
@@ -155,25 +184,32 @@ class GridFIT3D(PlotMixin):
         # Grid data
         # generate from file
         if load_from_h5 is not None:
+            if self.use_mpi:
+                raise NotImplementedError(
+                    "MPI decomposition of loaded HDF5 grids is not supported."
+                )
             self.load_from_h5(load_from_h5)
             return  # TODO: support MPI decomposition
 
         # generate from custom x,y,z arrays
         elif x is not None and y is not None and z is not None:
             # allow user to set the grid axis manually
-            self.x = x
-            self.y = y
-            self.z = z
-            self.Nx = len(self.x) - 1
-            self.Ny = len(self.y) - 1
-            self.Nz = len(self.z) - 1
+            self.x = np.asarray(x)
+            self.y = np.asarray(y)
+            self.z = np.asarray(z)
+            self.Nx = len(self.x)
+            self.Ny = len(self.y)
+            self.Nz = len(self.z)
             self.xmin, self.xmax = self.x[0], self.x[-1]
             self.ymin, self.ymax = self.y[0], self.y[-1]
             self.zmin, self.zmax = self.z[0], self.z[-1]
             if self.use_mpi:
-                raise ValueError(
-                    "[!] Error: use_mpi=True is not compatible with custom x,y,z arrays."
-                )
+                self._setup_mpi()
+                if self.Nz % self.size:
+                    raise ValueError(
+                        f"Custom z has {self.Nz} nodes, which is not divisible "
+                        f"by the number of MPI ranks ({self.size})."
+                    )
 
         # generate from domain extents and number of cells [LEGACY]
         elif all(v is not None for v in [xmin, xmax, ymin, ymax, zmin, zmax]):
@@ -182,9 +218,13 @@ class GridFIT3D(PlotMixin):
             self.ymin, self.ymax = ymin, ymax
             self.zmin, self.zmax = zmin, zmax
             self.Nx, self.Ny, self.Nz = Nx, Ny, Nz
-            self.x = np.linspace(self.xmin, self.xmax, self.Nx + 1)
-            self.y = np.linspace(self.ymin, self.ymax, self.Ny + 1)
-            self.z = np.linspace(self.zmin, self.zmax, self.Nz + 1)
+            if self.use_mpi:
+                self._setup_mpi()
+                self.Nz = self._adjust_Nz_for_mpi()
+
+            self.x = np.linspace(self.xmin, self.xmax, self.Nx)
+            self.y = np.linspace(self.ymin, self.ymax, self.Ny)
+            self.z = np.linspace(self.zmin, self.zmax, self.Nz)
 
         else:
             raise ValueError(
@@ -195,7 +235,10 @@ class GridFIT3D(PlotMixin):
                 "  - OR load from a HDF5 file using load_from_h5"
             )
 
-        # TODO: allow non uniform dx, dy, dz
+        if any(n is None or n < 2 for n in (self.Nx, self.Ny, self.Nz)):
+            raise ValueError("Nx, Ny, and Nz must each be at least 2 primal nodes.")
+
+        # TODO: allow non uniform dx, dy, dz from input
         self.dx = np.diff(self.x)
         self.dy = np.diff(self.y)
         self.dz = np.diff(self.z)
@@ -234,14 +277,15 @@ class GridFIT3D(PlotMixin):
             if self.snap_points is None and stl_solids is not None:
                 self._compute_snap_points(snap_solids=snap_solids, snap_tol=snap_tol)
             self._refine_xyz_axis(method=refinement_method, tol=refinement_tol)
+            self.update_logger(["Nx", "Ny", "Nz", "dx", "dy", "dz"])
 
         print(f"Generating grid with {self.Nx * self.Ny * self.Nz} mesh cells...")
         if verbose > 1:
             print(
                 f"    * Simulation domain bounds: \n\
-                x:[{xmin:.3f}, {xmax:.3f}],\n\
-                y:[{ymin:.3f}, {ymax:.3f}],\n\
-                z:[{zmin:.3f}, {zmax:.3f}]"
+                x:[{self.xmin:.3f}, {self.xmax:.3f}],\n\
+                y:[{self.ymin:.3f}, {self.ymax:.3f}],\n\
+                z:[{self.zmin:.3f}, {self.zmax:.3f}]"
             )
             print(
                 "    * Minimum cell sizes: dx={:.3e}, dy={:.3e}, dz={:.3e}".format(
@@ -255,14 +299,9 @@ class GridFIT3D(PlotMixin):
             self.ZMAX = None
             self.NZ = None
             self.Z = None
-            if imported_mpi:
-                self._mpi_initialize()
-                if self.verbose:
-                    print(f"MPI initialized for {self.rank} of {self.size}")
-            else:
-                raise ImportError(
-                    "[!] mpi4py is required when use_mpi=True but was not found"
-                )
+            self._partition_mpi_grid()
+            if self.verbose:
+                print(f"MPI grid partitioned for rank {self.rank} of {self.size}")
 
         # grid G and tilde grid ~G, lengths and inverse areas
         self._compute_grid()
@@ -291,101 +330,118 @@ class GridFIT3D(PlotMixin):
         """
         Compute the PyVista grid and related geometric quantities.
 
-        Sets up the structured grid, cell lengths, inverse areas, and tilde grid.
+        Build primal and dual metrics on the same computational index space.
+
+        Primal coordinates are defined at cell vertices.
+        The high-side primal coordinate is repeated to retain the boundary node
+        in a zero-extent computational cell at the high-boundary (ghost cell).
+
+        Dual coordinates span from the low boundary through primal cell midpoints
+        to the high boundary, giving half-cell dual lengths at both ends.
+        All metric fields have shape (Nx, Ny, Nz) per component.
         """
-        X, Y, Z = np.meshgrid(self.x, self.y, self.z, indexing="ij")
+
+        # === Primal grid G ===
+
+        # Extend the grid to account for ghost cell node
+        x = np.append(self.x, self.x[-1])
+        y = np.append(self.y, self.y[-1])
+        z = np.append(self.z, self.z[-1])
+        X, Y, Z = np.meshgrid(x, y, z, indexing="ij")
         self.grid = pv.StructuredGrid(X.transpose(), Y.transpose(), Z.transpose())
 
+        # Values outside of physical domain are 0
         self.L = Field(self.Nx, self.Ny, self.Nz)
         self.L.field_x = X[1:, 1:, 1:] - X[:-1, :-1, :-1]
         self.L.field_y = Y[1:, 1:, 1:] - Y[:-1, :-1, :-1]
         self.L.field_z = Z[1:, 1:, 1:] - Z[:-1, :-1, :-1]
 
         self.iA = Field(self.Nx, self.Ny, self.Nz)
-        self.iA.field_x = np.divide(1.0, self.L.field_y * self.L.field_z)
-        self.iA.field_y = np.divide(1.0, self.L.field_x * self.L.field_z)
-        self.iA.field_z = np.divide(1.0, self.L.field_x * self.L.field_y)
+        aux = self.L.field_y * self.L.field_z
+        self.iA.field_x = np.divide(1.0, aux, out=np.zeros_like(aux), where=aux != 0)
+        aux = self.L.field_x * self.L.field_z
+        self.iA.field_y = np.divide(1.0, aux, out=np.zeros_like(aux), where=aux != 0)
+        aux = self.L.field_x * self.L.field_y
+        self.iA.field_z = np.divide(1.0, aux, out=np.zeros_like(aux), where=aux != 0)
+        del aux
 
-        # tilde grid ~G
-        self.tx = (self.x[1:] + self.x[:-1]) / 2
-        self.ty = (self.y[1:] + self.y[:-1]) / 2
-        self.tz = (self.z[1:] + self.z[:-1]) / 2
+        # === Tilde grid ~G ===
 
-        self.tx = np.append(self.tx, self.tx[-1])
-        self.ty = np.append(self.ty, self.ty[-1])
-        self.tz = np.append(self.tz, self.tz[-1])
-
+        # Append domain boundaries to the tilde grid coordinates
+        self.tx = np.r_[self.x[0], (self.x[1:] + self.x[:-1]) / 2, self.x[-1]]
+        self.ty = np.r_[self.y[0], (self.y[1:] + self.y[:-1]) / 2, self.y[-1]]
+        self.tz = np.r_[self.z[0], (self.z[1:] + self.z[:-1]) / 2, self.z[-1]]
         tX, tY, tZ = np.meshgrid(self.tx, self.ty, self.tz, indexing="ij")
 
+        # No values are 0, just snapped to physical domain boundaries
         self.tL = Field(self.Nx, self.Ny, self.Nz)
         self.tL.field_x = tX[1:, 1:, 1:] - tX[:-1, :-1, :-1]
         self.tL.field_y = tY[1:, 1:, 1:] - tY[:-1, :-1, :-1]
         self.tL.field_z = tZ[1:, 1:, 1:] - tZ[:-1, :-1, :-1]
 
         self.itA = Field(self.Nx, self.Ny, self.Nz)
-        aux = self.tL.field_y * self.tL.field_z
-        self.itA.field_x = np.divide(1.0, aux, out=np.zeros_like(aux), where=aux != 0)
-        aux = self.tL.field_x * self.tL.field_z
-        self.itA.field_y = np.divide(1.0, aux, out=np.zeros_like(aux), where=aux != 0)
-        aux = self.tL.field_x * self.tL.field_y
-        self.itA.field_z = np.divide(1.0, aux, out=np.zeros_like(aux), where=aux != 0)
-        del aux
+        self.itA.field_x = np.divide(1.0, self.tL.field_y * self.tL.field_z)
+        self.itA.field_y = np.divide(1.0, self.tL.field_x * self.tL.field_z)
+        self.itA.field_z = np.divide(1.0, self.tL.field_x * self.tL.field_y)
 
-    def _mpi_initialize(self):
-        """
-        Initialize MPI domain decomposition in the z direction.
-
-        Sets up MPI communicator, rank, size, and subdomain grid quantities.
-        """
-        comm = MPI.COMM_WORLD  # Get MPI communicator
-        self.comm = comm
+    def _setup_mpi(self):
+        """Initialize and validate the communicator for grid decomposition."""
+        if not imported_mpi:
+            raise ImportError(
+                "[!] mpi4py is required when use_mpi=True but was not found"
+            )
+        self.comm = MPI.COMM_WORLD
         self.rank = self.comm.Get_rank()
         self.size = self.comm.Get_size()
-
-        # Error handling for Nz < size
+        if self.size == 1:
+            raise ValueError(
+                "use_mpi=True requires more than one MPI rank. "
+                "Launch with mpiexec -n 2 (or more), or set use_mpi=False."
+            )
         if self.Nz < self.size:
             raise ValueError(
-                f"Nz ({self.Nz}) must be greater than or equal to the number of \
-                MPI processes ({self.size})."
+                f"Nz ({self.Nz}) must be greater than or equal to the "
+                f"number of MPI processes ({self.size})."
+            )
+
+    def _adjust_Nz_for_mpi(self):
+        """Round a uniform grid's global node count before creating its z axis."""
+        nz = self.Nz
+        if nz % self.size == 0:
+            return nz
+
+        adjusted_nz = nz + self.size - nz % self.size
+        if self.rank == 0:
+            print(
+                f"\033[33m[!] MPI increased Nz from {nz} to {adjusted_nz} "
+                f"for {self.size} ranks; longitudinal spacing changed.\033[0m"
+            )
+        return adjusted_nz
+
+    def _partition_mpi_grid(self):
+        """Partition the global z nodes after the MPI communicator is set up."""
+        if self.Nz % self.size:
+            raise ValueError(
+                "Mesh refinement produced an Nz that is not divisible by "
+                f"the number of MPI ranks ({self.size})."
             )
 
         # global z quantities [ALLCAPS]
         self.ZMIN = self.zmin
         self.ZMAX = self.zmax
-        self.NZ = self.Nz - self.Nz % (self.size)  # ensure multiple of MPI size
-        self.Z = np.linspace(self.ZMIN, self.ZMAX, self.NZ + 1)[:-1]
-        self.Z += (self.ZMAX - self.ZMIN) / (2 * self.NZ)
+        self.NZ = self.Nz
+        self.Z = self.z.copy()
 
-        if self.verbose and self.rank == 0:
-            print(f" * Global grid ZMIN={self.ZMIN}, ZMAX={self.ZMAX}, NZ={self.NZ}")
-
-        # MPI subdomain quantities [TODO: support non-uniform dz with MPI]
-        self.Nz = self.NZ // (self.size)
-        self.dz = (self.ZMAX - self.ZMIN) / self.NZ
-        self.zmin = self.rank * self.Nz * self.dz + self.ZMIN
-        self.zmax = (self.rank + 1) * self.Nz * self.dz + self.ZMIN
-
-        if self.verbose:
-            print(
-                f"MPI rank {self.rank} of {self.size} initialized with \
-                        zmin={self.zmin}, zmax={self.zmax}, Nz={self.Nz}"
-            )
-        # Add ghost cells
+        # Partition computational nodes, retaining one neighboring node for
+        # each MPI exchange. Only the final rank owns the high boundary node.
+        nz = self.NZ // self.size
         self.n_ghosts = 1
-        if self.rank > 0:
-            self.zmin += -self.n_ghosts * self.dz
-            self.Nz += self.n_ghosts
-        if self.rank < (self.size - 1):
-            self.zmax += self.n_ghosts * self.dz
-            self.Nz += self.n_ghosts
-
-        # Support for single core
-        if self.rank == 0 and self.size == 1:
-            self.zmax += self.n_ghosts * self.dz
-            self.Nz += self.n_ghosts
-
-        self.z = np.linspace(self.zmin, self.zmax, self.Nz + 1)
-        self.dz = np.diff(self.z)  # only uniform grid possible with MPI
+        start = self.rank * nz - (self.rank > 0)
+        stop = (self.rank + 1) * nz + (self.rank < self.size - 1)
+        self.z = self.Z[start:stop].copy()
+        self.Nz = len(self.z)
+        self.zmin, self.zmax = self.z[0], self.z[-1]
+        self.dz = np.diff(self.z)
 
     def mpi_gather_asGrid(self):
         """
@@ -400,15 +456,9 @@ class GridFIT3D(PlotMixin):
         if self.rank == 0:
             print(f"Generating global grid from {self.ZMIN} to {self.ZMAX}")
             _grid = GridFIT3D(
-                self.xmin,
-                self.xmax,
-                self.ymin,
-                self.ymax,
-                self.ZMIN,
-                self.ZMAX,
-                self.Nx,
-                self.Ny,
-                self.NZ,
+                x=self.x,
+                y=self.y,
+                z=self.Z,
                 use_mpi=False,
                 stl_solids=self.stl_solids,
                 stl_materials=self.stl_materials,
@@ -591,39 +641,46 @@ class GridFIT3D(PlotMixin):
                     )
 
             elif method.lower() == "voxelize_rectilinear":
-                dx, dy, dz = (
-                    (self.xmax - self.xmin) / (self.Nx),
-                    (self.ymax - self.ymin) / (self.Ny),
-                    (self.zmax - self.zmin) / (self.Nz),
+                # Check for uniform grid
+                widths = (self.dx, self.dy, self.dz)
+                if any(not np.allclose(axis, axis[0], atol=0) for axis in widths):
+                    raise ValueError(
+                        "voxelize_rectilinear requires a uniform grid; "
+                        "use interior_points for nonuniform grids."
+                    )
+
+                # PyVista reference points become the output voxel centres.
+                shape = (self.Nx - 1, self.Ny - 1, self.Nz - 1)
+                dx, dy, dz = self.dx[0], self.dy[0], self.dz[0]
+                origin = (  # physical cell centers
+                    self.xmin + dx / 2,
+                    self.ymin + dy / 2,
+                    self.zmin + dz / 2,
                 )
                 reference_vol = pv.ImageData(
-                    dimensions=(self.Nx, self.Ny, self.Nz),
-                    origin=(self.xmin, self.ymin, self.zmin),
-                    spacing=(dx, dy, dz),
+                    dimensions=shape, origin=origin, spacing=(dx, dy, dz)
+                )
+                vox = surf.voxelize_rectilinear(
+                    reference_volume=reference_vol, progress_bar=progress_bar
                 )
 
-                try:
-                    vox = surf.voxelize_rectilinear(
-                        reference_volume=reference_vol, progress_bar=progress_bar
-                    )
-                    mask = np.reshape(
-                        vox["mask"], (self.Nx, self.Ny, self.Nz), order="F"
-                    ).astype(bool)
+                # Extend material labels to degenerate ghost high-side storage cells.
+                # This assumes no material change within the final half-cell.
+                mask = np.empty((self.Nx, self.Ny, self.Nz), dtype=bool)
+                mask[:-1, :-1, :-1] = np.asarray(vox["mask"]).reshape(shape, order="F")
 
-                    self.grid[key] = np.reshape(mask, (self.Nx * self.Ny * self.Nz))
+                mask[-1, :-1, :-1] = mask[-2, :-1, :-1]
+                mask[:, -1, :-1] = mask[:, -2, :-1]
+                mask[:, :, -1] = mask[:, :, -2]
 
-                    # Apply subpixel smoothing if enabled
-                    if self.use_subpixel_smoothing:
-                        self._apply_subpixel_smoothing(
-                            key,
-                            factor=self.subpixel_smoothing_factor,
-                            threshold=self.subpixel_smoothing_threshold,
-                            make_bool=self.subpixel_smoothing_bool,
-                        )
+                self.grid.cell_data[key] = mask.ravel()
 
-                except Exception:
-                    print(
-                        f"[!] Warning: voxelization for stl solid {key} failed. Consider checking if the grid is uniform or using a different method."
+                if self.use_subpixel_smoothing:
+                    self._apply_subpixel_smoothing(
+                        key,
+                        factor=self.subpixel_smoothing_factor,
+                        threshold=self.subpixel_smoothing_threshold,
+                        make_bool=self.subpixel_smoothing_bool,
                     )
             else:
                 raise ValueError(
@@ -686,29 +743,36 @@ class GridFIT3D(PlotMixin):
 
         surface = self.read_stl(key)
 
-        # Create a higher resolution reference volume for voxelization
-        Nx, Ny, Nz = self.Nx * factor, self.Ny * factor, self.Nz * factor
-        dx = (self.xmax - self.xmin) / (Nx)
-        dy = (self.ymax - self.ymin) / (Ny)
-        dz = (self.zmax - self.zmin) / (Nz)
-
+        shape = tuple(factor * (n - 1) for n in (self.Nx, self.Ny, self.Nz))
+        dx = self.dx[0] / factor
+        dy = self.dy[0] / factor
+        dz = self.dz[0] / factor
+        # Place subcell centres inside each physical cell, including the first.
+        origin = (
+            self.x[0] + dx / 2,
+            self.y[0] + dy / 2,
+            self.z[0] + dz / 2,
+        )
         reference_vol = pv.ImageData(
-            dimensions=(Nx, Ny, Nz),
-            origin=(self.xmin, self.ymin, self.zmin),
-            spacing=(dx, dy, dz),
+            dimensions=shape, origin=origin, spacing=(dx, dy, dz)
         )
-        vox = surface.voxelize_rectilinear(
-            reference_volume=reference_vol,
-        )
-        mask_ref = np.reshape(vox["mask"], (Nx, Ny, Nz), order="F")
+        vox = surface.voxelize_rectilinear(reference_volume=reference_vol)
+        mask_ref = np.asarray(vox["mask"]).reshape(shape, order="F")
 
         # Combine the higher resolution mask back to the original grid resolution
-        mask = np.zeros((self.Nx, self.Ny, self.Nz)).astype(float)
+        mask = np.zeros((self.Nx - 1, self.Ny - 1, self.Nz - 1))
         for i in range(factor):
             for j in range(factor):
                 for k in range(factor):
                     sub_mask = mask_ref[i::factor, j::factor, k::factor].astype(float)
-                    sub_mask += np.sqrt(sum(g**2 for g in np.gradient(sub_mask)))
+                    # A one-cell axis has no resolved mask gradient.
+                    sub_mask += np.sqrt(
+                        sum(
+                            np.gradient(sub_mask, axis=axis) ** 2
+                            for axis, size in enumerate(sub_mask.shape)
+                            if size > 1
+                        )
+                    )
                     mask += gaussian_filter(np.clip(sub_mask, 0, 1), sigma=sigma)
 
         # Overwrite the previous binary/boolean mask in the PyVista grid
@@ -717,7 +781,7 @@ class GridFIT3D(PlotMixin):
         if make_bool:
             mask = mask > threshold
 
-        self.grid[key] = np.reshape(mask, (self.Nx * self.Ny * self.Nz))
+        self.grid.cell_data[key] = np.pad(mask, ((0, 1),) * 3, mode="edge").ravel()
 
     def check_stl_masks_overlap(self):
         """
@@ -1025,7 +1089,7 @@ class GridFIT3D(PlotMixin):
         self.x = self.refine_axis(
             self.xmin,
             self.xmax,
-            self.Nx + 1,
+            self.Nx,
             self.x_snaps,
             method=method,
             tol=tol,
@@ -1036,7 +1100,7 @@ class GridFIT3D(PlotMixin):
         self.y = self.refine_axis(
             self.ymin,
             self.ymax,
-            self.Ny + 1,
+            self.Ny,
             self.y_snaps,
             method=method,
             tol=tol,
@@ -1047,15 +1111,15 @@ class GridFIT3D(PlotMixin):
         self.z = self.refine_axis(
             self.zmin,
             self.zmax,
-            self.Nz + 1,
+            self.Nz,
             self.z_snaps,
             method=method,
             tol=tol,
         )
 
-        self.Nx = len(self.x) - 1
-        self.Ny = len(self.y) - 1
-        self.Nz = len(self.z) - 1
+        self.Nx = len(self.x)
+        self.Ny = len(self.y)
+        self.Nz = len(self.z)
         self.dx = np.diff(self.x)
         self.dy = np.diff(self.y)
         self.dz = np.diff(self.z)
@@ -1095,8 +1159,9 @@ class GridFIT3D(PlotMixin):
         """
         Save the generated grid and STL metadata to an HDF5 file.
 
-        The file contains axis arrays, STL masks suitable for ``grid.cell_data``,
-        and all ``stl_`` related variables (materials, colors, transforms).
+        The file contains primal node arrays and full-size computational-cell
+        STL masks, when present. Dual coordinates and FIT metrics are rebuilt
+        from the node arrays when loading.
 
         Parameters
         ----------
@@ -1126,6 +1191,8 @@ class GridFIT3D(PlotMixin):
             ]:
                 grp = hf.create_group(attr)
                 dct = getattr(self, attr)
+                if dct is None or not isinstance(dct, dict):
+                    dct = {}
                 for key, val in dct.items():
                     # Use dtype='S' for strings, otherwise np.array
                     if isinstance(val, str):
@@ -1133,16 +1200,17 @@ class GridFIT3D(PlotMixin):
                     else:
                         grp.create_dataset(str(key), data=np.array(val))
 
-            for key in self.stl_solids.keys():
-                hf.create_dataset("grid_" + key, data=np.array(self.grid[key]))
+            for key in self.stl_solids or {}:
+                hf.create_dataset(
+                    "grid_" + key, data=np.asarray(self.grid.cell_data[key])
+                )
 
     def load_from_h5(self, filename):
         """
         Load grid axis arrays and STL metadata from an HDF5 file.
 
-        The function restores axis arrays, recomputes grid metrics and fills
-        ``self.grid`` cell_data with imported STL masks saved previously by
-        ``save_to_h5``.
+        Restore primal node arrays and current-format STL masks. Dual
+        coordinates and all FIT metrics are recomputed from the node arrays.
 
         Parameters
         ----------
@@ -1160,6 +1228,7 @@ class GridFIT3D(PlotMixin):
             self.x = hf["x"][()]
             self.y = hf["y"][()]
             self.z = hf["z"][()]
+            self.Nx, self.Ny, self.Nz = len(self.x), len(self.y), len(self.z)
 
             # Load stl_ variables from groups
             for attr in [
@@ -1180,10 +1249,7 @@ class GridFIT3D(PlotMixin):
                     dct[key] = val
                 setattr(self, attr, dct)
 
-        # recompute dx, dy, dz, Nx, Ny, Nz
-        self.Nx = len(self.x) - 1
-        self.Ny = len(self.y) - 1
-        self.Nz = len(self.z) - 1
+        # recompute dx, dy, dz
         self.dx = np.diff(self.x)
         self.dy = np.diff(self.y)
         self.dz = np.diff(self.z)
@@ -1194,10 +1260,18 @@ class GridFIT3D(PlotMixin):
         # recommpute grid and L, iA, tL, itA
         self._compute_grid()
 
-        # asign masks to grid.cell_data
+        # Current-format masks include the terminal computational planes.
         with h5py.File(filename, "r") as hf:
             for key in self.stl_solids.keys():
-                self.grid[key] = hf["grid_" + key][()]
+                mask = hf["grid_" + key][()]
+                if mask.shape != (self.grid.n_cells,):
+                    raise ValueError(
+                        f"STL mask '{key}' has shape {mask.shape}; "
+                        f"the current grid requires ({self.grid.n_cells},) "
+                        "including terminal storage cells. Recreate and save "
+                        "the grid with the current Wakis version."
+                    )
+                self.grid.cell_data[key] = mask
 
         # add verbosity
         if self.verbose > 1:

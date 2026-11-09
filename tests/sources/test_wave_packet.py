@@ -23,7 +23,16 @@ def test_source_updates_component(unit_solver):
     magnetic = unit_solver.H[:, :, 2, "y"]
     electric = unit_solver.E[:, :, 2, "x"]
     assert np.any(magnetic)
-    np.testing.assert_allclose(electric, mu_0 * c * magnetic)
+    x, y = np.meshgrid(unit_solver.tx[1:], unit_solver.y, indexing="ij")
+    expected = (
+        mu_0
+        * c
+        * source.amplitude
+        * source.gaussian_spatial_profile(x, y, source.sigmaxy)
+        * source.gaussian_profile(source.tinj, source.sigmaz)
+    )
+    expected *= source.harmonic_carrier(source.phase)
+    np.testing.assert_allclose(electric, expected)
     assert np.all(electric * magnetic > 0.0)
     assert not np.any(unit_solver.E[:, :, 2, "y"])
     assert not np.any(unit_solver.E[:, :, 2, "z"])
@@ -38,7 +47,9 @@ def test_wave_packet_envelope_peak_and_width(unit_solver):
         f=0.0,
         beta=0.5,
     )
-    peak_time = source.tinj / (source.beta * c)
+    peak_time = (source.tinj + unit_solver.tz[1:][2] - unit_solver.z[2]) / (
+        source.beta * c
+    )
     sigma_time = source.sigmaz / (source.beta * c)
     center = unit_solver.Nx // 2
 
@@ -75,15 +86,28 @@ def test_wave_packet_oblique_fields_are_transverse(unit_solver):
     magnetic = unit_solver.H[:, :, 2, "y"]
     electric_x = unit_solver.E[:, :, 2, "x"]
     electric_z = unit_solver.E[:, :, 2, "z"]
+    x_e, y = np.meshgrid(unit_solver.tx[1:], unit_solver.y, indexing="ij")
+    x_z, _ = np.meshgrid(unit_solver.x, unit_solver.y, indexing="ij")
+    origin_z = unit_solver.z[2]
+    delta_z = unit_solver.tz[1:][2] - origin_z
+
+    def packet_at(x, z_offset):
+        transverse = x * np.cos(theta) - z_offset * np.sin(theta)
+        longitudinal = x * np.sin(theta) + z_offset * np.cos(theta)
+        return source.amplitude * np.exp(
+            -(transverse**2 + y**2) / (2 * source.sigmaxy**2)
+            - (longitudinal + source.tinj) ** 2 / (2 * source.sigmaz**2)
+        )
+
     np.testing.assert_allclose(
-        np.sin(theta) * electric_x + np.cos(theta) * electric_z, 0.0, atol=1e-13
+        electric_x,
+        mu_0 * source.vp * np.cos(theta) * packet_at(x_e, 0.0),
     )
     np.testing.assert_allclose(
-        np.hypot(electric_x, electric_z), mu_0 * source.vp * np.abs(magnetic)
+        electric_z,
+        -mu_0 * source.vp * np.sin(theta) * packet_at(x_z, delta_z),
     )
-    np.testing.assert_allclose(
-        (-electric_z * magnetic) / (electric_x * magnetic), np.tan(theta)
-    )
+    assert np.any(magnetic)
 
 
 def test_wave_packet_oblique_envelope_arrival_delay(unit_solver):
@@ -99,7 +123,9 @@ def test_wave_packet_oblique_envelope_arrival_delay(unit_solver):
     left, right = 1, 3
     center_y = unit_solver.Ny // 2
     peak_times = (
-        source.tinj + unit_solver.x[[left, right]] * np.sin(theta)
+        source.tinj
+        + unit_solver.tx[1:][[left, right]] * np.sin(theta)
+        + (unit_solver.tz[1:][2] - unit_solver.z[2]) * np.cos(theta)
     ) / source.vp
 
     source.update(unit_solver, peak_times[0])
@@ -109,7 +135,11 @@ def test_wave_packet_oblique_envelope_arrival_delay(unit_solver):
 
     expected_profile = np.exp(
         -(
-            (unit_solver.x[[left, right]] * np.cos(theta)) ** 2
+            (
+                unit_solver.tx[1:][[left, right]] * np.cos(theta)
+                - (unit_solver.tz[1:][2] - unit_solver.z[2]) * np.sin(theta)
+            )
+            ** 2
             + unit_solver.y[center_y] ** 2
         )
         / (2 * source.sigmaxy**2)
@@ -117,7 +147,9 @@ def test_wave_packet_oblique_envelope_arrival_delay(unit_solver):
     np.testing.assert_allclose([left_peak, right_peak], expected_profile)
     np.testing.assert_allclose(
         peak_times[1] - peak_times[0],
-        (unit_solver.x[right] - unit_solver.x[left]) * np.sin(theta) / source.vp,
+        (unit_solver.tx[1:][right] - unit_solver.tx[1:][left])
+        * np.sin(theta)
+        / source.vp,
     )
 
 

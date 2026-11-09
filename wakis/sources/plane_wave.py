@@ -121,32 +121,52 @@ class PlaneWave(WaveformSource):
         """Inject matched TM fields for the plane wave at time ``t``."""
         self._ensure_initialized(solver)
 
-        X, Y = np.meshgrid(solver.x[self.xs], solver.y[self.ys], indexing="ij")
-        z_pos = solver.z[self.zs]
-        _, _, w = self._to_source_frame(
-            X,
-            Y,
-            z_pos,
-            self._direction_from_theta(),
-            origin=(0.0, 0.0, z_pos),
+        # Evaluate each component at its staggered field position.
+        x_edge = solver.tx[1:][self.xs]
+        z_node = solver.z[self.zs]
+        z_edge = solver.tz[1:][self.zs]
+
+        z_slice = isinstance(self.zs, slice)
+        if z_slice:
+            z_node = z_node[None, None, :]
+            z_edge = z_edge[None, None, :]
+            x_edge = x_edge[:, None, None]
+        else:
+            x_edge = x_edge[:, None]
+
+        # Compute fields
+        magnetic_y = self._waveform(
+            t,
+            x_edge * np.sin(self.theta) + (z_edge - z_node) * np.cos(self.theta),
         )
-        magnetic_y = self._magnetic_waveform(t, w)
         impedance = mu_0 * self.vp
-        electric_x = impedance * np.cos(self.theta) * magnetic_y
-        electric_z = -impedance * np.sin(self.theta) * magnetic_y
+        electric_x = (
+            impedance
+            * np.cos(self.theta)
+            * self._waveform(t, x_edge * np.sin(self.theta))
+        )
 
         index = (self.xs, self.ys, self.zs)
         self._inject(solver.H, (*index, "y"), magnetic_y)
         self._inject(solver.E, (*index, "x"), electric_x)
+
+        # Inject the z-component of the electric field if the wave is tilted.
         if self.theta != 0.0:
+            x_node = solver.x[self.xs]
+            x_node = x_node[:, None, None] if z_slice else x_node[:, None]
+            electric_z = (
+                -impedance
+                * np.sin(self.theta)
+                * self._waveform(
+                    t,
+                    x_node * np.sin(self.theta)
+                    + (z_edge - z_node) * np.cos(self.theta),
+                )
+            )
             self._inject(solver.E, (*index, "z"), electric_z)
 
-    def _direction_from_theta(self):
-        """Return the propagation vector represented by the legacy angle."""
-        return np.array([np.sin(self.theta), 0.0, np.cos(self.theta)])
-
-    def _magnetic_waveform(self, t, w=0.0):
-        """Return the phase and finite-duration window at source coordinate ``w``."""
+    def _waveform(self, t, w=0.0):
+        """Return the windowed base waveform in A/m at coordinate ``w``."""
         retarded_time = np.asarray(t) - np.asarray(w) / self.vp
         phase = self.omega * np.asarray(t) - self.k * np.asarray(w) + self.phase
         waveform = self.amplitude * self.harmonic_carrier(phase)
@@ -164,7 +184,7 @@ class PlaneWave(WaveformSource):
         """
         fig, ax = plt.subplots()
 
-        magnetic_y = self._magnetic_waveform(t)
+        magnetic_y = self._waveform(t)
         impedance = mu_0 * self.vp
         electric_x = impedance * np.cos(self.theta) * magnetic_y
         electric_z = -impedance * np.sin(self.theta) * magnetic_y

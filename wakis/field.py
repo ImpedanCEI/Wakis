@@ -931,7 +931,7 @@ class Field:
     def inspect3D(
         self,
         field="all",
-        backend="pyista",
+        backend="pyvista",
         grid=None,
         xmax=None,
         ymax=None,
