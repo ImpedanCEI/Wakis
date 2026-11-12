@@ -996,42 +996,29 @@ class PlotMixinSolver:
                 ax.set_ylabel(yax)
 
                 if add_patch:
-                    # All solids are merged into a single combined mask.
-                    # Two-pass approach:
-                    #   Pass 1: OR in all non-vacuum solids to build the base mask.
-                    #   Pass 2: AND-NOT all vacuum solids [eps=1, mu=1, sigma=0]
-                    #           to carve out vacuum regions from the result.
-                    # A single imshow overlay is produced for the combined mask.
                     solids = (
                         [add_patch] if isinstance(add_patch, str) else list(add_patch)
                     )
-                    combined = np.zeros((Nx, Ny, Nz), dtype=bool)
-                    vacuum_masks = []
+                    masks = (
+                        self.grid.dual_masks if field == "H" else self.grid.primal_masks
+                    )
+                    mask_component = "x" if component.lower() == "abs" else component
+                    selection = (x, y, z, mask_component)
+                    combined = np.zeros(masks[solids[0]][selection].shape, dtype=bool)
+                    # Add solid regions, then carve out the requested vacuum regions.
                     for solid in solids:
-                        solid_mask = np.reshape(
-                            self.grid.grid[solid], (Nx, Ny, Nz)
-                        ).astype(bool)
-                        mat = self.grid.stl_materials.get(solid, [0.0, 0.0, 0.0])
-                        is_vacuum = (
-                            len(mat) >= 3
-                            and mat[0] == 1.0
-                            and mat[1] == 1.0
-                            and mat[2] == 0.0
-                        )
-                        if is_vacuum:
-                            vacuum_masks.append(solid_mask)
-                        else:
-                            combined |= solid_mask  # pass 1: add non-vacuum regions
-                    for solid_mask in vacuum_masks:
-                        combined &= ~solid_mask  # pass 2: subtract vacuum regions
-
-                    patch = np.ones((Nx, Ny, Nz))
-                    if patch_reverse:
-                        patch[combined] = np.nan
-                    else:
-                        patch[~combined] = np.nan
+                        material = self.grid.stl_materials[solid]
+                        if not np.array_equal(material, [1.0, 1.0, 0.0]):
+                            combined |= masks[solid][selection]
+                    for solid in solids:
+                        if np.array_equal(
+                            self.grid.stl_materials[solid], [1.0, 1.0, 0.0]
+                        ):
+                            combined &= ~masks[solid][selection]
+                    patch = np.ones(combined.shape)
+                    patch[combined if patch_reverse else ~combined] = np.nan
                     ax.imshow(
-                        patch[x, y, z],
+                        patch,
                         cmap="Greys",
                         extent=extent,
                         origin="lower",
@@ -1642,7 +1629,7 @@ class PlotMixinGrid:
         smooth_shading : bool, optional
             Enable smooth shading for surface rendering (default False).
         off_screen : bool, optional
-            If True, export to HTML instead of opening an interactive window.
+            If True, return the plotter instead of opening an interactive window.
         **kwargs : dict
             Additional keyword args forwarded to ``pyvista.add_mesh``.
 
@@ -1652,7 +1639,6 @@ class PlotMixinGrid:
         - Solids labeled 'vacuum' are rendered with reduced opacity by default.
         """
         pl = pv.Plotter(off_screen=off_screen)
-        pl.add_mesh(self.grid, opacity=0.0, name="grid", show_scalar_bar=False)
         for key in self.stl_solids:
             color = self.stl_colors[key]
             if self.stl_materials[key] == [1.0, 1.0, 0.0] or self.stl_materials[
@@ -1685,7 +1671,7 @@ class PlotMixinGrid:
 
         if show_grid:
             pl.add_mesh(
-                self.grid,
+                pv.RectilinearGrid(self.x, self.y, self.z),
                 style="wireframe",
                 color="grey",
                 opacity=0.3,
@@ -1698,194 +1684,180 @@ class PlotMixinGrid:
         else:
             pl.show()
 
+    def _stl_mask_plot_data(self, stl_solid, component, grid_type):
+        """Return one component's physical mask and display voxel boundaries."""
+        component = component.lower()
+        if component not in ("x", "y", "z"):
+            raise ValueError("component must be 'x', 'y', or 'z'.")
+        if grid_type == "primal":
+            field = self.primal_masks[stl_solid]
+        elif grid_type == "dual":
+            field = self.dual_masks[stl_solid]
+        else:
+            raise ValueError("grid_type must be 'primal' or 'dual'.")
+        coords = field.coordinates[component]
+        physical = tuple(slice(0, len(axis)) for axis in coords)
+        values = field[:, :, :, component][physical]
+        # Sample-centred display voxels, truncated at the domain boundaries.
+        edges = tuple(
+            np.r_[nodes[0], (axis[:-1] + axis[1:]) / 2, nodes[-1]]
+            for axis, nodes in zip(coords, (self.x, self.y, self.z))
+        )
+        return values, coords, edges
+
+    def _add_stl_mask_surfaces(
+        self, pl, stl_solid, add_stl, stl_opacity, stl_colors, smooth_shading
+    ):
+        """Add each requested STL once and return surfaces/colors for slice outlines."""
+        if add_stl is None or add_stl is False:
+            return {}
+        if add_stl is True:
+            keys = [stl_solid]
+        elif isinstance(add_stl, str):
+            keys = list(self.stl_solids) if add_stl.lower() == "all" else [add_stl]
+        else:
+            keys = list(add_stl)
+        colors = self.stl_colors if stl_colors is None else stl_colors
+        surfaces = {}
+        for index, key in enumerate(dict.fromkeys(keys)):
+            if isinstance(colors, dict):
+                color = colors.get(key, "white")
+            elif isinstance(colors, list):
+                color = colors[index]
+            else:
+                color = colors
+            surface = self.read_stl(key)
+            pl.add_mesh(
+                surface,
+                color=color,
+                opacity=stl_opacity,
+                silhouette={"color": color},
+                smooth_shading=smooth_shading,
+                name=f"stl_{key}",
+            )
+            surfaces[key] = (surface, color)
+        return surfaces
+
     def plot_stl_mask(
         self,
         stl_solid,
         cmap="viridis",
         bounding_box=True,
-        clip_plane="x",
         add_stl=True,
         stl_opacity=0.1,
         stl_colors=None,
         anti_aliasing="ssaa",
         smooth_shading=False,
         off_screen=False,
+        component="x",
+        grid_type="primal",
     ):
-        """
-        Interactive 3D visualization of the structured grid mask and imported STL
-        geometries.
-
-        This routine uses PyVista to display the grid scalar field corresponding to a
-        chosen STL mask. It provides interactive slider widgets to clip the domain
-        along the X, Y, and Z directions. At each slider position, the clipped
-        scalar field is shown with a colormap while the grid structure is shown
-        as a 2D slice in wireframe. Optionally, one or more STL geometries can
-        be added to the scene, along with a bounding box of the simulation domain.
+        """Plot nonzero mask voxels with an optional STL overlay.
 
         Parameters
         ----------
         stl_solid : str
-            Key name of the `stl_solids` dictionary to retrieve the mask for
-            visualization (used as the scalar field).
+            Solid key in primal_masks or dual_masks.
         cmap : str, optional
-            Colormap used to visualize the clipped scalar values. Default 'viridis'.
+            Mask colormap, with fixed limits [0, 1].
         bounding_box : bool, optional
-            If True, add a static wireframe bounding box of the simulation domain.
-        show_grid : bool, optional
-            If True, adds the computational grid overlay on the clipped slice.
-        add_stl : {True, 'all', str, list[str]}, optional
-            STL geometries to add. Default True adds the STL solid corresponding to the mask.
-             If 'all', add all STL solids. If a string, add the STL solid with that key.
-             If a list of strings, add the STL solids with those keys.
-             False or None will not add any STL solids.
+            Show the simulation-domain bounding box. Default True.
+        add_stl : bool, str, or list of str, optional
+            True adds the selected solid; 'all' adds every solid. A key or list
+            selects other solids. False or None disables the overlay.
         stl_opacity : float, optional
-            Opacity of the STL surfaces (0 = fully transparent, 1 = fully opaque).
-        stl_colors : str, list[str], dict, or None, optional
-            Color(s) of the STL surfaces.
-        xmax, ymax, zmax : float, optional
-            Initial clipping positions along each axis. If None, use the maximum domain
-            extent.
-        anti_aliasing : {'ssaa', 'fxaa', None}, optional
-            Anti-aliasing mode passed to `pl.enable_anti_aliasing`.
+            STL surface opacity. Default 0.1.
+        stl_colors : str, list, dict, or None, optional
+            Overlay colors; defaults to the solid colors configured on the grid.
+        anti_aliasing : str or None, optional
+            PyVista anti-aliasing mode. Default 'ssaa'.
         smooth_shading : bool, optional
-            Enable smooth shading for STL surfaces. Default False.
+            Smooth STL surface shading. Default False.
         off_screen : bool, optional
-            If True, render off-screen and export the scene to HTML.
+            Return the plotter without opening a window. Default False.
+        component : {'x', 'y', 'z'}, optional
+            Component to display. Default 'x'.
+        grid_type : {'primal', 'dual'}, optional
+            Select electric or magnetic material masks. Default 'primal'.
+
+        Returns
+        -------
+        pyvista.Plotter or None
+            Plotter when off_screen is True.
 
         Notes
         -----
-        - Three sliders (X, Y, Z) control clipping of the scalar field by a box.
-        - STL solids can be visualized in transparent mode.
-        - A static domain bounding box can be added for reference.
+        Display voxels surround the selected component's physical samples and
+        end at the domain boundaries. Only occupied voxels are extracted; the
+        axis-aligned clip box retains voxels whose centres lie inside it.
+        Grid data and masks are unchanged.
+        For large grids, use plot_stl_mask_slice to avoid a 3D voxel extraction.
         """
-        if stl_colors is None:
-            stl_colors = self.stl_colors
-
-        # change the sign of clip plane if y or z
-        if clip_plane.lower() in ["-y", "y"]:
-            clip_plane = "-y"
-        elif clip_plane.lower() in ["-z", "z"]:
-            clip_plane = "-z"
-
-        # Default threshold value for extracting cells inside the mask
-        value = 0.1
-        if getattr(self, "subpixel_smoothing_threshold", None) is not None:
-            value = self.subpixel_smoothing_threshold
+        values, _, edges = self._stl_mask_plot_data(stl_solid, component, grid_type)
+        volume = pv.RectilinearGrid(*edges)
+        volume.cell_data[stl_solid] = np.asarray(
+            values, dtype=np.uint8, order="F"
+        ).ravel(order="F")
+        cells_inside = volume.threshold(0.5, scalars=stl_solid, preference="cell")
+        del volume
 
         pv.global_theme.allow_empty_mesh = True
         pl = pv.Plotter(off_screen=off_screen)
+        if cells_inside.n_cells:
+            centers = cells_inside.cell_centers().points
 
-        # Threshold to extract only the cells inside the mask
-        self.grid.set_active_scalars(stl_solid)
-        cells_inside = self.grid.threshold(value=value, scalars=stl_solid)
-
-        # Interactive clip-plane widget over the thresholded cells
-        pl.add_mesh_clip_plane(
-            cells_inside,
-            cmap=cmap,
-            show_edges=True,
-            # scalars=stl_solid,
-            label="cells mask",
-            normal=clip_plane,
-            widget_color="white",
-        )
-
-        # Plot stl surface(s)
-        if add_stl is not None and add_stl is not False:
-            if add_stl is True:  # default: add the STL solid matching the mask
-                key = stl_solid
-                surf = self.read_stl(key)
-                pl.add_mesh(
-                    surf,
-                    color=stl_colors[key],
-                    opacity=stl_opacity,
-                    smooth_shading=smooth_shading,
-                    label="STL surface",
+            def update_box(box):
+                bounds = np.asarray(box.bounds)
+                # Select whole voxels by their centres, avoiding geometric
+                # clipping that would subdivide them into tetrahedra.
+                selected = np.all(
+                    (centers >= bounds[::2]) & (centers <= bounds[1::2]), axis=1
                 )
-            elif type(add_stl) is str:
-                if add_stl.lower() == "all":
-                    for i, key in enumerate(self.stl_solids):
-                        surf = self.read_stl(key)
-                        color = (
-                            stl_colors[key]
-                            if isinstance(stl_colors, dict)
-                            else (
-                                stl_colors[i]
-                                if isinstance(stl_colors, list)
-                                else "white"
-                            )
-                        )
-                        pl.add_mesh(
-                            surf,
-                            color=color,
-                            opacity=stl_opacity,
-                            smooth_shading=smooth_shading,
-                            name=key,
-                        )
-                else:  # single named solid
-                    key = add_stl
-                    surf = self.read_stl(key)
-                    color = stl_colors[key] if isinstance(stl_colors, dict) else "white"
+                if np.any(selected):
+                    clipped = cells_inside
+                    if not np.all(selected):
+                        clipped = cells_inside.extract_cells(selected)
                     pl.add_mesh(
-                        surf,
-                        color=color,
-                        opacity=stl_opacity,
-                        smooth_shading=smooth_shading,
-                        label="STL surface",
+                        clipped,
+                        scalars=stl_solid,
+                        cmap=cmap,
+                        clim=(0, 1),
+                        show_edges=True,
+                        reset_camera=False,
+                        name="mask",
                     )
-            elif type(add_stl) is list:
-                for i, key in enumerate(add_stl):
-                    surf = self.read_stl(key)
-                    color = (
-                        stl_colors[key]
-                        if isinstance(stl_colors, dict)
-                        else (
-                            stl_colors[i] if isinstance(stl_colors, list) else "white"
-                        )
-                    )
-                    pl.add_mesh(
-                        surf,
-                        color=color,
-                        opacity=stl_opacity,
-                        smooth_shading=smooth_shading,
-                        name=key,
-                    )
+                else:
+                    pl.remove_actor("mask")
 
-        # Camera orientation — face the cut plane, then tilt +30°/+30° to show 3D structure
-        _clip_axis = clip_plane.lstrip("-").lower()
-        {"x": pl.view_zy, "y": pl.view_zx, "z": pl.view_xy}.get(
-            _clip_axis, pl.view_zy
-        )()
+            pl.add_box_widget(
+                update_box,
+                bounds=cells_inside.bounds,
+                factor=1.0,
+                rotation_enabled=False,
+                color="white",
+            )
+        self._add_stl_mask_surfaces(
+            pl, stl_solid, add_stl, stl_opacity, stl_colors, smooth_shading
+        )
+        if bounding_box:
+            pl.add_mesh(
+                pv.Box(bounds=self.grid.bounds),
+                style="wireframe",
+                color="black",
+                name="domain_box",
+            )
+        pl.camera_position = "zy"
         pl.camera.azimuth += 30
         pl.camera.elevation += 30
-
         pl.set_background("mistyrose", top="white")
         self._add_logo_widget(pl)
         pl.add_axes()
-        pl.enable_3_lights()
-
-        if bounding_box:
-            pl.add_mesh(
-                pv.Box(
-                    bounds=(
-                        self.xmin,
-                        self.xmax,
-                        self.ymin,
-                        self.ymax,
-                        self.zmin,
-                        self.zmax,
-                    )
-                ),
-                style="wireframe",
-                color="black",
-                line_width=2,
-                name="domain_box",
-            )
-
+        if anti_aliasing is not None:
+            pl.enable_anti_aliasing(anti_aliasing)
         if off_screen:
             return pl
-        else:
-            pl.show()
+        pl.show()
+        return None
 
     def plot_stl_mask_slice(
         self,
@@ -1900,279 +1872,138 @@ class PlotMixinGrid:
         stl_colors=None,
         smooth_shading=False,
         off_screen=False,
+        component="x",
+        grid_type="primal",
     ):
-        """
-        Interactive 2D slice visualization of the structured grid STL mask.
-
-        Lighter alternative to :meth:`plot_stl_mask` for heavy grids (>10M cells).
-        Instead of clipping the full 3D domain, only a single 2D slice is rendered
-        at a time. A slider widget controls the slice position along the axis normal
-        to the chosen plane.
+        """Plot a 2D mask plane without constructing or slicing a 3D mesh.
 
         Parameters
         ----------
         stl_solid : str
-            Key name of the `stl_solids` dictionary to retrieve the mask for
-            visualization (used as the scalar field).
-        plane : {'XY', 'YX', 'ZY', 'YZ', 'ZX', 'XZ'}, optional
-            Plane of the slice. Default 'ZX'.
-
-            - 'XY' / 'YX' → normal along Z, slider controls Z position.
-            - 'ZY' / 'YZ' → normal along X, slider controls X position.
-            - 'ZX' / 'XZ' → normal along Y, slider controls Y position.
+            Solid key in primal_masks or dual_masks.
+        plane : {'XY', 'YX', 'XZ', 'ZX', 'YZ', 'ZY'}, optional
+            First axis is horizontal; second is vertical. Default 'ZX'.
         position : float or None, optional
-            Initial position of the slice along the normal axis. If None, uses
-            the center of the domain along that axis.
+            Physical slice position [m], snapped to the nearest component sample.
+            None selects the centre of the sample range.
         cmap : str, optional
-            Colormap used to visualize the scalar values. Default 'viridis'.
+            Binary mask colormap, with fixed limits [0, 1].
         bounding_box : bool, optional
-            If True, add a static wireframe bounding box of the simulation domain.
-        add_stl : {True, 'all', str, list[str]}, optional
-            STL geometries to add. Default True adds the STL solid corresponding to the mask.
-             If 'all', add all STL solids. If a string, add the STL solid with that key.
-             If a list of strings, add the STL solids with those keys.
-             False or None will not add any STL solids.
+            Show the simulation-domain bounding box. Default False.
+        show_grid : bool, optional
+            Show voxel edges on the 2D plane. Default True.
+        add_stl : bool, str, or list of str, optional
+            Optional 3D STL overlays, as in plot_stl_mask. Default False.
+            The selected solid's slice outline is always shown.
         stl_opacity : float, optional
-            Opacity of the STL surfaces (0 = fully transparent, 1 = fully opaque).
-        stl_colors : str, list[str], dict, or None, optional
-            Color(s) of the STL surfaces.
+            STL surface opacity. Default 0.1.
+        stl_colors : str, list, dict, or None, optional
+            Overlay colors; defaults to the grid's solid colors.
         smooth_shading : bool, optional
-            Enable smooth shading for STL surfaces. Default False.
+            Smooth STL surface shading. Default False.
         off_screen : bool, optional
-            If True, render off-screen and return the plotter object.
+            Return the plotter without opening a window. Default False.
+        component : {'x', 'y', 'z'}, optional
+            Component to display. Default 'x'.
+        grid_type : {'primal', 'dual'}, optional
+            Select electric or magnetic material masks. Default 'primal'.
 
-        Notes
-        -----
-        - Only a single 2D slice of the domain is rendered at a time, making this
-          much lighter than :meth:`plot_stl_mask` for large grids.
-        - The slider controls the slice position along the normal to the chosen plane.
-                - The selected ``stl_solid`` intersection with the plane is overlaid as a
-                    contour line for easier visual alignment.
+        Returns
+        -------
+        pyvista.Plotter or None
+            Plotter when off_screen is True.
         """
-        self.grid.set_active_scalars(stl_solid)
-
-        if stl_colors is None:
-            stl_colors = self.stl_colors
-
+        values, coords, edges = self._stl_mask_plot_data(
+            stl_solid, component, grid_type
+        )
         plane = plane.upper()
-        plane_to_normal = {
-            "XY": "z",
-            "YX": "z",
-            "ZY": "x",
-            "YZ": "x",
-            "ZX": "y",
-            "XZ": "y",
-        }
-        if plane not in plane_to_normal:
-            raise ValueError(
-                f"plane must be one of 'XY', 'YX', 'ZY', 'YZ', 'ZX', 'XZ', got '{plane}'"
-            )
-
-        normal = plane_to_normal[plane]
-        if normal == "x":
-            axis_min, axis_max = self.xmin, self.xmax
-            slider_title = "X Position"
-            center = ((self.ymin + self.ymax) / 2, (self.zmin + self.zmax) / 2)
-
-            def origin_fn(v):
-                return (v, center[0], center[1])
-
-        elif normal == "y":
-            axis_min, axis_max = self.ymin, self.ymax
-            slider_title = "Y Position"
-            center = ((self.xmin + self.xmax) / 2, (self.zmin + self.zmax) / 2)
-
-            def origin_fn(v):
-                return (center[0], v, center[1])
-
-        else:  # z
-            axis_min, axis_max = self.zmin, self.zmax
-            slider_title = "Z Position"
-            center = ((self.xmin + self.xmax) / 2, (self.ymin + self.ymax) / 2)
-
-            def origin_fn(v):
-                return (center[0], center[1], v)
-
+        if plane not in ("XY", "YX", "XZ", "ZX", "YZ", "ZY"):
+            raise ValueError("plane must be XY, YX, XZ, ZX, YZ, or ZY.")
+        horizontal, vertical = plane.lower()
+        normal = next(axis for axis in "xyz" if axis not in (horizontal, vertical))
+        coords = dict(zip("xyz", coords))
+        axis = coords[normal]
         if position is None:
-            position = (axis_min + axis_max) / 2
+            position = (axis[0] + axis[-1]) / 2
+        position = float(axis[np.argmin(abs(axis - position))])
 
         pv.global_theme.allow_empty_mesh = True
         pl = pv.Plotter(off_screen=off_screen)
-
-        # Surface used to draw the selected STL/plane intersection contour
-        outline_surf = self.read_stl(stl_solid)
-        outline_color = stl_colors.get(stl_solid, "white")
-
-        # --- Initial slice ---
-        initial_slice = self.grid.slice(normal=normal, origin=origin_fn(position))
-        slice_actor = pl.add_mesh(
-            initial_slice,
-            cmap=cmap,
-            name="slice",
+        surfaces = self._add_stl_mask_surfaces(
+            pl, stl_solid, add_stl, stl_opacity, stl_colors, smooth_shading
         )
+        if stl_solid in surfaces:
+            surface, outline_color = surfaces[stl_solid]
+        else:
+            surface = self.read_stl(stl_solid)
+            colors = self.stl_colors if stl_colors is None else stl_colors
+            if isinstance(colors, dict):
+                outline_color = colors.get(stl_solid, "white")
+            elif isinstance(colors, list):
+                outline_color = colors[0]
+            else:
+                outline_color = colors
 
-        outline_actor = None
-        if outline_surf is not None:
-            initial_outline = outline_surf.slice(
-                normal=normal, origin=origin_fn(position)
+        def update_slice(value):
+            index = int(np.argmin(abs(axis - value)))
+            location = float(axis[index])
+            selection = dict.fromkeys("xyz", slice(None))
+            selection[normal] = index
+            slice_axes = dict(zip("xyz", edges))
+            slice_axes[normal] = np.array([location])
+            section = pv.RectilinearGrid(*slice_axes.values())
+            section.cell_data[stl_solid] = np.asarray(
+                values[tuple(selection.values())], dtype=np.uint8, order="F"
+            ).ravel(order="F")
+            pl.add_mesh(
+                section,
+                scalars=stl_solid,
+                cmap=cmap,
+                clim=(0, 1),
+                show_edges=show_grid,
+                name="slice",
             )
-            outline_actor = pl.add_mesh(
-                initial_outline,
-                color=outline_color,
-                # line_width=3,
-                name="stl_outline",
-            )
-
-        # --- Update function ---
-        def update_slice(val):
-            new_slice = self.grid.slice(normal=normal, origin=origin_fn(val))
-            slice_actor.mapper.SetInputData(new_slice)
-            if outline_actor is not None:
-                new_outline = outline_surf.slice(normal=normal, origin=origin_fn(val))
-                outline_actor.mapper.SetInputData(new_outline)
-
-            # add slice wireframe (grid structure)
-            if show_grid:
-                pl.add_mesh(
-                    new_slice, style="wireframe", color="grey", opacity=0.3, name="grid"
-                )
-
+            origin = {name: (a[0] + a[-1]) / 2 for name, a in coords.items()}
+            origin[normal] = location
+            outline = surface.slice(normal=normal, origin=tuple(origin.values()))
+            if outline.n_points:
+                pl.add_mesh(outline, color=outline_color, name="stl_outline")
+            else:
+                pl.remove_actor("stl_outline")
             pl.render()
 
-        # --- Slider ---
-        pl.add_slider_widget(
-            update_slice,
-            [axis_min, axis_max],
-            value=position,
-            title=slider_title,
-            pointa=(0.8, 0.6),
-            pointb=(0.95, 0.6),
-            style="modern",
+        if axis[0] != axis[-1]:
+            pl.add_slider_widget(
+                update_slice,
+                (axis[0], axis[-1]),
+                value=position,
+                title=f"{normal.upper()} Position [m]",
+                pointa=(0.8, 0.6),
+                pointb=(0.95, 0.6),
+                style="modern",
+            )
+        else:
+            update_slice(position)
+        if bounding_box:
+            pl.add_mesh(
+                pv.Box(bounds=self.grid.bounds),
+                style="wireframe",
+                color="black",
+                name="domain_box",
+            )
+        directions = {"x": (1, 0, 0), "y": (0, 1, 0), "z": (0, 0, 1)}
+        pl.view_vector(
+            np.cross(directions[horizontal], directions[vertical]),
+            viewup=directions[vertical],
         )
-
-        # Plot stl surface(s)
-        if add_stl is not None:
-            if add_stl:  # Default, add the stl solid corresponding to the mask
-                key = stl_solid
-                surf = self.read_stl(key)
-                pl.add_mesh(
-                    surf,
-                    color=stl_colors[key],
-                    opacity=stl_opacity,
-                    silhouette=dict(color=stl_colors[key]),
-                    smooth_shading=smooth_shading,
-                    name=key,
-                )
-            if type(add_stl) is str:
-                if add_stl.lower() == "all":
-                    for i, key in enumerate(self.stl_solids):
-                        surf = self.read_stl(key)
-                        if type(stl_colors) is dict:
-                            pl.add_mesh(
-                                surf,
-                                color=stl_colors[key],
-                                opacity=stl_opacity,
-                                silhouette=dict(color=stl_colors[key]),
-                                smooth_shading=smooth_shading,
-                                name=key,
-                            )
-                        elif type(stl_colors) is list:
-                            pl.add_mesh(
-                                surf,
-                                color=stl_colors[i],
-                                opacity=stl_opacity,
-                                silhouette=dict(color=stl_colors[i]),
-                                smooth_shading=smooth_shading,
-                                name=key,
-                            )
-                        else:
-                            pl.add_mesh(
-                                surf,
-                                color="white",
-                                opacity=stl_opacity,
-                                silhouette=True,
-                                smooth_shading=smooth_shading,
-                                name=key,
-                            )
-                else:  # add 1 selected stl solid
-                    key = add_stl
-                    surf = self.read_stl(key)
-                    pl.add_mesh(
-                        surf,
-                        color=stl_colors[key],
-                        opacity=stl_opacity,
-                        silhouette=dict(color=stl_colors[key]),
-                        smooth_shading=smooth_shading,
-                        name=key,
-                    )
-
-            elif type(add_stl) is list:
-                for i, key in enumerate(add_stl):
-                    surf = self.read_stl(key)
-                    if type(stl_colors) is dict:
-                        pl.add_mesh(
-                            surf,
-                            color=stl_colors[key],
-                            opacity=stl_opacity,
-                            silhouette=dict(color=stl_colors[key]),
-                            smooth_shading=smooth_shading,
-                            name=key,
-                        )
-                    elif type(stl_colors) is list:
-                        pl.add_mesh(
-                            surf,
-                            color=stl_colors[i],
-                            opacity=stl_opacity,
-                            silhouette=dict(color=stl_colors[i]),
-                            smooth_shading=smooth_shading,
-                            name=key,
-                        )
-                    else:
-                        pl.add_mesh(
-                            surf,
-                            color="white",
-                            opacity=stl_opacity,
-                            silhouette=True,
-                            smooth_shading=smooth_shading,
-                            name=key,
-                        )
-
-        # Camera orientation — use view_*() to enforce correct horizontal/vertical axes
-        _view_fns = {
-            "XY": pl.view_xy,
-            "YX": pl.view_xy,
-            "XZ": pl.view_xz,
-            "YZ": pl.view_yz,
-            "ZX": pl.view_zx,
-            "ZY": pl.view_zy,
-        }
-        _view_fns.get(plane, pl.view_yz)()
+        pl.enable_parallel_projection()
         pl.set_background("mistyrose", top="white")
         self._add_logo_widget(pl)
         pl.add_axes()
-
-        if bounding_box:
-            pl.add_mesh(
-                pv.Box(
-                    bounds=(
-                        self.xmin,
-                        self.xmax,
-                        self.ymin,
-                        self.ymax,
-                        self.zmin,
-                        self.zmax,
-                    )
-                ),
-                style="wireframe",
-                color="black",
-                line_width=2,
-                name="domain_box",
-            )
-
         if off_screen:
             return pl
-        else:
-            pl.show()
+        pl.show()
+        return None
 
     def plot_snap_points(self, snap_solids=None, snap_tol=1e-8):
         """
@@ -2283,7 +2114,18 @@ class PlotMixinGrid:
 
         pv.global_theme.allow_empty_mesh = True
         pl = pv.Plotter(off_screen=off_screen)
-        pl.add_mesh(self.grid, show_edges=True, cmap=["white", "white"], name="grid")
+        pl.add_mesh(
+            pv.RectilinearGrid(self.x, self.y, self.z),
+            show_edges=True,
+            color="white",
+            name="grid",
+        )
+        keys = (
+            list(self.stl_solids)
+            if add_stl is None
+            else ([add_stl] if isinstance(add_stl, str) else list(add_stl))
+        )
+        surfaces = {key: self.read_stl(key) for key in keys}
 
         def clip(widget):
             # Plot structured grid
@@ -2291,15 +2133,14 @@ class PlotMixinGrid:
             x = self.x[np.logical_and(self.x >= b[0], self.x <= b[1])]
             y = self.y[np.logical_and(self.y >= b[2], self.y <= b[3])]
             z = self.z[np.logical_and(self.z >= b[4], self.z <= b[5])]
-            X, Y, Z = np.meshgrid(x, y, z, indexing="ij")
-            grid = pv.StructuredGrid(X.transpose(), Y.transpose(), Z.transpose())
+            grid = pv.RectilinearGrid(x, y, z)
 
             pl.add_mesh(grid, show_edges=True, cmap=["white", "white"], name="grid")
             # Plot stl surface(s)
             if add_stl is not None:  # add 1 selected stl solid
                 if type(add_stl) is str:
                     key = add_stl
-                    surf = self.read_stl(key)
+                    surf = surfaces[key]
                     surf = surf.clip_box(widget.bounds, invert=False)
                     pl.add_mesh(
                         surf,
@@ -2312,7 +2153,7 @@ class PlotMixinGrid:
 
                 elif type(add_stl) is list:  # add selected list of stl solids
                     for i, key in enumerate(add_stl):
-                        surf = self.read_stl(key)
+                        surf = surfaces[key]
                         surf = surf.clip_box(widget.bounds, invert=False)
                         if type(stl_colors) is dict:
                             pl.add_mesh(
@@ -2344,7 +2185,7 @@ class PlotMixinGrid:
 
             else:  # add all stl solids
                 for i, key in enumerate(self.stl_solids):
-                    surf = self.read_stl(key)
+                    surf = surfaces[key]
                     surf = surf.clip_box(widget.bounds, invert=False)
                     if type(stl_colors) is dict:
                         pl.add_mesh(
@@ -2384,7 +2225,8 @@ class PlotMixinGrid:
         self._add_logo_widget(pl)
         pl.add_axes()
         pl.enable_3_lights()
-        pl.enable_anti_aliasing(anti_aliasing)
+        if anti_aliasing is not None:
+            pl.enable_anti_aliasing(anti_aliasing)
 
         if off_screen:
             return pl
