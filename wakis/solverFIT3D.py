@@ -86,7 +86,10 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         bc_low, bc_high : list of str, optional
             Boundary conditions for low/high faces in (x, y, z) order.
         use_stl : bool, optional
-            If True, apply solids and materials provided in the ``grid`` object.
+            If True, assign permittivity/conductivity from grid.primal_masks
+            and permeability from grid.dual_masks. Later solids take precedence
+            in overlaps. TF/SF initialization additionally completes PEC edges
+            between conductor nodes. Conductive SIBC solids are unsupported.
         use_conductors : bool, optional
             [LEGACY] will be removed in future releases.
             If True, import conductor geometry from ``conductors.py`` masks.
@@ -126,11 +129,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         ----------
         E, H, J : wakis.Field
             Electric field, magnetic field and current density containers.
+            E/J carry grid.primal_coords; H carries grid.dual_coords.
             Access components via labels 'x','y','z'. Example:
             ``solver.E[:, :, n, 'z']`` gives Ez at z-index n.
         ieps, imu, sigma : wakis.Field
             Material tensors (inverse permittivity, inverse permeability and
-            conductivity) stored per field component.
+            conductivity) stored per field component. ieps/sigma carry primal
+            coordinates and imu carries dual coordinates.
         grid : GridFIT3D
             Reference to the input grid object, which owns the primal and dual
             metric fields (L, iA, tL, itA). Boundary corrections use
@@ -214,13 +219,28 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         # Fields
         self.dtype = dtype
         self.E = Field(
-            self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype
+            self.Nx,
+            self.Ny,
+            self.Nz,
+            use_gpu=self.use_gpu,
+            dtype=self.dtype,
+            coordinates=self.grid.primal_coords,
         )
         self.H = Field(
-            self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype
+            self.Nx,
+            self.Ny,
+            self.Nz,
+            use_gpu=self.use_gpu,
+            dtype=self.dtype,
+            coordinates=self.grid.dual_coords,
         )
         self.J = Field(
-            self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype
+            self.Nx,
+            self.Ny,
+            self.Nz,
+            use_gpu=self.use_gpu,
+            dtype=self.dtype,
+            coordinates=self.grid.primal_coords,
         )
 
         # MPI init
@@ -332,20 +352,30 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         if self.verbose > 1:
             print(f"    * Max resolved conductivity without SIBC: {self.sigma_max} S/m")
 
-        # fmt: off
-        self.ieps = (
-            Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=self.dtype)
-            * (1.0 / self.eps_bg)
+        self.ieps = Field(
+            self.Nx,
+            self.Ny,
+            self.Nz,
+            dtype=self.dtype,
+            coordinates=self.grid.primal_coords,
         )
-        self.imu = (
-            Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=self.dtype)
-            * (1.0 / self.mu_bg)
+        self.ieps.array.fill(1.0 / self.eps_bg)
+        self.imu = Field(
+            self.Nx,
+            self.Ny,
+            self.Nz,
+            dtype=self.dtype,
+            coordinates=self.grid.dual_coords,
         )
-        self.sigma = (
-            Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=self.dtype)
-            * self.sigma_bg
+        self.imu.array.fill(1.0 / self.mu_bg)
+        self.sigma = Field(
+            self.Nx,
+            self.Ny,
+            self.Nz,
+            dtype=self.dtype,
+            coordinates=self.grid.primal_coords,
         )
-        # fmt: on
+        self.sigma.array.fill(self.sigma_bg)
 
         if self.use_stl:
             self._apply_stl_materials()
@@ -384,6 +414,10 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             )
             if verbose > 1:
                 print(f"    * CPML thickness: {self.n_pml} cells")
+
+        # TF/SF PEC constraints must precede material-dependent precomputation.
+        if self.source_type == "tfsf":
+            self._initialize_tfsf()
 
         # Timestep calculation
         if verbose:
@@ -449,13 +483,22 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         if self.source_type.lower() == "tfsf":
             self.E_trans = Field(
-                self.Nx, self.Ny, self.Nz, dtype=self.dtype, use_gpu=self.use_gpu
+                self.Nx,
+                self.Ny,
+                self.Nz,
+                dtype=self.dtype,
+                use_gpu=self.use_gpu,
+                coordinates=self.grid.primal_coords,
             )
             self.H_trans = Field(
-                self.Nx, self.Ny, self.Nz, dtype=self.dtype, use_gpu=self.use_gpu
+                self.Nx,
+                self.Ny,
+                self.Nz,
+                dtype=self.dtype,
+                use_gpu=self.use_gpu,
+                coordinates=self.grid.dual_coords,
             )
             self.injection_done = True
-            self._initialize_tfsf()
         self.tdx = self.tL[:, 0, 0, "x"]
         self.tdy = self.tL[0, :, 0, "y"]
         self.tdz = self.tL[0, 0, :, "z"]
@@ -678,75 +721,53 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.step_0 = False
 
     def _apply_stl_materials(self):
-        """
-        Mask STL solids in the grid and assign user-defined materials.
+        """Assign material coefficients from primal and dual staggered masks.
 
-        Iterates over STL solids imported in the grid and updates ``ieps``,
-        ``imu`` and ``sigma`` according to the material provided for each
-        solid. Materials may be referenced by a library key (string) or given
-        as explicit tuples (eps_r, mu_r[, sigma]). Inverse permittivity and
-        inverse permeability values are stored in the corresponding Fields.
+        Solid order determines overlap precedence: later solids overwrite
+        earlier ones. Unoccupied and inactive terminal entries retain the
+        background coefficients. Primal masks locate ieps/sigma; dual masks
+        locate imu. TF/SF-specific PEC constraints are applied separately during
+        boundary initialization.
 
-        Notes
-        -----
-        - STL material values must be relative (eps_r, mu_r).
-        - Supply conductivity explicitly to enable conductive behaviour.
+        Raises
+        ------
+        ValueError
+            If a solid lacks a packed primal or dual mask (for example, an old grid
+            restored from a scalar-mask HDF5 file).
+        NotImplementedError
+            If a conductive solid requests SIBC. Volume masks cannot classify
+            a surface impedance boundary.
         """
-        grid = self.grid.grid
         self.stl_solids = self.grid.stl_solids
         self.stl_materials = self.grid.stl_materials
         self.stl_colors = self.grid.stl_colors
 
-        for key in self.stl_solids.keys():
-            # Retrieve mask and materials from grid
-            mask = np.reshape(grid[key], (self.Nx, self.Ny, self.Nz))
+        for key in self.stl_solids:
+            if key not in self.grid.primal_masks or key not in self.grid.dual_masks:
+                raise ValueError(
+                    f"Solid '{key}' has no material mask. "
+                    "Recreate the grid using legacy or voxelize_rectilinear."
+                )
+            mask = self.grid.primal_masks[key].array
             eps = self.stl_materials[key][0] * eps_0
             mu = self.stl_materials[key][1] * mu_0
             sigma = self.stl_materials[key][2]
-
-            # Boolean mask: any cell with non-zero subpixel fraction
-            occupied = mask.astype(bool)
-
-            # # Subpixel smoothing: arithmetic mean of ε and μ over the cell volume
-            # # ε_eff = f·ε + (1-f)·ε_bg  →  ieps = 1/ε_eff)
-            # TODO smooth to background / overlapping masks
-            if np.isinf(eps):
-                # Avoid 0 * inf outside PEC cells, which would make the
-                # inverse-permittivity tensor and all fields NaN.
-                eps_eff = np.where(occupied, eps, eps_0)
-            else:
-                eps_eff = mask * eps + (1.0 - mask) * eps_0
-            mu_eff = mask * mu + (1.0 - mask) * mu_0
-
-            # Conductivity of bulk material
+            if sigma > 0.0 and self.use_sibc:
+                raise NotImplementedError(
+                    "SIBC with staggered material masks is not implemented."
+                )
             if sigma > 0.0:
-                if self.use_sibc:  # bulk material is PEC
-                    eps_eff = np.inf
-                    sigma = 0.0
-                else:
-                    if sigma > 10 * eps / eps_0:
-                        print(
-                            f"[!] Warning: High conductivity sigma={sigma} S/m "
-                            f"for solid '{key}' with low permittivity epsilon_r={eps / eps_0} "
-                            f"will considerably reduce the maximal stable timestep.\n"
-                            f"Consider enabling SIBC approximation `use_sibc=True`"
-                        )
+                if self.verbose and sigma > 10 * eps / eps_0:
+                    print(
+                        f"[!] High conductivity in solid '{key}' may reduce the "
+                        "simulation timestep."
+                    )
                 self.use_conductivity = True
 
-            # Update sigma tensor: arithmetic mean (σ_bg = 0)
-            sigma_eff = mask * sigma
-            self.sigma += self.sigma * (-1.0 * occupied)
-            self.sigma += occupied * sigma_eff
-
-            # Update ieps and imu tensors with subpixel-smoothed values
-            self.ieps += self.ieps * (-1.0 * occupied)
-            self.imu += self.imu * (-1.0 * occupied)
-            self.ieps += occupied * (1.0 / eps_eff)
-            self.imu += occupied * (1.0 / mu_eff)
-
-            # Apply SIBC if enabled
-            if self.stl_materials[key][2] > 0.0 and self.use_sibc:
-                self._apply_SIBC(key)
+            # Direct assignment avoids inf*0 for PEC and preserves background values
+            self.imu.array[self.grid.dual_masks[key].array] = 1.0 / mu
+            self.ieps.array[mask] = 1.0 / eps
+            self.sigma.array[mask] = sigma
 
     def _apply_SIBC(self, key):
         eps = self.stl_materials[key][0] * eps_0
@@ -1771,7 +1792,15 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             ranks.
         """
 
-        _field = Field(self.Nx, self.Ny, self.NZ)
+        source = getattr(self, field) if isinstance(field, str) else field
+        coordinates = None
+        if source.coordinates is not None:
+            coordinates = {}
+            global_midpoints = (self.Z[:-1] + self.Z[1:]) / 2
+            for component, axes in source.coordinates.items():
+                z_axis = self.Z if len(axes[2]) == self.Nz else global_midpoints
+                coordinates[component] = (axes[0], axes[1], z_axis)
+        _field = Field(self.Nx, self.Ny, self.NZ, coordinates=coordinates)
 
         for d in ["x", "y", "z"]:
             if type(field) is str:

@@ -38,6 +38,14 @@ class Field:
         If True, initialize the field array with ones. Otherwise, zeros. Default is False.
     use_gpu : bool, optional
         If True, use CuPy for GPU arrays. Default is False.
+    coordinates : dict, optional
+        Physical sample axes in metres, keyed by component ('x', 'y', 'z'). E.g.:
+        primal_coordinates = {
+            "x": (tx, y, z),  # Ex: x midpoints, y/z nodes
+            "y": (x, ty, z),  # Ey: y midpoints, x/z nodes
+            "z": (x, y, tz),  # Ez: z midpoints, x/y nodes
+        }
+
 
     Attributes
     ----------
@@ -55,13 +63,16 @@ class Field:
         Flattened 1D field array of shape (N*3,).
     """
 
-    def __init__(self, Nx, Ny, Nz, dtype=float, use_ones=False, use_gpu=False):
+    def __init__(
+        self, Nx, Ny, Nz, dtype=float, use_ones=False, use_gpu=False, coordinates=None
+    ):
         self.Nx = Nx
         self.Ny = Ny
         self.Nz = Nz
         self.N = Nx * Ny * Nz
         self.dtype = dtype
         self.on_gpu = use_gpu
+        self.coordinates = coordinates
 
         if self.on_gpu:
             if imported_cupy:
@@ -371,18 +382,24 @@ class Field:
 
         # other is number
         if type(other) is float or type(other) is int:
-            mulField = Field(self.Nx, self.Ny, self.Nz, dtype=dtype)
+            mulField = Field(
+                self.Nx, self.Ny, self.Nz, dtype=dtype, coordinates=self.coordinates
+            )
             mulField.array = self.array * other
 
         # other is matrix
         elif len(other.shape) > 1:
-            mulField = Field(self.Nx, self.Ny, self.Nz, dtype=dtype)
+            mulField = Field(
+                self.Nx, self.Ny, self.Nz, dtype=dtype, coordinates=self.coordinates
+            )
             for d in ["x", "y", "z"]:
                 mulField.from_matrix(self.to_matrix(d) * other, d)
 
         # other is 1d array
         else:
-            mulField = Field(self.Nx, self.Ny, self.Nz, dtype=dtype)
+            mulField = Field(
+                self.Nx, self.Ny, self.Nz, dtype=dtype, coordinates=self.coordinates
+            )
             mulField.array = self.array * other
 
         return mulField
@@ -408,18 +425,24 @@ class Field:
 
         # other is number
         if type(other) is float or type(other) is int:
-            divField = Field(self.Nx, self.Ny, self.Nz, dtype=dtype)
+            divField = Field(
+                self.Nx, self.Ny, self.Nz, dtype=dtype, coordinates=self.coordinates
+            )
             divField.array = self.array / other
 
         # other is matrix
         if len(other.shape) > 1:
-            divField = Field(self.Nx, self.Ny, self.Nz, dtype=dtype)
+            divField = Field(
+                self.Nx, self.Ny, self.Nz, dtype=dtype, coordinates=self.coordinates
+            )
             for d in ["x", "y", "z"]:
                 divField.from_matrix(self.to_matrix(d) / other, d)
 
         # other is constant or 1d array
         else:
-            divField = Field(self.Nx, self.Ny, self.Nz, dtype=dtype)
+            divField = Field(
+                self.Nx, self.Ny, self.Nz, dtype=dtype, coordinates=self.coordinates
+            )
             divField.array = self.array / other
 
         return divField
@@ -444,20 +467,26 @@ class Field:
             dtype = self.dtype
 
         if type(other) is Field:
-            addField = Field(self.Nx, self.Ny, self.Nz, dtype=dtype)
+            addField = Field(
+                self.Nx, self.Ny, self.Nz, dtype=dtype, coordinates=self.coordinates
+            )
             addField.field_x = self.field_x + other.field_x
             addField.field_y = self.field_y + other.field_y
             addField.field_z = self.field_z + other.field_z
 
         # other is matrix
         elif len(other.shape) > 1:
-            addField = Field(self.Nx, self.Ny, self.Nz, dtype=dtype)
+            addField = Field(
+                self.Nx, self.Ny, self.Nz, dtype=dtype, coordinates=self.coordinates
+            )
             for d in ["x", "y", "z"]:
                 addField.from_matrix(self.to_matrix(d) + other, d)
 
         # other is constant or 1d array
         else:
-            addField = Field(self.Nx, self.Ny, self.Nz, dtype=dtype)
+            addField = Field(
+                self.Nx, self.Ny, self.Nz, dtype=dtype, coordinates=self.coordinates
+            )
             addField.array = self.array + other
 
         return addField
@@ -594,14 +623,14 @@ class Field:
         """
         Visualize 2D slices of the field components.
 
-        Supports two backends: ``'matplotlib'`` (default, static 2D imshow of
+        Supports two backends: ``'matplotlib'`` (default, static 2D plots of
         all three components) and ``'pyvista'`` (interactive 3D slice with a
         position slider for a single selected component).
 
         Parameters
         ----------
-        plane : {'XY', 'XZ', 'YZ', 'ZX', 'ZY'}, optional
-            Plane to visualize. Default is 'ZY'.
+        plane : {'XY', 'YX', 'XZ', 'ZX', 'YZ', 'ZY'}, optional
+            First letter is horizontal, second is vertical. Default is 'ZY'.
         cmap : str, optional
             Colormap for the plot. Default is 'Reds' for positive values and
             "bwr" for positive/negative values.
@@ -614,10 +643,12 @@ class Field:
             Structured grid object providing real-space coordinates and STL
             solids. When provided the PyVista backend uses physical units and
             can overlay STL surface outlines. Falls back to cell-index
-            coordinates when ``None``. Ignored by the matplotlib backend.
+            coordinates when ``None``. Attached component coordinates take
+            precedence; grid may still supply STL overlays. Ignored by Matplotlib.
         position : float or None, optional
             Initial slice position along the axis normal to ``plane``.
-            Defaults to the domain centre. PyVista backend only.
+            Defaults to the domain centre. With coordinate metadata, Matplotlib
+            selects the nearest physical sample separately for each component.
         bounding_box : bool, optional
             If True, add a wireframe bounding box of the domain. PyVista
             backend only. Default False.
@@ -639,8 +670,8 @@ class Field:
             If True, return (fig, axs) instead of showing (matplotlib only).
             Default is False.
         **kwargs
-            Additional keyword arguments forwarded to ``imshow`` (matplotlib
-            backend only).
+            Additional keyword arguments forwarded to ``pcolormesh`` when
+            coordinates are attached, otherwise to ``imshow`` (Matplotlib only).
 
         Returns
         -------
@@ -651,6 +682,14 @@ class Field:
             Returned when ``backend='pyvista'`` and ``off_screen=True``.
         None
             Otherwise.
+
+        Notes
+        -----
+        With coordinates attached, plots use metres and exclude storage beyond
+        each component's physical axes. Matplotlib uses pcolormesh to preserve
+        nonuniform spacing. PyVista interpolates a slice of the selected
+        component. Absolute values use the current index-wise norm and the
+        x-component axes for display, pending interpolation to common locations.
         """
         # ------------------------------------------------------------------ #
         # PyVista backend                                                      #
@@ -661,7 +700,13 @@ class Field:
             component = component.lower()
 
             # --- Build / retrieve the structured grid ---
-            if grid is not None and hasattr(grid, "grid"):
+            if self.coordinates is not None:
+                coords = self.coordinates["x" if component == "abs" else component]
+                pv_grid = pv.RectilinearGrid(*coords)
+                xlo, xhi = coords[0][0], coords[0][-1]
+                ylo, yhi = coords[1][0], coords[1][-1]
+                zlo, zhi = coords[2][0], coords[2][-1]
+            elif grid is not None and hasattr(grid, "grid"):
                 pv_grid = grid.grid
                 xlo, xhi = grid.xmin, grid.xmax
                 ylo, yhi = grid.ymin, grid.ymax
@@ -677,29 +722,36 @@ class Field:
                 pv_grid = pv.StructuredGrid(X.transpose(), Y.transpose(), Z.transpose())
 
             # --- Assign scalar data ---
-            if component == "abs":
-                scalars = "Field Abs"
-                _arr = self.get_abs(as_matrix=True)
-                if self.on_gpu and hasattr(_arr, "get"):
-                    _arr = _arr.get()
-                pv_grid[scalars] = _arr.reshape(self.N)
+            scalars = "Field Abs" if component == "abs" else f"Field {component}"
+            values = self.get_abs() if component == "abs" else self.to_matrix(component)
+            if self.on_gpu and hasattr(values, "get"):
+                values = values.get()
+            if self.coordinates is not None:
+                physical = tuple(slice(0, len(axis)) for axis in coords)
+                pv_grid.point_data[scalars] = values[physical].ravel(order="F")
             else:
-                scalars = f"Field {component}"
-                _arr = self.to_matrix(component)
-                if self.on_gpu and hasattr(_arr, "get"):
-                    _arr = _arr.get()
-                pv_grid[scalars] = _arr.reshape(self.N)
+                pv_grid[scalars] = values.reshape(self.N)
 
             pv_grid.set_active_scalars(scalars)
 
             # --- Plane → normal mapping ---
             plane_up = plane.upper()
-            plane_to_normal = {"XY": "z", "YZ": "x", "ZY": "x", "XZ": "y", "ZX": "y"}
+            plane_to_normal = {
+                "XY": "z",
+                "YX": "z",
+                "YZ": "x",
+                "ZY": "x",
+                "XZ": "y",
+                "ZX": "y",
+            }
             if plane_up not in plane_to_normal:
                 raise ValueError(
-                    f"plane must be one of 'XY', 'XZ', 'YZ', 'ZX', 'ZY'; got '{plane}'"
+                    f"plane must be one of 'XY', 'YX', 'XZ', 'YZ', 'ZX', 'ZY'; got '{plane}'"
                 )
             normal = plane_to_normal[plane_up]
+            unit_axes = {"X": (1, 0, 0), "Y": (0, 1, 0), "Z": (0, 0, 1)}
+            view_up = unit_axes[plane_up[1]]
+            view_direction = xp.cross(unit_axes[plane_up[0]], view_up)
 
             if normal == "x":
                 axis_min, axis_max = xlo, xhi
@@ -736,7 +788,11 @@ class Field:
             pl = pv.Plotter(off_screen=off_screen)
 
             # Initial slice
-            initial_slice = pv_grid.slice(normal=normal, origin=origin_fn(position))
+            initial_slice = (
+                pv_grid
+                if axis_min == axis_max
+                else pv_grid.slice(normal=normal, origin=origin_fn(position))
+            )
             slice_actor = pl.add_mesh(initial_slice, cmap=cmap, name="slice")
 
             # Optional STL solid outlines (only when grid is a GridFIT3D)
@@ -763,7 +819,11 @@ class Field:
 
             # --- Update function ---
             def update_slice(val):
-                new_slice = pv_grid.slice(normal=normal, origin=origin_fn(val))
+                new_slice = (
+                    pv_grid
+                    if axis_min == axis_max
+                    else pv_grid.slice(normal=normal, origin=origin_fn(val))
+                )
                 slice_actor.mapper.SetInputData(new_slice)
 
                 for key, (actor, surf) in outline_actors.items():
@@ -779,26 +839,20 @@ class Field:
                         name="grid_wire",
                     )
 
-                _view_fns = {
-                    "XY": pl.view_xy,
-                    "XZ": pl.view_xz,
-                    "YZ": pl.view_yz,
-                    "ZX": pl.view_zx,
-                    "ZY": pl.view_zy,
-                }
-                _view_fns.get(plane_up, pl.view_yz)()
+                pl.view_vector(view_direction, viewup=view_up)
                 pl.render()
 
             # --- Slider ---
-            pl.add_slider_widget(
-                update_slice,
-                [axis_min, axis_max],
-                value=position,
-                title=slider_title,
-                pointa=(0.8, 0.6),
-                pointb=(0.95, 0.6),
-                style="modern",
-            )
+            if axis_min != axis_max:
+                pl.add_slider_widget(
+                    update_slice,
+                    [axis_min, axis_max],
+                    value=position,
+                    title=slider_title,
+                    pointa=(0.8, 0.6),
+                    pointb=(0.95, 0.6),
+                    style="modern",
+                )
 
             # --- Optional bounding box ---
             if bounding_box:
@@ -814,14 +868,7 @@ class Field:
             # Use view_*() methods to explicitly set both position and viewup
             # so that the first letter of the plane is horizontal and the
             # second letter is vertical (e.g. 'YZ' → Y horizontal, Z vertical).
-            _view_fns = {
-                "XY": pl.view_xy,
-                "XZ": pl.view_xz,
-                "YZ": pl.view_yz,
-                "ZX": pl.view_zx,
-                "ZY": pl.view_zy,
-            }
-            _view_fns.get(plane_up, pl.view_yz)()
+            pl.view_vector(view_direction, viewup=view_up)
             pl.set_background("mistyrose", top="white")
             pl.add_axes()
             pl.enable_anti_aliasing()
@@ -839,94 +886,117 @@ class Field:
         import matplotlib.pyplot as plt
         from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-        if None not in (x, y, z):  # custom slice
-            transpose = False
-            extent = None
-            xax, yax = "No. of cells", "No. of cells"
-            pos = "Custom slice"
+        plane = plane.upper()
+        if plane not in ("XY", "YX", "XZ", "ZX", "YZ", "ZY"):
+            raise ValueError("plane must be XY, YX, XZ, ZX, YZ, or ZY.")
 
-        elif plane == "XY" or plane == "YX":
-            key = [slice(0, self.Nx), slice(0, self.Ny), int(self.Nz // 2)]
-            x, y, z = key[0], key[1], key[2]
-            extent = (0, self.Nx, 0, self.Ny)
-            xax, yax = "nx", "ny"
-            transpose = True
-            pos = f"z={z}"
-
-        elif plane == "XZ" or plane == "ZX":
-            key = [slice(0, self.Nx), int(self.Ny // 2), slice(0, self.Nz)]
-            x, y, z = key[0], key[1], key[2]
-            extent = (0, self.Nz, 0, self.Nx)
-            xax, yax = "nz", "nx"
-            transpose = False
-            pos = f"y={y}"
-
-        elif plane == "YZ" or plane == "ZY":
-            key = [int(self.Nx // 2), slice(0, self.Ny), slice(0, self.Nz)]
-            x, y, z = key[0], key[1], key[2]
-            extent = (0, self.Nz, 0, self.Ny)
-            xax, yax = "nz", "ny"
-            transpose = False
-            pos = f"x={x}"
+        # Handle custom slices
+        custom_slice = None
+        if x is not None and y is not None and z is not None:
+            custom_slice = (x, y, z)
+            if sum(isinstance(index, slice) for index in custom_slice) != 2:
+                raise ValueError(
+                    "2D Inspection requires two slices and one fixed index."
+                )
+            if not isinstance(x, slice) and "X" in plane:
+                plane = "YZ"
+            elif not isinstance(y, slice) and "Y" in plane:
+                plane = "XZ"
+            elif not isinstance(z, slice) and "Z" in plane:
+                plane = "XY"
+        if plane in ("XY", "YX"):
+            normal = "z"
+        elif plane in ("XZ", "ZX"):
+            normal = "y"
+        else:
+            normal = "x"
+        horizontal, vertical = plane.lower()
 
         fig, axs = plt.subplots(1, 3, tight_layout=True, figsize=figsize, dpi=dpi)
-        dims = {0: "x", 1: "y", 2: "z"}
 
-        im = {}
-
-        # cmap
-        if cmap is None:
-            if self.get_abs(as_matrix=True).min() < 0:
-                cmap = "bwr"
+        # Support component metadata and plane orientation
+        for component, ax in zip("xyz", axs):
+            if self.coordinates is None:
+                cx, cy, cz = xp.arange(self.Nx), xp.arange(self.Ny), xp.arange(self.Nz)
             else:
-                cmap = "Reds"
-
-        for d in [0, 1, 2]:
-            field = self.to_matrix(d)
-
-            if self.on_gpu and hasattr(field, "get"):
+                cx, cy, cz = self.coordinates[component]
+            field = self.to_matrix(component)
+            if self.on_gpu:
                 field = field.get()
+            field = field[: len(cx), : len(cy), : len(cz)]
 
-            if transpose:
-                im[d] = axs[d].imshow(
-                    field[x, y, z].T,
-                    cmap=cmap,
-                    vmin=field.min(),
-                    vmax=field.max(),
-                    extent=extent,
-                    origin="lower",
-                    **kwargs,
-                )
-
+            if custom_slice is not None:
+                ix, iy, iz = custom_slice
             else:
-                im[d] = axs[d].imshow(
-                    field[x, y, z],
-                    cmap=cmap,
-                    vmin=field.min(),
-                    vmax=field.max(),
+                normal_coords = {"x": cx, "y": cy, "z": cz}[normal]
+                index = len(normal_coords) // 2
+                if self.coordinates is not None:
+                    location = position
+                    if location is None:
+                        location = (normal_coords[0] + normal_coords[-1]) / 2
+                    index = int(xp.argmin(xp.abs(normal_coords - location)))
+                ix, iy, iz = slice(None), slice(None), slice(None)
+                if normal == "x":
+                    ix = index
+                elif normal == "y":
+                    iy = index
+                else:
+                    iz = index
+
+            # Start with ascending plane order: XY, XZ, or YZ.
+            values = field[ix, iy, iz].T
+            if normal == "z":
+                hcoords, vcoords = cx[ix], cy[iy]
+                location = cz[iz]
+            elif normal == "y":
+                hcoords, vcoords = cx[ix], cz[iz]
+                location = cy[iy]
+            else:
+                hcoords, vcoords = cy[iy], cz[iz]
+                location = cx[ix]
+            if plane in ("YX", "ZX", "ZY"):
+                values = values.T
+                hcoords, vcoords = vcoords, hcoords
+            options = {"vmin": field.min(), "vmax": field.max(), **kwargs}
+
+            # pcolormesh for coordinates
+            if self.coordinates is not None:
+                image = ax.pcolormesh(
+                    hcoords,
+                    vcoords,
+                    values,
+                    cmap=cmap or "Reds",
+                    **{"shading": "nearest", **options},
+                )
+                ax.set_xlabel(f"{horizontal} [m]")
+                ax.set_ylabel(f"{vertical} [m]")
+
+            # imshow for indexes
+            else:
+                extent = (
+                    (0, len(hcoords), 0, len(vcoords)) if custom_slice is None else None
+                )
+                image = ax.imshow(
+                    values,
+                    cmap=cmap or "Reds",
                     extent=extent,
                     origin="lower",
-                    **kwargs,
+                    **options,
                 )
+                ax.set_xlabel(f"n{horizontal}")
+                ax.set_ylabel(f"n{vertical}")
 
-        for i, ax in enumerate(axs):
-            ax.set_title(f"Field {dims[i]}")
+            unit = " m" if self.coordinates is not None else ""
+            ax.set_title(f"Field {component}, {normal}={location:g}{unit}")
             fig.colorbar(
-                im[i],
+                image,
                 cax=make_axes_locatable(ax).append_axes("right", size="5%", pad=0.1),
             )
-            ax.set_xlabel(xax)
-            ax.set_ylabel(yax)
-            fig.suptitle(f"Field at plane {plane}, {pos}")
 
-        if handles:
+        if handles or off_screen:
             return fig, axs
-
-        if not off_screen:
-            plt.show(block=False)
-            return None
-        else:
-            return fig, axs
+        plt.show(block=False)
+        return None
 
     def inspect3D(
         self,
@@ -941,354 +1011,272 @@ class Field:
         cmap="viridis",
         dpi=100,
         off_screen=False,
+        stl_opacity=0.2,
     ):
-        """
-        Visualize 3D field data on the structured grid using either Matplotlib
-        (voxel rendering) or PyVista (interactive clipping and slicing).
-
-
-        This method provides two complementary visualization backends:
-
-        - **Matplotlib**: static voxel plots of the field components (x, y, z)
-          or all combined, useful for quick inspection, but memory intensive.
-        - **PyVista**: interactive 3D visualization with sliders to dynamically
-          clip the volume along X, Y, and Z, and optional wireframe slices.
+        """Inspect components in 3D using physical coordinates when available.
 
         Parameters
         ----------
         field : {'x', 'y', 'z', 'abs', 'all'}, optional
-            Which field component(s) to visualize. Default is 'all'.
-            The 'all' option creates separate subplots for each component (only with
-            Matplotlib backend).
-        backend : {'matplotlib', 'pyvista'}, optional
-            Visualization backend to use. Pass this explicitly.
-        grid : object, optional
-            Structured grid object to use for visualization. If None, a grid is
-            constructed from the solver's internal dimensions.
-        xmax, ymax, zmax : int or float, optional
-            Maximum extents in each direction for visualization. Defaults to the
-            full grid dimensions if not specified.
+            Component to display, or separate panels for all three components.
+            Absolute values use the current index-wise norm; with coordinates
+            attached they use the x-component axes for display.
+        backend : {'pyvista', 'matplotlib'}, optional
+            Interactive clipping (default) or static voxel rendering.
+        grid : GridFIT3D, optional
+            Supplies STL surface overlays for PyVista and physical mesh geometry
+            when component coordinates are absent. Component coordinates take
+            precedence. Ignored by the Matplotlib backend.
+        xmax, ymax, zmax : float, optional
+            Upper clipping positions in metres with physical geometry, otherwise
+            index limits. Defaults to each component's full extent.
         bounding_box : bool, optional
-            If True, draw a wireframe bounding box of the simulation domain
-            (only used in PyVista backend). Default is True.
+            Show component bounds in PyVista. Default True.
         show_grid : bool, optional
-            If True, show wireframe slice planes of the grid during interactive
-            visualization (PyVista backend). Default is True.
+            Show clipping-plane wireframes in PyVista. Default True.
         cmap : str, optional
-            Colormap to apply to the scalar field. Default is 'viridis'.
+            Scalar colormap. Default 'viridis'.
         dpi : int, optional
-            Resolution of Matplotlib figures (only for Matplotlib backend).
-            Default is 100.
+            Matplotlib figure resolution. Default 100.
         off_screen : bool, optional
-            Whether to display the figure/plot immediately. If True, return figure/axes
-            (Matplotlib) or the Plotter object (PyVista) for further customization
-            instead of showing directly. Default is False.
+            Return the plot without showing it. Default False.
+        stl_opacity : float, optional
+            STL surface opacity in PyVista, between 0 and 1. Default 0.2.
+            Surfaces and silhouettes use the grid's STL colors.
 
         Returns
         -------
-        fig, axs : tuple, optional
-            Returned when `backend='matplotlib'` and `off_screen=True`.
-        pl : pyvista.Plotter, optional
-            Returned when `backend='pyvista'` and `off_screen=True`.
+        pyvista.Plotter or tuple of (Figure, list of Axes), optional
+            Returned when off_screen is True.
 
         Notes
         -----
-        - The PyVista backend provides interactive sliders to clip the
-          volume along each axis independently and inspect internal
-          structures of the 3D field.
-        - The Matplotlib backend provides a quick static voxel rendering
-          but is limited in interactivity and scalability.
+        Physical axes omit inactive terminal storage. Matplotlib display boxes
+        meet halfway between neighboring samples and extrapolate half a spacing
+        at the ends; they are display regions, not physical FIT cells. A singleton
+        physical axis is shown with points because its box width is undefined.
+        Fields without coordinates retain index-based Matplotlib plotting and
+        use the supplied grid geometry for PyVista when available.
         """
+        field, backend = field.lower(), backend.lower()
+        if field not in ("x", "y", "z", "abs", "all"):
+            raise ValueError("field must be x, y, z, abs, or all.")
+        if backend not in ("matplotlib", "pyvista"):
+            raise ValueError("backend must be matplotlib or pyvista.")
+        components = ("x", "y", "z") if field == "all" else (field,)
+        limits = (xmax, ymax, zmax)
 
-        field = field.lower()
+        # Resolve coordinates, physical extents, and CPU data for both backends.
+        index_coords = tuple(xp.arange(n) + 0.5 for n in (self.Nx, self.Ny, self.Nz))
+        component_coords = {}
+        component_values = {}
+        for component in components:
+            coords = (
+                index_coords
+                if self.coordinates is None
+                else self.coordinates["x" if component == "abs" else component]
+            )  # TODO use cell centers for absolute values
+            values = self.get_abs() if component == "abs" else self.to_matrix(component)
+            if self.on_gpu and hasattr(values, "get"):
+                values = values.get()
+            component_coords[component] = coords
+            component_values[component] = values[
+                tuple(slice(0, len(axis)) for axis in coords)
+            ]
 
-        # ---------- matplotlib backend ---------------
-        if backend.lower() == "matplotlib":
-            if self.Nx > 50 or self.Ny > 50 or self.Nz > 50:
-                print(
-                    "[!] Warning: Matplotlib voxel rendering is not optimized \
-                    for large grids. Consider using the `pyvista` backend for \
-                    better performance and interactivity."
-                )
-            import matplotlib as mpl
+        # ------------------------------------------------------------------ #
+        # Matplotlib backend                                                 #
+        # ------------------------------------------------------------------ #
+        if backend == "matplotlib":
             import matplotlib.pyplot as plt
 
-            fig = plt.figure(tight_layout=True, dpi=dpi, figsize=[12, 6])
+            if self.Nx > 50 or self.Ny > 50 or self.Nz > 50:
+                print(
+                    "[!] Matplotlib voxel rendering can be slow for large meshes. "
+                    "Use backend='pyvista' for interactive inspection."
+                )
 
-            plot_x, plot_y, plot_z = False, False, False
-
-            if field == "all":
-                plot_x = True
-                plot_y = True
-                plot_z = True
-
-            elif field.lower() == "x":
-                plot_x = True
-            elif field.lower() == "y":
-                plot_y = True
-            elif field.lower() == "z":
-                plot_z = True
-
-            if xmax is None:
-                xmax = self.Nx
-            if ymax is None:
-                ymax = self.Ny
-            if zmax is None:
-                zmax = self.Nz
-
-            x, y, z = self.xp.mgrid[0 : xmax + 1, 0 : ymax + 1, 0 : zmax + 1]
+            fig = plt.figure(
+                tight_layout=True, dpi=dpi, figsize=(6 * len(components), 6)
+            )
             axs = []
-
-            # field x
-            if plot_x:
-                arr = self.to_matrix("x")[0 : int(xmax), 0 : int(ymax), 0 : int(zmax)]
-                if field == "all":
-                    ax = fig.add_subplot(1, 3, 1, projection="3d")
-                else:
-                    ax = fig.add_subplot(1, 1, 1, projection="3d")
-
-                vmin, vmax = (
-                    -self.xp.max(self.xp.abs(arr)),
-                    +self.xp.max(self.xp.abs(arr)),
-                )
-                norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
-                colors = mpl.colormaps[cmap](norm(arr))
-                ax.voxels(x, y, z, filled=self.xp.ones_like(arr), facecolors=colors)
-
-                m = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
-                m.set_array([])
-                fig.colorbar(m, ax=ax, shrink=0.5, aspect=10)
-                ax.set_title("Field x")
+            for panel, component in enumerate(components):
+                coords = component_coords[component]
+                values = component_values[component]
+                # Clip sample arrays using their own axes, including nonuniform grids.
+                counts = [
+                    len(axis)
+                    if limit is None
+                    else xp.searchsorted(axis, limit, side="right")
+                    for axis, limit in zip(coords, limits)
+                ]
+                if any(count == 0 for count in counts):
+                    raise ValueError(
+                        "Clipping limits exclude all samples along an axis."
+                    )
+                coords = tuple(axis[:count] for axis, count in zip(coords, counts))
+                values = values[tuple(slice(0, count) for count in counts)]
+                ax = fig.add_subplot(1, len(components), panel + 1, projection="3d")
                 axs.append(ax)
-
-            # field y
-            if plot_y:
-                arr = self.to_matrix("y")[0 : int(xmax), 0 : int(ymax), 0 : int(zmax)]
-                if field == "all":
-                    ax = fig.add_subplot(1, 3, 2, projection="3d")
+                scale = xp.max(xp.abs(values))
+                norm = plt.Normalize(vmin=-float(scale), vmax=float(scale))
+                colors = plt.get_cmap(cmap)(norm(values))
+                if any(len(axis) == 1 for axis in coords):
+                    xx, yy, zz = xp.meshgrid(*coords, indexing="ij")
+                    ax.scatter(
+                        xx.ravel(), yy.ravel(), zz.ravel(), c=colors.reshape(-1, 4)
+                    )
                 else:
-                    ax = fig.add_subplot(1, 1, 1, projection="3d")
-
-                vmin, vmax = (
-                    -self.xp.max(self.xp.abs(arr)),
-                    +self.xp.max(self.xp.abs(arr)),
+                    edges = []
+                    for axis in coords:
+                        edges.append(
+                            xp.r_[
+                                axis[0] - (axis[1] - axis[0]) / 2,
+                                (axis[:-1] + axis[1:]) / 2,
+                                axis[-1] + (axis[-1] - axis[-2]) / 2,
+                            ]
+                        )
+                    xx, yy, zz = xp.meshgrid(*edges, indexing="ij")
+                    filled = (
+                        values
+                        if values.dtype == bool
+                        else xp.ones(values.shape, dtype=bool)
+                    )
+                    ax.voxels(xx, yy, zz, filled=filled, facecolors=colors)
+                if xmax is not None:
+                    ax.set_xlim(right=xmax)
+                if ymax is not None:
+                    ax.set_ylim(top=ymax)
+                if zmax is not None:
+                    ax.set_zlim(top=zmax)
+                unit = " [m]" if self.coordinates is not None else " index"
+                ax.set(
+                    xlabel="x" + unit,
+                    ylabel="y" + unit,
+                    zlabel="z" + unit,
+                    title=f"Field {component}",
                 )
-                norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
-                colors = mpl.colormaps[cmap](norm(arr))
-                ax.voxels(x, y, z, filled=self.xp.ones_like(arr), facecolors=colors)
-
-                m = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
-                m.set_array([])
-                fig.colorbar(m, ax=ax, shrink=0.5, aspect=10)
-                ax.set_title("Field y")
-                axs.append(ax)
-
-            # field z
-            if plot_z:
-                arr = self.to_matrix("z")[0 : int(xmax), 0 : int(ymax), 0 : int(zmax)]
-                if field == "all":
-                    ax = fig.add_subplot(1, 3, 3, projection="3d")
-                else:
-                    ax = fig.add_subplot(1, 1, 1, projection="3d")
-
-                vmin, vmax = (
-                    -self.xp.max(self.xp.abs(arr)),
-                    +self.xp.max(self.xp.abs(arr)),
+                fig.colorbar(
+                    plt.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax, shrink=0.5
                 )
-                norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
-                colors = mpl.colormaps[cmap](norm(arr))
-                ax.voxels(x, y, z, filled=self.xp.ones_like(arr), facecolors=colors)
-
-                m = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
-                m.set_array([])
-                fig.colorbar(m, ax=ax, shrink=0.5, aspect=10)
-                ax.set_title("Field z")
-                axs.append(ax)
-
-            for i, ax in enumerate(axs):
-                ax.set_xlabel("Nx")
-                ax.set_ylabel("Ny")
-                ax.set_zlabel("Nz")
-                ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-                ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-                ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-                ax.set_xlim(self.Nx, 0)
-                ax.set_ylim(self.Ny, 0)
-                ax.set_zlim(self.Nz, 0)
 
             if off_screen:
                 return fig, axs
-            else:
-                plt.show(block=False)
-                return None
+            plt.show(block=False)
+            return None
 
-        # ----------- pyvista backend ---------------
-        else:
+        # ------------------------------------------------------------------ #
+        # PyVista backend                                                    #
+        # ------------------------------------------------------------------ #
+        if backend == "pyvista":
             import pyvista as pv
 
-            if grid is not None and hasattr(grid, "grid"):
-                xlo, xhi, ylo, yhi, zlo, zhi = (
-                    grid.xmin,
-                    grid.xmax,
-                    grid.ymin,
-                    grid.ymax,
-                    grid.zmin,
-                    grid.zmax,
-                )
-                grid = grid.grid
-                if field in ("x", "y", "z"):
-                    scalars = "Field " + field
-                    _arr = self.to_matrix(field)
-                    grid[scalars] = (_arr.get() if self.on_gpu else _arr).reshape(
-                        self.N
-                    )
-                else:  # for all or abs
-                    scalars = "Field Abs"
-                    grid[scalars] = self.get_abs().reshape(self.N)
+            # STL overlays
+            surfaces = {}
+            if grid is not None:
+                for key in getattr(grid, "stl_solids", None) or {}:
+                    surfaces[key] = grid.read_stl(key)
 
-                if xmax is None:
-                    xmax = xhi
-                if ymax is None:
-                    ymax = yhi
-                if zmax is None:
-                    zmax = zhi
+            pl = pv.Plotter(shape=(1, len(components)), off_screen=off_screen)
 
-            else:
-                print(
-                    "[!] `grid` is not passed or is not a GridFIT3D object -> Using #N cells instead "
-                )
-                x = xp.linspace(0, self.Nx, self.Nx + 1)
-                y = xp.linspace(0, self.Ny, self.Ny + 1)
-                z = xp.linspace(0, self.Nz, self.Nz + 1)
-                xlo, xhi, ylo, yhi, zlo, zhi = (
-                    x.min(),
-                    x.max(),
-                    y.min(),
-                    y.max(),
-                    z.min(),
-                    z.max(),
-                )
-                if xmax is None:
-                    xmax = self.Nx
-                if ymax is None:
-                    ymax = self.Ny
-                if zmax is None:
-                    zmax = self.Nz
-                X, Y, Z = xp.meshgrid(x, y, z, indexing="ij")
-                grid = pv.StructuredGrid(X.transpose(), Y.transpose(), Z.transpose())
-
-                if field in ("x", "y", "z"):
-                    scalars = "Field " + field
-                    _arr = self.to_matrix(field)
-                    grid[scalars] = (_arr.get() if self.on_gpu else _arr).reshape(
-                        self.N
-                    )
-                elif field.lower() == "abs":
-                    scalars = "Field Abs"
-                    grid[scalars] = self.get_abs().reshape(self.N)
+            # Generate reference grid per panel
+            for panel, component in enumerate(components):
+                coords = component_coords[component]
+                values = component_values[component]
+                pl.subplot(0, panel)
+                scalars = f"Field {component}"
+                if self.coordinates is not None:
+                    volume = pv.RectilinearGrid(*coords)
+                    volume.point_data[scalars] = values.ravel(order="F")
                 else:
-                    raise ValueError(
-                        "For PyVista backend, `field` must be 'x', 'y', 'z', or 'abs'"
+                    volume = pv.ImageData(
+                        dimensions=(self.Nx + 1, self.Ny + 1, self.Nz + 1)
                     )
+                    volume.cell_data[scalars] = values.ravel(order="F")
+                bounds = tuple(volume.bounds)
+                clips = dict(zip("xyz", (bounds[1], bounds[3], bounds[5])))
+                for axis, limit, low, high in zip(
+                    "xyz", limits, bounds[::2], bounds[1::2]
+                ):
+                    if limit is not None:
+                        if not low <= limit <= high:
+                            raise ValueError(
+                                f"{axis}max must lie within [{low}, {high}]."
+                            )
+                        clips[axis] = limit
 
-            pv.global_theme.allow_empty_mesh = True
-            pl = pv.Plotter(off_screen=off_screen)
-            vals = {"x": xmax, "y": ymax, "z": zmax}
-
-            # --- Update function ---
-            def update_clip(val, axis="x"):
-                vals[axis] = val
-                # define bounds dynamically
-                if axis == "x":
-                    slice_obj = grid.slice(normal="x", origin=(val, 0, 0))
-                elif axis == "y":
-                    slice_obj = grid.slice(normal="y", origin=(0, val, 0))
-                else:  # z
-                    slice_obj = grid.slice(normal="z", origin=(0, 0, val))
-
-                # add clipped volume (scalars)
-                pl.add_mesh(
-                    grid.clip_box(
-                        bounds=(
-                            xlo,
-                            vals["x"],
-                            ylo,
-                            vals["y"],
-                            zlo,
-                            vals["z"],
-                        ),
-                        invert=False,
-                    ),
+                # Clip update and widget sliders per panel
+                def update_clip(
+                    value,
+                    axis,
+                    volume=volume,
+                    clips=clips,
+                    bounds=bounds,
+                    panel=panel,
                     scalars=scalars,
-                    cmap=cmap,
-                    name="clip",
-                )
+                ):
+                    pl.subplot(0, panel)
+                    clips[axis] = value
+                    clipped = volume
+                    for clip_axis, upper in clips.items():
+                        axis_index = "xyz".index(clip_axis)
+                        if upper == bounds[2 * axis_index + 1]:
+                            continue
+                        origin = list(volume.center)
+                        origin[axis_index] = upper
+                        clipped = clipped.clip(
+                            normal=clip_axis, origin=origin, invert=True
+                        )
+                    if clipped.n_points:
+                        pl.add_mesh(clipped, scalars=scalars, cmap=cmap, name="clip")
+                    else:
+                        pl.remove_actor("clip")
+                    if show_grid:
+                        origin = list(volume.center)
+                        origin["xyz".index(axis)] = value
+                        section = volume.slice(normal=axis, origin=origin)
+                        if section.n_points:
+                            pl.add_mesh(
+                                section, style="wireframe", color="grey", name="slice"
+                            )
+                        else:
+                            pl.remove_actor("slice")
 
-                # add slice wireframe (grid structure)
-                if show_grid:
-                    pl.add_mesh(
-                        slice_obj,
-                        style="wireframe",
-                        color="grey",
-                        name="slice",
+                update_clip(clips["x"], "x")
+                for row, (axis, low, high) in enumerate(
+                    zip("xyz", bounds[::2], bounds[1::2])
+                ):
+                    if low == high:
+                        continue
+                    pl.add_slider_widget(
+                        lambda value, axis=axis, update=update_clip: update(
+                            value, axis
+                        ),
+                        (low, high),
+                        value=clips[axis],
+                        title=f"{axis.upper()} Clip",
+                        pointa=(0.8, 0.8 - row * 0.2),
+                        pointb=(0.95, 0.8 - row * 0.2),
+                        style="modern",
                     )
-
-            # --- Sliders (placed side-by-side vertically) ---
-            pl.add_slider_widget(
-                lambda value: update_clip(value, "x"),
-                [xlo, xhi],
-                value=xmax,
-                title="X Clip",
-                pointa=(0.8, 0.8),
-                pointb=(0.95, 0.8),  # top-right
-                style="modern",
-            )
-
-            pl.add_slider_widget(
-                lambda value: update_clip(value, "y"),
-                [ylo, yhi],
-                value=ymax,
-                title="Y Clip",
-                pointa=(0.8, 0.6),
-                pointb=(0.95, 0.6),  # middle-right
-                style="modern",
-            )
-
-            pl.add_slider_widget(
-                lambda value: update_clip(value, "z"),
-                [zlo, zhi],
-                value=zmax,
-                title="Z Clip",
-                pointa=(0.8, 0.4),
-                pointb=(0.95, 0.4),  # lower-right
-                style="modern",
-            )
-
-            # Camera orientation
-            pl.camera_position = "zx"
-            pl.camera.azimuth += 30
-            pl.camera.elevation += 30
-            pl.set_background("mistyrose", top="white")
-            try:
-                pl.add_logo_widget("../docs/img/wakis-logo-pink.png")
-            except Exception:
-                pass
-            pl.add_axes()
-            pl.enable_3_lights()
-            pl.enable_anti_aliasing()
-
-            if bounding_box:
-                pl.add_mesh(
-                    pv.Box(bounds=(xlo, xhi, ylo, yhi, zlo, zhi)),
-                    style="wireframe",
-                    color="black",
-                    line_width=2,
-                    name="domain_box",
-                )
+                stl_colors = getattr(grid, "stl_colors", None) or {}
+                for key, surface in surfaces.items():
+                    color = stl_colors.get(key, "grey")
+                    pl.add_mesh(
+                        surface.triangulate(),
+                        color=color,
+                        opacity=stl_opacity,
+                        silhouette={"color": color, "line_width": 1.0},
+                        name=f"stl_{key}",
+                    )
+                pl.add_text(f"Field {component}", font_size=10)
+                pl.add_axes()
+                if bounding_box:
+                    pl.add_bounding_box(color="black")
+                pl.view_isometric()
+                pl.set_background("mistyrose", top="white")
 
             if off_screen:
                 return pl
-
-            else:
-                pl.show(auto_close=False, interactive_update=True)
-                return None
+            pl.show()
+            return None

@@ -63,12 +63,34 @@ Note that the number of cells will heavily affect the simulation time (in partic
 
 ### `STL` geometry importing
 
-The `stl_method="voxelize_rectilinear"` option requires a uniform grid and
-samples the centres of its physical cells. Optional `subpixel_smoothing=True`
-uses aligned subcell samples. Stored masks retain the full grid dimensions;
-terminal boundary labels inherit the nearest physical-cell values, including
-smoothing when enabled. This assumes no material change within the final
-half-cell. For nonuniform meshes, use `stl_method="interior_points"`.
+```{note}
+**Added in v0.9.0:** component-wise material masks at the staggered E and H locations.
+```
+
+Choose a **meshing method**:
+
+- `"legacy"` (default): supports uniform and nonuniform grids; uses PyVista's `select_interior_points`.
+- `"voxelize_rectilinear"`: requires a uniform grid.
+- `"implicit_distance"` and `"interior_points"` are no longer supported method values.
+
+Both methods produce two boolean `Field` objects per solid:
+
+| Mask | Material coefficients | Coordinates |
+| --- | --- | --- |
+| `grid.primal_masks[key]` | Inverse permittivity and conductivity | `grid.primal_coords` (E/J locations) |
+| `grid.dual_masks[key]` | Inverse permeability | `grid.dual_coords` (H locations) |
+
+Each Field stores `3 * Nx * Ny * Nz` values, one block per component. Both masks come from a **shared 2× sampling lattice**, reused for all solids. Masks include vacuum solids and are preserved by grid HDF5 save/load.
+
+**Material assignment:** later solids take precedence in overlaps; other samples retain the background material. Piecewise constant scalar permeability is supported.
+
+**TF/SF only:** PEC constraints are completed between marked conductor nodes to match the injection potential. This can extend the staircase wall by a neighboring edge. Direct-source simulations retain the sampled coefficients. Check curved walls and narrow gaps under mesh refinement.
+
+**Current limits:**
+
+- Subpixel smoothing and conductive SIBC solids raise `NotImplementedError`.
+- Scalar `grid.grid[key]` labels are no longer generated. Plot masks with `grid.plot_stl_mask()` / `grid.plot_stl_mask_slice()`, or inspect their Fields directly.
+- Recreate grids saved without staggered masks before using STL material allocation.
 
 In beam-coupling impedance simulations one is usually interested in the geometric impedance, together with the impedance coming from material properties. In `wakis`, the geometry to simulate (sometimes referred as Embedded boundaries) can be imported from a `.stl` file containing a CAD model, and the units should be meters [m].
 
@@ -270,6 +292,45 @@ Since `wakis` supports anisotropy, each material tensor stores $x$, $y$, and $z$
 ```{tip}
 Material tensors and electromagnetic fields are `Field` objects. Use their `inspect()` method to check a 2D slice before running the simulation.
 ```
+
+### Field coordinates and inspection
+
+```{note}
+**Added in v0.9.0:** physical sample coordinates and coordinate-aware Field inspection.
+```
+
+The **primal grid** uses `grid.x`, `grid.y`, `grid.z`; the **dual (tilde) grid** uses `grid.tx`, `grid.ty`, `grid.tz`. Dual arrays include the domain endpoints, so field coordinates use their interior entries (`[1:-1]`).
+
+The grid provides component-specific axes in metres:
+
+- **`grid.primal_coords`:** E, J, inverse permittivity, conductivity, and primal masks.
+- **`grid.dual_coords`:** H, inverse permeability, and dual masks.
+
+Each dictionary maps `"x"`, `"y"`, or `"z"` to an `(x, y, z)` tuple of one-dimensional arrays. Axes are shared by reference and rebuilt on HDF5 load. Interior dual axes omit inactive terminal storage planes. Solver fields, including TF/SF fields, receive the matching coordinates automatically; arithmetic preserves the left operand's metadata.
+
+For a standalone Field, pass `coordinates=grid.primal_coords` or `coordinates=grid.dual_coords`.
+
+**`inspect()` and `inspect3D()`** use physical coordinates when available and hide inactive terminal storage. Without coordinates, they use indices or the supplied grid geometry.
+
+- **2D orientation:** the first letter of `plane` is horizontal and the second is vertical. For example, `"XY"` and `"YX"` give different orientations. Physical `position` selects the nearest sample in Matplotlib.
+- **3D components:** use an individual component or `field="all"` for separate panels. PyVista clipping uses physical positions when coordinates or grid geometry are available.
+- **STL overlays:** pass `grid` to PyVista. `inspect()` draws slice outlines; `inspect3D()` draws surfaces in `grid.stl_colors` with silhouettes. Set `stl_opacity` (default `0.2`) for surface transparency.
+- **Matplotlib:** supports nonuniform 2D coordinates and 3D voxels, without STL overlays. Use PyVista for large 3D meshes.
+
+**STL mask plots** select one component and either grid:
+
+```python
+# Occupied voxels with the matching STL overlay and a clipping box.
+grid.plot_stl_mask("pipe", component="x", grid_type="primal", add_stl=True)
+
+# A flat 2D mask plane with a physical-position slider and STL outline.
+grid.plot_stl_mask_slice("pipe", component="z", grid_type="dual", plane="XZ")
+```
+
+Both default to `component="x"` and `grid_type="primal"`. The 3D plot starts with all occupied voxels visible; resize or move its axis-aligned box to retain voxels whose centres are inside. Display voxels surround the component samples and end at the domain boundaries. **Use the slice plot for large grids:** it builds only one 2D plane; the 3D plot extracts all occupied voxels. Neither changes the stored masks or `grid.grid` data.
+
+**Magnitude plots remain approximate:** `field="abs"` uses the existing index-wise norm on the x-component display axes. Interpolation to common locations is tracked in [issue #116](https://github.com/ImpedanCEI/Wakis/issues/116).
+
 ### Running a simulation
 
 With an initial field or a source, advance the simulation one timestep at a time with `solver.one_step()`:
@@ -304,7 +365,10 @@ Sources in `wakis` can be:
 
 The sources can modify components of the $E$ and $H$ fields or the current $J$. Each source updates the solver once per timestep.
 
-All waveform sources use hard injection by default, assigning their evaluated values to the selected components. Pass `injection="soft"` to add the values to the existing fields instead. The `Beam` source uses its own moving-current and TF/SF injection path.
+All waveform sources use hard injection by default, assigning their evaluated values to the selected components. Pass `injection="soft"` to add the values to the existing fields instead. The `Beam` source uses its own moving-current and TF/SF injection path:
+
+- **Injection planes:** use straight vacuum pipe cross-sections at both ends when using CPML.
+- **Injection cutoff:** incident fields remain active until the bunch centre passes the exit plane by **8σ**, reducing offsets from truncating the Gaussian tail.
 
 To add a time-dependent source, one can simply setup a time-loop and run the routine `solver.one_step()` after the source has been applied (see [Running a simulation](#running-a-simulation) section). However, a more optimized way is to pass a `source` to the EM solver. The `source` objects available inside `sources.py` are:
 * `Beam`: a line source for $J_z$ that adds a Gaussian current traversing the domain from z- to z+. Its longitudinal size $\sigma_z$, total charge $q$, and transverse position are constructor arguments.

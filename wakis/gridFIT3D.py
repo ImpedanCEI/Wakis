@@ -125,14 +125,14 @@ class GridFIT3D(PlotMixin):
             Tolerance factor for STL import, used in grid.select_enclosed_points.
             Default is 1e-3.
         stl_method : str, optional
-            Method for marking cells inside STL solids. Options are "legacy" (default),
-            "interior_points", "implicit_distance", or "voxelize_rectilinear".
-            Voxelization requires a uniform grid and samples physical cell centres;
-            terminal storage planes inherit the nearest physical-cell labels.
+            Electric material classification: "legacy" (default) or
+            "voxelize_rectilinear". Both sample nodes and interval midpoints
+            and store packed Fields in primal_masks and dual_masks. Voxelization
+            requires uniform axes; legacy also supports nonuniform axes.
+            Scalar cell masks are not generated.
         subpixel_smoothing : bool, optional
-            Whether to apply subpixel smoothing to physical STL cells after
-            voxelization. Terminal labels inherit the smoothed boundary cells.
-            Default is False.
+            Default False. Smoothing of packed electric material masks is under
+            development; requesting it raises NotImplementedError.
         subpixel_smoothing_factor : int, optional
             Factor by which to increase the resolution for subpixel smoothing. Default is 4.
             Memory usage increases with the cube of this factor, so use with caution!
@@ -171,6 +171,19 @@ class GridFIT3D(PlotMixin):
             Dual edge lengths and inverse face areas on the same computational
             index space. Dual edges initially have half-cell lengths at both
             boundaries; a periodic solver combines them at the low boundary.
+        primal_coords, dual_coords : dict
+            Physical component sample axes [m], keyed by 'x', 'y', 'z'. Each
+            value is an (x, y, z) tuple. Primal coordinates locate E/J and
+            electric material coefficients; dual coordinates locate H and
+            magnetic coefficients. Midpoint axes omit inactive terminal edges.
+            Axes are shared by reference and rebuilt from primal nodes on load.
+        primal_masks, dual_masks : dict of Field
+            Binary material masks for both supported methods, including vacuum.
+            Each boolean Field has 3*Nx*Ny*Nz entries in component ordering.
+            Primal masks sample electric edge midpoints and dual masks sample
+            magnetic face centres, with matching coordinate metadata.
+            Inactive terminal storage planes are false. Subpixel smoothing
+            is not yet supported.
         stl_solids, stl_materials, stl_colors : dict
             STL solid file paths, materials, and colors.
         (...)
@@ -315,6 +328,8 @@ class GridFIT3D(PlotMixin):
         self.subpixel_smoothing_factor = subpixel_smoothing_factor
         self.subpixel_smoothing_threshold = subpixel_smoothing_threshold
         self.subpixel_smoothing_bool = subpixel_smoothing_bool
+        self.primal_masks = {}
+        self.dual_masks = {}
         if self.subpixel_smoothing_threshold is None:
             self.subpixel_smoothing_threshold = 1 / (self.subpixel_smoothing_factor**3)
         if stl_solids is not None:
@@ -371,6 +386,18 @@ class GridFIT3D(PlotMixin):
         self.tx = np.r_[self.x[0], (self.x[1:] + self.x[:-1]) / 2, self.x[-1]]
         self.ty = np.r_[self.y[0], (self.y[1:] + self.y[:-1]) / 2, self.y[-1]]
         self.tz = np.r_[self.z[0], (self.z[1:] + self.z[:-1]) / 2, self.z[-1]]
+        # Physical field locations; terminal midpoint storage is excluded.
+        mx, my, mz = self.tx[1:-1], self.ty[1:-1], self.tz[1:-1]
+        self.primal_coords = {
+            "x": (mx, self.y, self.z),
+            "y": (self.x, my, self.z),
+            "z": (self.x, self.y, mz),
+        }
+        self.dual_coords = {
+            "x": (self.x, my, mz),
+            "y": (mx, self.y, mz),
+            "z": (mx, my, self.z),
+        }
         tX, tY, tZ = np.meshgrid(self.tx, self.ty, self.tz, indexing="ij")
 
         # No values are 0, just snapped to physical domain boundaries
@@ -549,20 +576,14 @@ class GridFIT3D(PlotMixin):
                 self.stl_materials[key].append(0.0)
 
     def _mark_cells_in_stl(self, method):
+        """Classify primal and dual locations on a shared node/midpoint grid.
+
+        Voxelization uses a uniform half-spacing ImageData reference volume.
+        Legacy uses select_interior_points on an interleaved rectilinear grid,
+        including nonuniform axes. Both store boolean Fields in primal_masks and dual_masks.
         """
-        Mark grid cells that are inside each STL solid.
-
-        Uses PyVista's select_interior_points as default (equivalent to the deprecated select_enclosed_points),
-        and otherwise input method either compute_implicit_distance or voxelize_rectilinear,
-        to create boolean masks for each solid.
-
-        See also the PyVista documentation:
-        ----------------------------------
-        "interior_points": https://docs.pyvista.org/api/core/_autosummary/pyvista.datasetfilters.select_interior_points
-        "implicit_distance": https://docs.pyvista.org/api/core/_autosummary/pyvista.datasetfilters.compute_implicit_distance
-        "voxelize_rectilinear" : https://docs.pyvista.org/api/core/_autosummary/pyvista.datasetfilters.voxelize_rectilinear
-
-        """
+        if method.lower() not in ("legacy", "voxelize_rectilinear"):
+            raise ValueError("stl_method must be 'legacy' or 'voxelize_rectilinear'.")
         # Obtain masks with grid cells inside each stl solid
         stl_tolerance = (
             np.min([np.min(self.dx), np.min(self.dy), np.min(self.dz)]) * self.stl_tol
@@ -571,6 +592,31 @@ class GridFIT3D(PlotMixin):
         if self.verbose > 1:
             progress_bar = True
 
+        # Voxelize rectilinear 2x reference grid for material allocation
+        if method.lower() == "voxelize_rectilinear":
+            widths = (self.dx, self.dy, self.dz)
+            if any(not np.allclose(axis, axis[0], atol=0) for axis in widths):
+                raise ValueError(
+                    "voxelize_rectilinear requires a uniform grid; "
+                    "use legacy for nonuniform grids."
+                )
+            # 2x grid: even indices are nodes, odd ones midpoints.
+            reference_volume = pv.ImageData(
+                dimensions=tuple(2 * n - 1 for n in (self.Nx, self.Ny, self.Nz)),
+                origin=(self.xmin, self.ymin, self.zmin),
+                spacing=tuple(axis[0] / 2 for axis in widths),
+            )
+
+        elif method.lower() == "legacy":
+            # Preserve nonuniform intervals by inserting their actual midpoints.
+            refined_axes = []
+            for nodes in (self.x, self.y, self.z):
+                refined = np.empty(2 * len(nodes) - 1)
+                refined[::2] = nodes
+                refined[1::2] = (nodes[:-1] + nodes[1:]) / 2
+                refined_axes.append(refined)
+            reference_volume = pv.RectilinearGrid(*refined_axes)
+
         for key in self.stl_solids.keys():
             surf = self.read_stl(key)
 
@@ -578,124 +624,77 @@ class GridFIT3D(PlotMixin):
                 print(f" * Marking cells inside STL solid '{key}'...")
 
             # mark cells in stl [True == in stl, False == out stl]
-            if method.lower() == "legacy":
+            if method.lower() == "voxelize_rectilinear":
+                # Perform solid voxelization and extract detected voxels mask
+                classified_grid = surf.voxelize_rectilinear(
+                    reference_volume=reference_volume, progress_bar=progress_bar
+                )
+                mask = np.asarray(classified_grid["mask"]).reshape(
+                    reference_volume.dimensions, order="F"
+                )
+
+            elif method.lower() == "legacy":
                 try:
-                    select = self.grid.select_interior_points(
+                    classified_grid = reference_volume.select_interior_points(
                         surf, method="cell_locator", locator_tolerance=stl_tolerance
                     )
-                    self.grid[key] = (
-                        select.point_data_to_cell_data()["selected_points"]
-                        > stl_tolerance
-                    )
-                except Exception:
-                    select = self.grid.select_interior_points(
+                except RuntimeError:
+                    classified_grid = reference_volume.select_interior_points(
                         surf,
                         method="cell_locator",
                         locator_tolerance=stl_tolerance,
                         check_surface=False,
                     )
-                    self.grid[key] = (
-                        select.point_data_to_cell_data()["selected_points"]
-                        > stl_tolerance
-                    )
                     if self.verbose > 1:
                         print(
                             f"[!] Warning: stl solid {key} may have issues with closed surfaces. Consider checking the STL file."
                         )
+                mask = np.asarray(
+                    classified_grid.point_data["selected_points"]
+                ).reshape(reference_volume.dimensions, order="F")
 
-            elif method.lower() == "interior_points":
-                try:
-                    select = self.grid.select_interior_points(
-                        surf, method="cell_locator", locator_tolerance=stl_tolerance
-                    )
-                    self.grid[key] = (
-                        select.point_data_to_cell_data()["selected_points"] > 0.5
-                    )
-                except Exception:
-                    select = self.grid.select_interior_points(
-                        surf,
-                        method="cell_locator",
-                        locator_tolerance=stl_tolerance,
-                        check_surface=False,
-                    )
-                    self.grid[key] = (
-                        select.point_data_to_cell_data()["selected_points"] > 0.5
-                    )
-                    if self.verbose > 1:
-                        print(
-                            f"[!] Warning: stl solid {key} may have issues with closed surfaces. Consider checking the STL file."
-                        )
+            # Unpack nodes and midpoints per x, y, z axis.
+            primal_mask = Field(
+                self.Nx,
+                self.Ny,
+                self.Nz,
+                dtype=bool,
+                coordinates=self.primal_coords,  # For ieps and sigma
+            )
+            primal_mask.to_matrix("x")[:-1, :, :] = mask[1::2, ::2, ::2]
+            primal_mask.to_matrix("y")[:, :-1, :] = mask[::2, 1::2, ::2]
+            primal_mask.to_matrix("z")[:, :, :-1] = mask[::2, ::2, 1::2]
+            self.primal_masks[key] = primal_mask
 
-            elif method.lower() == "implicit_distance":
-                # negative distance is inside, positive is outside
-                try:
-                    select = self.grid.compute_implicit_distance(surf)
-                    self.grid[key] = select.point_data_to_cell_data()[
-                        "implicit_distance"
-                    ] <= 0.5 * np.mean(
-                        [np.mean(self.dx), np.mean(self.dy), np.mean(self.dz)]
-                    )
-                except Exception:
-                    print(
-                        f"[!] Warning: Implicit distance computation for stl solid {key} failed."
-                    )
+            dual_mask = Field(
+                self.Nx,
+                self.Ny,
+                self.Nz,
+                dtype=bool,
+                coordinates=self.dual_coords,
+            )
+            dual_mask.to_matrix("x")[:, :-1, :-1] = mask[::2, 1::2, 1::2]
+            dual_mask.to_matrix("y")[:-1, :, :-1] = mask[1::2, ::2, 1::2]
+            dual_mask.to_matrix("z")[:-1, :-1, :] = mask[1::2, 1::2, ::2]
+            self.dual_masks[key] = dual_mask
 
-            elif method.lower() == "voxelize_rectilinear":
-                # Check for uniform grid
-                widths = (self.dx, self.dy, self.dz)
-                if any(not np.allclose(axis, axis[0], atol=0) for axis in widths):
-                    raise ValueError(
-                        "voxelize_rectilinear requires a uniform grid; "
-                        "use interior_points for nonuniform grids."
-                    )
+            solid_mask = primal_mask.array
+            del mask, classified_grid
 
-                # PyVista reference points become the output voxel centres.
-                shape = (self.Nx - 1, self.Ny - 1, self.Nz - 1)
-                dx, dy, dz = self.dx[0], self.dy[0], self.dz[0]
-                origin = (  # physical cell centers
-                    self.xmin + dx / 2,
-                    self.ymin + dy / 2,
-                    self.zmin + dz / 2,
-                )
-                reference_vol = pv.ImageData(
-                    dimensions=shape, origin=origin, spacing=(dx, dy, dz)
-                )
-                vox = surf.voxelize_rectilinear(
-                    reference_volume=reference_vol, progress_bar=progress_bar
+            if self.use_subpixel_smoothing:
+                raise NotImplementedError(
+                    "Subpixel smoothing is currently under development"
                 )
 
-                # Extend material labels to degenerate ghost high-side storage cells.
-                # This assumes no material change within the final half-cell.
-                mask = np.empty((self.Nx, self.Ny, self.Nz), dtype=bool)
-                mask[:-1, :-1, :-1] = np.asarray(vox["mask"]).reshape(shape, order="F")
-
-                mask[-1, :-1, :-1] = mask[-2, :-1, :-1]
-                mask[:, -1, :-1] = mask[:, -2, :-1]
-                mask[:, :, -1] = mask[:, :, -2]
-
-                self.grid.cell_data[key] = mask.ravel()
-
-                if self.use_subpixel_smoothing:
-                    self._apply_subpixel_smoothing(
-                        key,
-                        factor=self.subpixel_smoothing_factor,
-                        threshold=self.subpixel_smoothing_threshold,
-                        make_bool=self.subpixel_smoothing_bool,
-                    )
-            else:
-                raise ValueError(
-                    f"[!] Error: stl_method {method} not recognized. \
-                    Use 'interior_points', 'implicit_distance', or 'voxelize_rectilinear'."
-                )
-
-            if self.verbose and np.sum(self.grid[key]) == 0:
+            # Verbose output
+            if self.verbose and not np.any(solid_mask):
                 print(
-                    f"[!] Warning: no cells were marked inside stl solid {key}. Consider increasing the tolerance factor (currently {self.stl_tol})."
+                    f"[!] No samples were marked inside STL solid '{key}'. "
+                    "Check its position, scale, and the grid resolution."
                 )
-
             if self.verbose:
                 print(
-                    f"    * STL solid {key}: {np.sum(self.grid[key])} cells marked inside the solid."
+                    f"    * STL solid {key}: {np.sum(solid_mask)} samples marked inside the solid."
                 )
 
     def _apply_subpixel_smoothing(
@@ -1161,7 +1160,8 @@ class GridFIT3D(PlotMixin):
 
         The file contains primal node arrays and full-size computational-cell
         STL masks, when present. Dual coordinates and FIT metrics are rebuilt
-        from the node arrays when loading.
+        from the node arrays when loading. Packed electric masks are also saved
+        when available.
 
         Parameters
         ----------
@@ -1200,10 +1200,16 @@ class GridFIT3D(PlotMixin):
                     else:
                         grp.create_dataset(str(key), data=np.array(val))
 
+            for name in ("primal_masks", "dual_masks"):
+                masks = hf.create_group(name)
+                for key, mask in getattr(self, name).items():
+                    masks.create_dataset(key, data=mask.array)
+
             for key in self.stl_solids or {}:
-                hf.create_dataset(
-                    "grid_" + key, data=np.asarray(self.grid.cell_data[key])
-                )
+                if key not in self.primal_masks:
+                    hf.create_dataset(
+                        "grid_" + key, data=np.asarray(self.grid.cell_data[key])
+                    )
 
     def load_from_h5(self, filename):
         """
@@ -1211,6 +1217,8 @@ class GridFIT3D(PlotMixin):
 
         Restore primal node arrays and current-format STL masks. Dual
         coordinates and all FIT metrics are recomputed from the node arrays.
+        Packed electric masks are restored when present; older files leave
+        primal_masks empty without querying the original STL files.
 
         Parameters
         ----------
@@ -1260,9 +1268,15 @@ class GridFIT3D(PlotMixin):
         # recommpute grid and L, iA, tL, itA
         self._compute_grid()
 
+        # Older files contain only scalar masks; do not reconstruct staggered
+        # samples from them because their original geometry information is lost.
+        self.primal_masks = {}
+        self.dual_masks = {}
         # Current-format masks include the terminal computational planes.
         with h5py.File(filename, "r") as hf:
             for key in self.stl_solids.keys():
+                if "primal_masks" in hf and key in hf["primal_masks"]:
+                    continue
                 mask = hf["grid_" + key][()]
                 if mask.shape != (self.grid.n_cells,):
                     raise ValueError(
@@ -1272,6 +1286,29 @@ class GridFIT3D(PlotMixin):
                         "the grid with the current Wakis version."
                     )
                 self.grid.cell_data[key] = mask
+
+            for name, coordinates in (
+                ("primal_masks", self.primal_coords),
+                ("dual_masks", self.dual_coords),
+            ):
+                if name not in hf:
+                    continue
+                for key, dataset in hf[name].items():
+                    mask = dataset[()]
+                    if mask.shape != (3 * self.grid.n_cells,) or mask.dtype != bool:
+                        raise ValueError(
+                            f"{name} entry '{key}' must be boolean "
+                            f"with shape ({3 * self.grid.n_cells},)."
+                        )
+                    material_mask = Field(
+                        self.Nx,
+                        self.Ny,
+                        self.Nz,
+                        dtype=bool,
+                        coordinates=coordinates,
+                    )
+                    material_mask.fromarray(mask)
+                    getattr(self, name)[key] = material_mask
 
         # add verbosity
         if self.verbose > 1:
