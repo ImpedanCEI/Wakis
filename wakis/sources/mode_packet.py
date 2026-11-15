@@ -50,12 +50,12 @@ class ModePacket(WaveformSource):
         self.ys = slice(None)
         self.zs = zs
         self.mode = mode
-        self.f = f
-        self.omega = 2 * np.pi * f
-        self.amplitude = amplitude
-        self.sigma_t = sigma_t
-        self.tinj = tinj
-        self.phase = phase
+        self.f = float(f)
+        self.omega = 2 * np.pi * self.f
+        self.amplitude = float(amplitude)
+        self.sigma_t = float(sigma_t) if sigma_t is not None else None
+        self.tinj = float(tinj) if tinj is not None else None
+        self.phase = float(phase)
         if self.sigma_t is None:
             self.sigma_t = 3.0 / self.f
         if self.tinj is None:
@@ -73,6 +73,7 @@ class ModePacket(WaveformSource):
     def update(self, solver, t):
         """Inject the Gaussian-windowed TE01 electric field at time ``t``."""
         self._ensure_initialized(solver)
+        t = float(t)
 
         temporal = self.gaussian_profile(t - self.tinj, self.sigma_t)
         carrier = self.harmonic_carrier(self.omega * t + self.phase)
@@ -83,8 +84,9 @@ class ModePacket(WaveformSource):
 
     def plot(self, t):
         """Plot the time evolution of the modal electric-field drive."""
-        temporal = self.gaussian_profile(np.asarray(t) - self.tinj, self.sigma_t)
-        carrier = self.harmonic_carrier(self.omega * np.asarray(t) + self.phase)
+        t_arr = np.asarray(t, dtype=float)
+        temporal = self.gaussian_profile(t_arr - self.tinj, self.sigma_t)
+        carrier = self.harmonic_carrier(self.omega * t_arr + self.phase)
         electric_x = self.amplitude * temporal * carrier
 
         fig, ax = plt.subplots()

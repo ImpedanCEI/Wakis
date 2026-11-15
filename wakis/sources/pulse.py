@@ -6,6 +6,7 @@
 """Electromagnetic pulse source."""
 
 import matplotlib.pyplot as plt
+import numpy as np
 from scipy.constants import c as c_light
 
 from .source import WaveformSource
@@ -80,10 +81,10 @@ class Pulse(WaveformSource):
         self.xs, self.ys, self.zs = xs, ys, zs
         self.field = field
         self.component = component
-        self.amplitude = amplitude
+        self.amplitude = float(amplitude)
         self.shape = shape
-        self.L = L
-        self.delay = delay
+        self.L = float(L) if L is not None else None
+        self.delay = float(delay)
 
         if len(field) == 2:  # support for e.g. field='Ex'
             self.component = field[1]
@@ -117,7 +118,7 @@ class Pulse(WaveformSource):
         float or ndarray
             Harris pulse value(s).
         """
-        coordinate = t * c_light - self.delay
+        coordinate = np.asarray(t, dtype=float) * c_light - self.delay
         return self.harris_profile(coordinate, self.L)
 
     def gaussian_pulse(self, t):
@@ -134,7 +135,7 @@ class Pulse(WaveformSource):
         float or ndarray
             Gaussian pulse value(s).
         """
-        coordinate = t * c_light - self.delay
+        coordinate = np.asarray(t, dtype=float) * c_light - self.delay
         return self.gaussian_profile(coordinate - self.L / 2, self.L / 10)
 
     def rectangular_pulse(self, t):
@@ -151,7 +152,7 @@ class Pulse(WaveformSource):
         float or ndarray
             Rectangular pulse value(s).
         """
-        coordinate = t * c_light - self.delay
+        coordinate = np.asarray(t, dtype=float) * c_light - self.delay
         return self.rectangular_profile(coordinate, self.L)
 
     def _initialize(self, solver):
@@ -163,11 +164,12 @@ class Pulse(WaveformSource):
         if self.zs is None:
             self.zs = int(solver.Nz / 2)
         if self.L is None:
-            self.L = 50 * c_light * solver.dt
+            self.L = 50 * c_light * float(solver.dt)
 
     def update(self, solver, t):
         """Inject the selected pulse component at time ``t``."""
         self._ensure_initialized(solver)
+        t = float(t)
 
         waveform = self.amplitude * self.tprofile(t)
         index = (self.xs, self.ys, self.zs, self.component)

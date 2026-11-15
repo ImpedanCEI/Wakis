@@ -425,7 +425,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 f"    * Total simulation time for wakelength={wakelength} m: tmax={tmax:.3e} s"
             )
             print(
-                f"    * Total number of timesteps for wakelength={wakelength} m: Nt={int(tmax / self.dt)}"
+                f"    * Total number of timesteps for wakelength={wakelength} m: Nt={int(tmax / float(self.dt))}"
             )
 
         # Pre-computing

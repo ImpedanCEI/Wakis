@@ -94,6 +94,7 @@ class RoutinesMixin:
         self.Nt = Nt
         if source is not None:
             self.source = source
+        times = np.arange(Nt) * float(self.dt)
 
         if save:
             hfs = {}
@@ -113,7 +114,7 @@ class RoutinesMixin:
                     self.dy,
                     self.dz,
                 )
-                hf["t"] = np.arange(0, Nt * self.dt, save_every * self.dt)
+                hf["t"] = times[::save_every]
 
             if subdomain is not None:
                 xx, yy, zz = subdomain
@@ -159,7 +160,7 @@ class RoutinesMixin:
         # Time loop
         for n in tqdm(range(Nt)):
             if source is not None:
-                source.update(self, n * self.dt)
+                source.update(self, times[n])
 
             if save and n % save_every == 0:
                 for field in hfs.keys():
@@ -186,7 +187,7 @@ class RoutinesMixin:
 
             # Callback func(solver, t)
             if callback is not None:
-                callback(self, n * self.dt)
+                callback(self, times[n])
 
         # End
         if save:
@@ -357,10 +358,11 @@ class RoutinesMixin:
             dz = self.dz
             zz = slice(0, self.Nz - 1)
 
+        dt = float(self.dt)
         tmax = (wakelength + self.ti * self.v + np.sum(dz)) / self.v  # [s]
-        Nt = int(tmax / self.dt)
+        Nt = int(tmax / dt)
         self.tmax, self.Nt = tmax, Nt
-        times = np.arange(Nt) * float(self.dt)
+        times = np.arange(Nt) * dt
 
         # Add beam source
         beam = Beam(
@@ -394,7 +396,7 @@ class RoutinesMixin:
                         self.dy,
                         dz,
                     )
-                    hfJ["t"] = times + float(self.dt) / 2
+                    hfJ["t"] = times + 0.5 * dt
         else:
             hf = h5py.File(self.Ez_file, "w")
             hf["x"], hf["y"], hf["z"] = self.x[xx], self.y[yy], z
@@ -413,7 +415,7 @@ class RoutinesMixin:
                     self.dy,
                     dz,
                 )
-                hfJ["t"] = times + float(self.dt) / 2
+                hfJ["t"] = times + 0.5 * dt
 
         def save_to_h5(self, hf, field, x, y, z, comp, n):
             if self.use_mpi:
@@ -426,7 +428,7 @@ class RoutinesMixin:
         if plot_until is None:
             plot_until = Nt
         if plot_from is None:
-            plot_from = int(self.ti / self.dt)
+            plot_from = int(self.ti / dt)
 
         print("Running electromagnetic time-domain simulation...")
 
@@ -444,7 +446,7 @@ class RoutinesMixin:
             self.one_step()
 
             if use_field_monitor and field_monitor is not None:
-                field_monitor.update(self.E, self.dt)
+                field_monitor.update(self.E, dt)
 
             # Plot
             if plot:

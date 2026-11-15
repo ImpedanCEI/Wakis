@@ -108,17 +108,17 @@ class WavePacket(WaveformSource):
         super().__init__(injection=injection)
 
         # Check inputs and update self
-        self.beta = beta
+        self.beta = float(beta)
         self.xs, self.ys = xs, ys
         self.zs = zs
-        self.f = f
-        self.wavelength = wavelength
-        self.sigmaxy = sigmaxy
-        self.sigmaz = sigmaz
-        self.tinj = tinj
-        self.amplitude = amplitude
-        self.phase = phase
-        self.theta = theta
+        self.f = float(f) if f is not None else None
+        self.wavelength = float(wavelength) if wavelength is not None else None
+        self.sigmaxy = float(sigmaxy) if sigmaxy is not None else None
+        self.sigmaz = float(sigmaz) if sigmaz is not None else None
+        self.tinj = float(tinj) if tinj is not None else None
+        self.amplitude = float(amplitude)
+        self.phase = float(phase)
+        self.theta = float(theta)
         self.vp = self.beta * c_light
 
         if self.f is None and self.wavelength is not None:
@@ -152,6 +152,7 @@ class WavePacket(WaveformSource):
     def update(self, solver, t):
         """Inject the matched TM Gaussian wave packet at time ``t``."""
         self._ensure_initialized(solver)
+        t = float(t)
 
         # tx[0] is the boundary, H starts at tx[1]
         x_edge, y_node = np.meshgrid(
@@ -206,10 +207,11 @@ class WavePacket(WaveformSource):
         fig, ax = plt.subplots()
 
         # compute source evolution
+        t_arr = np.asarray(t, dtype=float)
         w0 = zmin - self.tinj
-        w = zmin - self.vp * t
+        w = zmin - self.vp * t_arr
         temporal = self.gaussian_profile(w - w0, self.sigmaz)
-        carrier = self.harmonic_carrier(self.omega * t + self.phase)
+        carrier = self.harmonic_carrier(self.omega * t_arr + self.phase)
         magnetic_y = self.amplitude * temporal * carrier
         impedance = mu_0 * self.vp
         electric_x = impedance * np.cos(self.theta) * magnetic_y

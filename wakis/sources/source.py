@@ -38,7 +38,8 @@ class WaveformSource(ABC):
     @staticmethod
     def gaussian_profile(coordinate, sigma):
         """Return a unit Gaussian profile centred at zero."""
-        coordinate = np.asarray(coordinate)
+        coordinate = np.asarray(coordinate, dtype=float)
+        sigma = float(sigma)
         return np.exp(-(coordinate**2) / (2 * sigma**2))
 
     @classmethod
@@ -49,14 +50,16 @@ class WaveformSource(ABC):
     @staticmethod
     def rectangular_profile(coordinate, length):
         """Return a unit rectangular profile over ``0 < coordinate < length``."""
-        coordinate = np.asarray(coordinate)
+        coordinate = np.asarray(coordinate, dtype=float)
+        length = float(length)
         profile = np.where((coordinate > 0.0) & (coordinate < length), 1.0, 0.0)
         return profile.item() if profile.ndim == 0 else profile
 
     @staticmethod
     def harris_profile(coordinate, length):
         """Return a compact, smooth Harris pulse over one pulse length."""
-        coordinate = np.asarray(coordinate)
+        coordinate = np.asarray(coordinate, dtype=float)
+        length = float(length)
         phase = 2 * np.pi * coordinate / length
         profile = (
             10 - 15 * np.cos(phase) + 6 * np.cos(2 * phase) - np.cos(3 * phase)
@@ -67,17 +70,20 @@ class WaveformSource(ABC):
     @staticmethod
     def harmonic_carrier(phase, kind="cos"):
         """Return a sine or cosine carrier for the supplied phase."""
+        phase = np.asarray(phase, dtype=float)
         if kind == "cos":
-            return np.cos(phase)
+            carrier = np.cos(phase)
+            return carrier.item() if carrier.ndim == 0 else carrier
         if kind == "sin":
-            return np.sin(phase)
+            carrier = np.sin(phase)
+            return carrier.item() if carrier.ndim == 0 else carrier
         raise ValueError("carrier kind must be either 'cos' or 'sin'")
 
     @staticmethod
     def finite_window(coordinate, start=0.0, stop=np.inf):
         """Return a mask selecting coordinates inside a closed interval."""
-        coordinate = np.asarray(coordinate)
-        return (coordinate >= start) & (coordinate <= stop)
+        coordinate = np.asarray(coordinate, dtype=float)
+        return (coordinate >= float(start)) & (coordinate <= float(stop))
 
     @staticmethod
     def _source_frame(direction):

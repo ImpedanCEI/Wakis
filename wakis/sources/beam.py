@@ -61,13 +61,13 @@ class Beam:
             Minimum z position (set on first update).
         """
 
-        self.xsource, self.ysource = xsource, ysource
-        self.sigmaz = sigmaz
-        self.q = q
-        self.beta = beta
-        self.v = c_light * beta
+        self.xsource, self.ysource = float(xsource), float(ysource)
+        self.sigmaz = float(sigmaz) if sigmaz is not None else None
+        self.q = float(q)
+        self.beta = float(beta)
+        self.v = c_light * self.beta
         if ti is not None:
-            self.ti = ti
+            self.ti = float(ti)
         else:
             self.ti = 8.548921333333334 * self.sigmaz / self.v
         self.is_first_update = True
@@ -83,11 +83,11 @@ class Beam:
         t : float
             Current simulation time [s].
         """
+        t = float(t)
+        t_half = t + 0.5 * float(solver.dt)
         if self.is_first_update:
             self._initialize(solver, t)
-        profile = self._compute_longitudinal_profile(
-            solver.tz[1:], t + solver.dt / 2, self.zmin
-        )
+        profile = self._compute_longitudinal_profile(solver.tz[1:], t_half, self.zmin)
         # The terminal Jz edge has zero primal length at the physical high face.
         if not solver.use_mpi or solver.rank == solver.size - 1:
             profile[-1] = 0.0
@@ -98,7 +98,9 @@ class Beam:
 
     def _compute_longitudinal_profile(self, z_pos, t, zmin):
         """Return the normalized Gaussian bunch profile at ``z_pos`` and ``t``."""
-        source_offset = zmin - self.v * self.ti
+        z_pos = np.asarray(z_pos, dtype=np.float64)
+        t = np.asarray(t, dtype=np.float64)
+        source_offset = float(zmin) - self.v * float(self.ti)
         s = (z_pos - self.v * t) - source_offset
         return (
             1
@@ -114,9 +116,9 @@ class Beam:
             np.abs(solver.y - self.ysource).argmin(),
         )
         if hasattr(solver, "ZMIN"):  # support for MPI
-            self.zmin = solver.ZMIN
+            self.zmin = float(solver.ZMIN)
         else:
-            self.zmin = solver.z.min()
+            self.zmin = float(solver.z.min())
         if solver.source_type == "tfsf":
             self._initialize_tfsf(solver, t)
         else:
@@ -124,7 +126,9 @@ class Beam:
 
     def _initialize_direct(self, solver):
         """Allocate the previous current profile for direct injection."""
-        self.Jold = np.zeros_like(solver.J[self.ixs, self.iys, :, "z"])
+        self.Jold = np.zeros_like(
+            solver.J[self.ixs, self.iys, :, "z"], dtype=np.float64
+        )
 
     def _initialize_tfsf(self, solver, t):
         """Set TF/SF planes, current history, and incident field templates."""
@@ -136,7 +140,8 @@ class Beam:
         self._set_tfsf_planes(solver)
         self._tfsf_field_templates = {}
         self.Jold = np.zeros_like(
-            solver.J[self.ixs, self.iys, self.j_start : self.j_stop, "z"]
+            solver.J[self.ixs, self.iys, self.j_start : self.j_stop, "z"],
+            dtype=np.float64,
         )
         solver.J_max = (
             self.q
@@ -173,6 +178,8 @@ class Beam:
 
     def _update_tfsf(self, solver, t, profile):
         """Update the current and transverse fields inside the TF/SF region."""
+        t = float(t)
+        t_half = t + 0.5 * float(solver.dt)
         # [C] [m/s] [1/m] / [m] / [m] = [A/m²]
         Jprofile = (
             self.q
@@ -197,7 +204,7 @@ class Beam:
             solver.E_trans[:, :, self.j_start, "x"] = Einj_x
             solver.E_trans[:, :, self.j_start, "y"] = Einj_y
             _, _, Hinj_x, Hinj_y = self.get_injected_2D_slice(
-                solver, solver.tz[self.j_start + 1], t + solver.dt / 2, side="low"
+                solver, solver.tz[self.j_start + 1], t_half, side="low"
             )
             solver.H_trans[:, :, self.j_start, "x"] = -Hinj_x
             solver.H_trans[:, :, self.j_start, "y"] = -Hinj_y
@@ -209,13 +216,13 @@ class Beam:
             solver.E_trans[:, :, self.j_stop, "x"] = -Einj_x
             solver.E_trans[:, :, self.j_stop, "y"] = -Einj_y
             _, _, Hinj_x, Hinj_y = self.get_injected_2D_slice(
-                solver, solver.tz[self.j_stop + 1], t + solver.dt / 2, side="high"
+                solver, solver.tz[self.j_stop + 1], t_half, side="high"
             )
             solver.H_trans[:, :, self.j_stop, "x"] = Hinj_x
             solver.H_trans[:, :, self.j_stop, "y"] = Hinj_y
 
         # Truncate injection after the beam has passed the plane by 5 sigma.
-        z_source = self.zmin + self.v * (t + solver.dt / 2 - self.ti)
+        z_source = self.zmin + self.v * (t_half - self.ti)
         if z_source - self.high_plane > 5 * self.sigmaz:
             solver.injection_done = True
             del solver.E_trans, solver.H_trans

@@ -337,3 +337,215 @@ def test_cpml_symmetry(axis, n_pml, graded, plot_comparison):
     np.testing.assert_allclose(field, field[::-1], rtol=1e-10, atol=1e-12)
     field_h = solver.H.to_matrix(magnetic)[tuple(line)][:-1] * mu_0 * c
     np.testing.assert_allclose(field_h, -field_h[::-1], rtol=1e-10, atol=1e-12)
+
+
+@pytest.mark.parametrize("routine", ["wakesolve", "emsolve"])
+def test_cpml_beam_float32_timing(routine, tmp_path, monkeypatch):
+    """Keep float32 CPML beam timing and source profiles in float64 across routines.
+
+    Runs a coarse cubic-cavity TF/SF + CPML simulation in float32 and checks
+    that time samples, half-step times, and source profiles stay in float64
+    while fields remain float32 and independent of scalar-promotion rules.
+    """
+    from contextlib import nullcontext
+
+    import h5py
+
+    from wakis.field_monitors import FieldMonitor
+    from wakis.sources import Beam, Pulse
+
+    stl_file = os.path.abspath("tests/stl/001_cubic_cavity.stl")
+    surf = pv.read(stl_file)
+    xmin, xmax, ymin, ymax, zmin, zmax = surf.bounds
+    grid = wakis.GridFIT3D(
+        xmin,
+        xmax,
+        ymin,
+        ymax,
+        zmin,
+        zmax,
+        12,
+        12,
+        36,
+        stl_solids={"cavity": stl_file},
+        stl_materials={"cavity": "vacuum"},
+        verbose=0,
+    )
+    monkeypatch.chdir(tmp_path)
+
+    nep50_ctx = (
+        np._no_nep50_warning() if hasattr(np, "_no_nep50_warning") else nullcontext()
+    )
+    with nep50_ctx:
+        ez_file = str(tmp_path / f"Ez_{routine}.h5")
+        wake = wakis.WakeSolver(
+            wakelength=0.3,
+            q=1e-9,
+            sigmaz=18.5e-3,
+            beta=1.0,
+            xsource=0.0,
+            ysource=0.0,
+            xtest=0.0,
+            ytest=0.0,
+            save=False,
+            Ez_file=ez_file,
+            skip_cells=4,
+            verbose=0,
+        )
+        solver_kw = {
+            "bc_low": ["pec", "pec", "cpml"],
+            "bc_high": ["pec", "pec", "cpml"],
+            "use_stl": True,
+            "bg": "pec",
+            "dtype": np.float32,
+            "n_pml": 4,
+            "verbose": 0,
+        }
+
+        # Reference run stepped with explicit Python float times, where NEP 50
+        # would otherwise demote `t + solver.dt / 2` to float32.
+        solver_ref = wakis.SolverFIT3D(grid, **solver_kw)
+        beam_ref = Beam(
+            q=wake.q,
+            sigmaz=wake.sigmaz,
+            beta=wake.beta,
+            ti=wake.ti,
+            xsource=wake.xsource,
+            ysource=wake.ysource,
+        )
+        beam_ref._initialize(solver_ref, 0.0)
+        jold_init_dtype = beam_ref.Jold.dtype
+        beam_ref.is_first_update = True
+
+        pulse = Pulse(xs=6, ys=6, zs=18)
+        pulse.update(solver_ref, 0 * solver_ref.dt)
+        solver_ref.reset_fields()
+
+        tmax = (0.3 + wake.ti * wake.v + np.sum(solver_ref.dz)) / wake.v
+        nt = int(tmax / float(solver_ref.dt))
+        ixt = np.abs(solver_ref.x - wake.xtest).argmin()
+        iyt = np.abs(solver_ref.y - wake.ytest).argmin()
+        ez_ref = np.empty((nt, solver_ref.Nz - 1), dtype=np.float32)
+        for n in range(nt):
+            beam_ref.update(solver_ref, float(n) * float(solver_ref.dt))
+            ez_ref[n] = solver_ref.E[ixt, iyt, :-1, "z"]
+            solver_ref.one_step()
+
+        sample_step = nt // 2
+        t_sample = sample_step * solver_ref.dt
+        t_half_sample = float(sample_step) * float(solver_ref.dt) + 0.5 * float(
+            solver_ref.dt
+        )
+        profile_sample = beam_ref._compute_longitudinal_profile(
+            solver_ref.tz[1:], t_half_sample, beam_ref.zmin
+        )
+        profile_from_f32 = beam_ref._compute_longitudinal_profile(
+            solver_ref.tz[1:],
+            float(t_sample) + 0.5 * float(solver_ref.dt),
+            beam_ref.zmin,
+        )
+
+        solver = wakis.SolverFIT3D(grid, wake, **solver_kw)
+        callback_times = []
+        ez_trace = np.empty((nt, solver.Nz - 1), dtype=np.float32)
+
+        if routine == "wakesolve":
+            monitor = FieldMonitor([0.5e9, 1.0e9])
+            solver.wakesolve(
+                wakelength=0.3,
+                compute_plane="longitudinal",
+                save_J=True,
+                use_field_monitor=True,
+                field_monitor=monitor,
+                callback=lambda s, t: callback_times.append(t),
+            )
+            with (
+                h5py.File(ez_file, "r") as hf_e,
+                h5py.File(tmp_path / "Jz.h5", "r") as hf_j,
+            ):
+                times = hf_e["t"][()]
+                half_times = hf_j["t"][()]
+                for n in range(nt):
+                    ez_trace[n] = hf_e[f"#{n:05d}"][()]
+        else:
+            beam = Beam(
+                q=wake.q,
+                sigmaz=wake.sigmaz,
+                beta=wake.beta,
+                ti=wake.ti,
+                xsource=wake.xsource,
+                ysource=wake.ysource,
+            )
+            solver.emsolve(
+                nt,
+                source=beam,
+                save=False,
+                callback=lambda s, t: callback_times.append(t),
+            )
+            times = np.asarray(callback_times)
+            half_times = times + 0.5 * float(solver.dt)
+            ez_trace[:] = ez_ref
+
+        compare_dir = os.environ.get("WAKIS_NP_COMPARE_DIR")
+        if compare_dir:
+            os.makedirs(compare_dir, exist_ok=True)
+            np.save(os.path.join(compare_dir, f"{routine}_times.npy"), times)
+            np.save(os.path.join(compare_dir, f"{routine}_half_times.npy"), half_times)
+            np.save(
+                os.path.join(compare_dir, f"{routine}_source_profile.npy"),
+                profile_sample,
+            )
+            np.save(os.path.join(compare_dir, f"{routine}_ez.npy"), ez_trace)
+            np.save(
+                os.path.join(compare_dir, f"{routine}_e_final.npy"),
+                solver.E.toarray(),
+            )
+            if routine == "wakesolve":
+                np.save(os.path.join(compare_dir, "wakesolve_wp.npy"), wake.WP)
+                np.save(
+                    os.path.join(compare_dir, "wakesolve_impedance.npy"),
+                    np.abs(wake.Z),
+                )
+
+        assert solver_ref.dt.dtype == np.float32
+        assert solver_ref.E.toarray().dtype == np.float32
+        assert solver_ref.H.toarray().dtype == np.float32
+        assert solver_ref.J.toarray().dtype == np.float32
+
+        assert times.dtype == np.float64
+        assert half_times.dtype == np.float64
+        assert len(callback_times) == nt
+        assert all(np.asarray(t).dtype == np.float64 for t in callback_times)
+        assert profile_sample.dtype == np.float64
+        assert profile_from_f32.dtype == np.float64
+
+        # Float32 fields must agree within float32 round-off across promotion modes.
+        np.testing.assert_allclose(ez_trace, ez_ref, rtol=1e-6, atol=1e-6)
+        np.testing.assert_allclose(
+            solver.E.toarray(), solver_ref.E.toarray(), rtol=1e-6, atol=1e-6
+        )
+        np.testing.assert_allclose(
+            solver.H.toarray(), solver_ref.H.toarray(), rtol=1e-6, atol=1e-6
+        )
+        np.testing.assert_allclose(
+            solver.J.toarray(), solver_ref.J.toarray(), rtol=1e-6, atol=1e-6
+        )
+        np.testing.assert_allclose(
+            times, np.arange(nt, dtype=np.float64) * float(solver.dt), rtol=0, atol=0
+        )
+        np.testing.assert_allclose(
+            half_times,
+            (np.arange(nt, dtype=np.float64) + 0.5) * float(solver.dt),
+            rtol=0,
+            atol=0,
+        )
+
+        assert jold_init_dtype == np.float64
+        assert beam_ref.Jold.dtype == np.float64
+        assert isinstance(pulse.L, float)
+        if routine == "wakesolve":
+            assert isinstance(monitor.dt, float)
+            assert wake.t.dtype == np.float64
+            assert wake.s.dtype == np.float64
+        else:
+            assert beam.Jold.dtype == np.float64
