@@ -631,6 +631,11 @@ $$
 _{t=(z+s)/v}\,dz .
 $$
 
+Wakis does not integrate the transverse Lorentz force directly; it obtains
+$\mathbf W_\perp$ from $W_\parallel$ with the Panofsky–Wenzel theorem,
+$\mathbf W_\perp(s)=-\nabla_\perp\int_{-\infty}^{s}W_\parallel(s')\,ds'$
+($\partial_s\mathbf W_\perp=-\nabla_\perp W_\parallel$), in
+`WakeSolver.calc_trans_WP`.
 Both are quoted in $\mathrm{V/C}$, or more commonly $\mathrm{V/pC}$. A test charge
 $q_t$ receives an integrated voltage $q_s w$ and an energy change proportional
 to $q_tq_s w$; the sign depends on the charge and wake conventions.
@@ -669,8 +674,8 @@ $$
 Thus $w$ denotes the point-charge Green's function and $W$ the response to the
 bunch profile. `WakeSolver.WP`, `WPx`, and `WPy` store the latter in
 $\mathrm{V/pC}$. This distinction follows the definitions in
-[M. Dohlus and R. Wanzenberg, "An Introduction to Wake Fields and Impedances", in *Proceedings of the CAS-CERN Accelerator School: Intensity Limitations in Particle Beams*, Geneva, 2–11 November 2015, ed. W. Herr, CERN-2017-006-SP (CERN, Geneva, 2017)](https://inspirehep.net/files/792f2e1ed5bc17c18574af0ba360fb32) and
-[L. Teofili, P. Arpaia, F. Giordano, I. Lamas, and G. Rumolo, "Wake-function, impedance, and energy loss determination for two countermoving particle beams," *Phys. Rev. Accel. Beams* **24**, 041001 (2021)](https://doi.org/10.1103/PhysRevAccelBeams.24.041001).
+M. Dohlus and R. Wanzenberg, "An Introduction to Wake Fields and Impedances", in *Proceedings of the CAS-CERN Accelerator School: Intensity Limitations in Particle Beams*, Geneva, 2–11 November 2015, ed. W. Herr, CERN Yellow Reports: School Proceedings, Vol. 3/2017, CERN-2017-006-SP, pp. 15–41, https://doi.org/10.23730/CYRSP-2017-003.15 and
+L. Teofili, P. Arpaia, F. Giordano, I. Lamas, G. Rumolo, B. Salvant, C. Zannini, and M. Migliorati, "Wake-function, impedance, and energy loss determination for two countermoving particle beams," Phys. Rev. Accel. Beams 24, 041001 (2021), https://doi.org/10.1103/PhysRevAccelBeams.24.041001.
 
 On the symmetric Wakis grid, the longitudinal electric field and beam current are
 located at $(x_i,y_j,z_{k+1/2})$, where
