@@ -437,36 +437,66 @@ low-frequency, or evanescent fields.
 
 #### PML implementation
 
-An ideal PML is impedance matched to the adjacent medium while attenuating outgoing waves. For an interface between media A and B, the reflection coefficient is
+An ideal PML is reflectionless at a planar interface only when it continues the background medium $(\varepsilon_b = \varepsilon_0\varepsilon_r,\, \mu_b = \mu_0\mu_r,\, \sigma_b)$ into the absorbing layer and adds the stretching losses on top ([Berenger, 1994](https://doi.org/10.1006/jcph.1994.1159); Taflove & Hagness, *Computational Electrodynamics: The Finite-Difference Time-Domain Method*, 3rd ed., Artech House, 2005, ch. 7). For an interface between media A and B, the normal-incidence reflection coefficient is
 
 $$
 \Gamma = \frac{\eta_B - \eta_A}{\eta_B + \eta_A},
 $$
 
-where $\eta = \sqrt{\mu/\varepsilon}$ is the wave impedance. In a matched electric-and-magnetic lossy medium, the damping rates satisfy
+where $\eta = \sqrt{\mu/\varepsilon}$ is the wave impedance. In the absorbing layer, the total electric conductivity is
 
 $$
-\frac{\sigma_{\mathrm{el}}}{\varepsilon}
-= \frac{\sigma_{\mathrm{mag}}}{\mu}.
+\sigma_e(\rho) = \sigma_b + \sigma_{\mathrm{PML}}(\rho),
 $$
 
-This preserves the impedance while introducing attenuation. Equivalently, a PML can be formulated through complex coordinate stretching [Gedney et al., 2000]:
+and impedance matching requires the artificial electric and magnetic stretching losses to satisfy
 
 $$
-S_{\mathrm{PML}} = 1 + \frac{\sigma}{j\omega\varepsilon_0}.
+\frac{\sigma_{\mathrm{PML}}(\rho)}{\varepsilon_b}
+= \frac{\sigma_{\mathrm{PML}}^*(\rho)}{\mu_b}.
 $$
 
-The current Wakis `pml` boundary is a deliberately simple adiabatic absorber rather than a complete matched, stretched-coordinate PML. It adds a geometrically graded artificial electric conductivity to the PML cells and uses the regular electric-current update. The inverse permittivity in those cells is set to the vacuum value, and no corresponding artificial magnetic conductivity is applied. Consequently, its effectiveness depends on layer thickness and the low-conductivity ramp; it is not expected to be reflectionless, especially for oblique incidence, broadband pulses, or non-vacuum material at the interface.
+At normal incidence in a medium with refractive index $n = \sqrt{\varepsilon_r\mu_r}$, phase speed $v_b = c/n = 1/\sqrt{\varepsilon_b\mu_b}$, and wave impedance $\eta_b = \sqrt{\mu_b/\varepsilon_b} = \eta_0\sqrt{\mu_r/\varepsilon_r}$ ($\eta_0 = \mu_0 c$), a wave traversing a layer of thickness $d$ and reflecting from its outer termination experiences the round-trip attenuation
+
+$$
+R(0) = \exp\!\left(-2\int_0^d \frac{\sigma_{\mathrm{PML}}(\rho)}{\varepsilon_b(c/n)}\,d\rho\right)
+= \exp\!\left(-2\eta_b\int_0^d \sigma_{\mathrm{PML}}(\rho)\,d\rho\right).
+$$
+
+Replacing the vacuum constants $(\varepsilon_0, \mu_0, c)$ in the existing vacuum grading formula by $(\varepsilon_b, \mu_b, c/n)$ preserves the vacuum round-trip attenuation when $\sigma_{\mathrm{PML}}(\rho)/(\varepsilon_b c/n) = \sigma_{\mathrm{PML,vac}}(\rho)/(\varepsilon_0 c)$, which yields the conductivity scaling
+
+$$
+\sigma_{\mathrm{PML}}(\rho) = \sqrt{\frac{\varepsilon_r}{\mu_r}}\,\sigma_{\mathrm{PML,vac}}(\rho)
+= \frac{\eta_0}{\eta_b}\,\sigma_{\mathrm{PML,vac}}(\rho),
+\qquad
+\sigma_{\max} = \sqrt{\frac{\varepsilon_r}{\mu_r}}\,\sigma_{\max,\mathrm{vac}}.
+$$
+
+The Wakis `pml` boundary is a simple adiabatic electric absorber rather than a split-field or full stretched-coordinate PML. It fills the PML cells with the background material $(\varepsilon^{-1} = \varepsilon_b^{-1},\, \mu^{-1} = \mu_b^{-1})$ and sets the electric conductivity to $\sigma_e(\rho) = \sigma_b + \sqrt{\varepsilon_r/\mu_r}\,\sigma_{\mathrm{PML,vac}}(\rho)$, where $\sigma_{\mathrm{PML,vac}}$ is the geometric ramp between `pml_lo` and `pml_hi`, using the regular electric-current update without an auxiliary magnetic conductivity $\sigma_{\mathrm{PML}}^*$. Consequently, its effectiveness depends on layer thickness and the conductivity ramp; for broadband or oblique waves, `cpml` is preferred.
 
 #### CPML implementation
 
-Convolutional PML (CPML) improves absorption of grazing-incidence, low-frequency, and evanescent fields by using a complex-frequency-shifted coordinate stretch [Gedney et al., 2000]:
+Convolutional PML (CPML) improves absorption of grazing-incidence, low-frequency, and evanescent fields by using a complex-frequency-shifted coordinate stretch ([Roden & Gedney, 2000](https://doi.org/10.1002/1098-2760(20001205)27:5<334::AID-MOP14>3.0.CO;2-A); Taflove & Hagness, 3rd ed., ch. 7). In a homogeneous background with permittivity $\varepsilon_b$, the coordinate-stretching factor is
 
 $$
-S_{\mathrm{PML}} = \kappa + \frac{\sigma}{\alpha + j\omega\varepsilon_0}.
+S_{\mathrm{PML}} = \kappa + \frac{\sigma_{\mathrm{PML}}}{\alpha + j\omega\varepsilon_b}.
 $$
 
-Here $\kappa \geq 1$ scales the coordinate stretch, $\sigma$ is the graded conductivity, and $\alpha$ is a non-negative frequency-shift parameter. Wakis constructs $\sigma$, $\kappa$, and $\alpha$ on both primal and dual field locations with a polynomial distance profile. It converts them into recursion coefficients and stores only the CPML auxiliary fields needed to correct curl terms inside each boundary layer.
+Here $\kappa \geq 1$ scales the coordinate stretch, $\sigma_{\mathrm{PML}}$ is the graded stretching conductivity, and $\alpha$ is a non-negative frequency-shift parameter. Replacing $(\varepsilon_0, \mu_0, c)$ by $(\varepsilon_b, \mu_b, c/n)$ in the polynomial grading of order $m$ (`pml_exp`) for cell width $\Delta u$ ($u \in \{x, y, z\}$) scales the maximum conductivity with the background wave impedance $\eta_b = \eta_0\sqrt{\mu_r/\varepsilon_r}$:
+
+$$
+\sigma_{\max} = \sigma_{\mathrm{factor}}\,\frac{m + 1}{150\,\pi\,\Delta u\,\eta_b}.
+$$
+
+Transforming the stretched curl equations to the time domain via recursive convolution replaces $\varepsilon_0$ by $\varepsilon_b$ in the discrete recursion coefficients ([Roden & Gedney, 2000](https://doi.org/10.1002/1098-2760(20001205)27:5<334::AID-MOP14>3.0.CO;2-A)),
+
+$$
+b = \exp\!\left[-\left(\frac{\sigma_{\mathrm{PML}}}{\kappa} + \alpha\right)\frac{\Delta t}{\varepsilon_b}\right],
+\qquad
+a = \frac{\sigma_{\mathrm{PML}}}{\sigma_{\mathrm{PML}}\kappa + \kappa^2\alpha}\,(b - 1),
+$$
+
+which Wakis evaluates on both primal electric nodes and dual magnetic edge midpoints (storing $b$ as `pml_b_E`, `pml_b_H` and $a$ as `pml_c_E`, `pml_c_H`). Because the auxiliary convolution fields correct the spatial derivatives prior to multiplication by $\varepsilon_b^{-1}$ and $\mu_b^{-1}$, using the same $\varepsilon_b$-normalized stretch for both electric and magnetic updates enforces the impedance-matching condition $\sigma_{\mathrm{PML}}/\varepsilon_b = \sigma_{\mathrm{PML}}^*/\mu_b$. The CPML cells keep the background material tensors ($\varepsilon^{-1} = \varepsilon_b^{-1}$, $\mu^{-1} = \mu_b^{-1}$, and bulk conductivity $\sigma = \sigma_b$); when $\sigma_b > 0$, the background conduction current $\vec{J} = \sigma_b\vec{E}$ is updated in the main FIT time step while the CPML auxiliary fields apply the coordinate-stretching loss.
 
 The layer thickness `n_pml` counts physical cells. Along an axis with $N$
 stored nodes and $m$ high-side CPML cells, the interface is at $x_{N-m-1}$.
@@ -477,7 +507,7 @@ node and edge index ranges. The terminal plane has no forward physical edge
 and receives no magnetic CPML correction. Using the actual endpoint midpoint
 also preserves this placement on nonuniform meshes.
 
-CPML is therefore distinct from the scalar `pml` path: it does not modify the bulk material conductivity tensor to absorb waves, and its auxiliary convolution fields make it the preferred absorbing boundary for the beam and TF/SF workflows. As with all finite layers, its practical reflection level still depends on the number of cells and the selected profile parameters.
+**Assumptions and limitations.** Both `pml` and `cpml` match a homogeneous, isotropic background material specified via `SolverFIT3D(..., bg=[eps_r, mu_r, sigma])` (defaulting to vacuum, `bg=[1.0, 1.0, 0.0]`; when `bg="pec"` is used as an exterior bounding material with `use_stl=True`, the CPML parameters fall back to vacuum). Anisotropic or inhomogeneous backgrounds crossing into the PML/CPML, as well as materials that are not uniform across a PML/CPML face, are not covered.
 
 
 ### 📥🗿 Geometry Importing & Embedded Boundaries
