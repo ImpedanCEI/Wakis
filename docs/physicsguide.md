@@ -335,9 +335,7 @@ With PML or CPML boundaries, the bunch current is injected only into the physica
 
 The computational domain is divided into total-field and scattered-field regions, with the TF/SF boundary offset by one cell from the CPML interface. The beam is injected strictly within the total-field region, where the total field is defined as:
 
-$$
-E^t = E^s + E^i
-$$
+$$E^t = E^s + E^i$$
 
 At the boundary, the curl operator is modified to add or subtract the incident fields, rendering the boundary transparent to field propagation. For ultrarelativistic beams, incident transverse electric fields are pre-calculated using a 2D Poisson solver and dynamically scaled by the instantaneous longitudinal current density during time integration.
 
@@ -520,9 +518,7 @@ Starting from the imported solid mask of the full volume, our algorithm tags the
 
 The surface is identified where the gradient of the scalar field is non-zero:
 
-$$
-\|\nabla \phi\| = \sqrt{ (\partial_x \phi)^2 + (\partial_y \phi)^2 + (\partial_z \phi)^2 }
-$$
+$\|\nabla \phi\| = \sqrt{ (\partial_x \phi)^2 + (\partial_y \phi)^2 + (\partial_z \phi)^2 }$
 
 Cells where $\|\nabla \phi\| > 0$ are marked as surface.
 
@@ -536,21 +532,15 @@ Cells where $\|\nabla \phi\| > 0$ are marked as surface.
 
 To accurately model a conducting material volumetrically in FIT/FDTD, the **skin depth**
 
-$$
-\delta = \sqrt{\frac{2}{2\pi f_{\max}\,\mu_0\,\sigma}}
-$$
+$$\delta = \sqrt{\frac{2}{2\pi f_{\max}\,\mu_0\,\sigma}}$$
 
 must be resolved by the grid. A common requirement is at least **3 cells per skin depth**, i.e.
 
-$$
-\delta \gtrsim 3\Delta_n
-$$
+$$\delta \gtrsim 3\Delta_n$$
 
 where $(\Delta_n)$ is the grid spacing normal to the wall, considered as $\sqrt{2}\cdot \text{min}(\Delta x, \Delta y, \Delta z)$. Substituting the skin-depth expression and solving for $\sigma$ gives the maximum conductivity that can be volumetrically resolved at a target frequency $f_{\max}$:
 
-$$
-\sigma_{\max} = \frac{10}{\pi f_{\max}\,\mu \Delta_n^2}
-$$
+$$\sigma_{\max} = \frac{10}{\pi f_{\max}\,\mu \Delta_n^2}$$
 
 Materials with $\sigma > \sigma_{\max}$ have a skin depth too small to be captured by the mesh and should be modeled using a **Leontovich (surface impedance) boundary condition** instead of volumetric conductivity.
 </details>
@@ -561,22 +551,16 @@ Materials with $\sigma > \sigma_{\max}$ have a skin depth too small to be captur
 
 For a good conductor, the Leontovich surface impedance has the form
 
-$$
-Z_s = (1+j)\sqrt{\dfrac{\omega\mu}{2\sigma}}
-$$
+$$Z_s = (1+j)\sqrt{\dfrac{\omega\mu}{2\sigma}}$$
 
 meaning that the resistive and reactive parts are equal (a $45^\circ$ phase).
 In the SIBC implementation, we approximate $Z_s$ by its magnitude-based form
 
-$$
-Z_s \approx \sqrt{\pi f_{\max}\mu / \sigma}
-$$
+$$Z_s \approx \sqrt{\pi f_{\max}\mu / \sigma}$$
 
 and define an equivalent **surface admittance**
 
-$$
-Y_s = 1/Z_s
-$$
+$$Y_s = 1/Z_s$$
 
 To embed this into the time-domain FIT update, we convert $Y_s$ into effective
 surface parameters:
@@ -685,7 +669,7 @@ $$
 Thus $w$ denotes the point-charge Green's function and $W$ the response to the
 bunch profile. `WakeSolver.WP`, `WPx`, and `WPy` store the latter in
 $\mathrm{V/pC}$. This distinction follows the definitions in
-[Palumbo et al., 1994](https://arxiv.org/abs/physics/0309023) and
+[M. Dohlus and R. Wanzenberg, "An Introduction to Wake Fields and Impedances", in *Proceedings of the CAS-CERN Accelerator School: Intensity Limitations in Particle Beams*, Geneva, 2–11 November 2015, ed. W. Herr, CERN-2017-006-SP (CERN, Geneva, 2017)](https://inspirehep.net/files/792f2e1ed5bc17c18574af0ba360fb32) and
 [L. Teofili, P. Arpaia, F. Giordano, I. Lamas, and G. Rumolo, "Wake-function, impedance, and energy loss determination for two countermoving particle beams," *Phys. Rev. Accel. Beams* **24**, 041001 (2021)](https://doi.org/10.1103/PhysRevAccelBeams.24.041001).
 
 On the symmetric Wakis grid, the longitudinal electric field and beam current are
@@ -697,14 +681,14 @@ the transverse dual-cell area at those nodes.
 
 `wakesolve` saves physical $E_z$ edges only: HDF5 `z` contains their midpoints,
 and `dz` their lengths. Domain boundaries follow from the end midpoints:
-$z_{\min}=z_{1/2}-\Delta z_0/2$ and
-$z_{\max}=z_{N-3/2}+\Delta z_{N-2}/2$ for $N$ primal nodes.
+$z_\min=z_{1/2}-\Delta z_0/2$ and
+$z_\max=z_{N-3/2}+\Delta z_{N-2}/2$ for $N$ primal nodes.
 The zero-length high-side edge contributes no physical integral.
-For a bunch entering the low boundary $z_{\min}$ at time $t_i$, the discrete
+For a bunch entering the low boundary $z_\min$ at time $t_i$, the discrete
 longitudinal integration samples the trajectory
 
 $$
-t_k(s)=t_i+\frac{z_{k+1/2}-z_{\min}+s}{v}, \qquad
+t_k(s)=t_i+\frac{z_{k+1/2}-z_\min+s}{v}, \qquad
 W_\parallel(s)=\frac{1}{q}\sum_k E_z(x_t,y_t,z_{k+1/2},t_k(s))\,\Delta z_k.
 $$
 
@@ -804,11 +788,7 @@ Z_{\perp,\alpha}^{\mathrm{dip}}(f)
 \qquad [Z_{\perp}^{\mathrm{dip}}]=\Omega/\mathrm m.
 $$
 
-Wakis evaluates $\widetilde W(f)$ and $\widetilde\lambda(f)$ with a
-single-sided discrete Fourier transform (`numpy.fft.fft` scaled by $\Delta s$
-on positive frequencies $0\le f<f_{\max}$ from `numpy.fft.fftfreq(N, ds/v)`,
-converting `WP` from $\mathrm{V/pC}$ to $\mathrm{V/C}$) and zero-padding. No
-window is applied automatically.
+Wakis uses `numpy.fft` and zero-padding. No window is applied automatically.
 
 ### ⚖️ Loss and kick factors
 
