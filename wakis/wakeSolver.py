@@ -141,18 +141,18 @@ class WakeSolver:
         t0 = time.time()
 
         # beam
-        self.q = float(q)
-        self.sigmaz = float(sigmaz) if sigmaz is not None else None
-        self.beta = float(beta)
+        self.q = q
+        self.sigmaz = sigmaz
+        self.beta = beta
         self.v = self.beta * c_light
-        self.xsource, self.ysource = float(xsource), float(ysource)
-        self.xtest, self.ytest = float(xtest), float(ytest)
+        self.xsource, self.ysource = xsource, ysource
+        self.xtest, self.ytest = xtest, ytest
         self.chargedist = chargedist
-        self.ti = float(ti) if ti is not None else None
+        self.ti = ti
         if fmax is None:
             self.fmax = self.v / (3.0 * self.sigmaz)
         else:
-            self.fmax = float(fmax)
+            self.fmax = fmax
         self.skip_cells = skip_cells
         self.compute_plane = compute_plane
         self.DE_model = None
@@ -176,13 +176,13 @@ class WakeSolver:
 
         # Injection time
         if ti is not None:
-            self.ti = float(ti)
+            self.ti = ti
         else:
             # ti = 8.548921333333334*self.sigmaz/self.v  #injection time as in CST for beta = 1
             ti = (
                 8.548921333333334 * self.sigmaz / (np.sqrt(self.beta) * self.v)
             )  # injection time as in CST for beta <=1
-            self.ti = float(ti)
+            self.ti = ti
         self.log(
             f"    * Beam source injection time ti={self.ti} s",
             level=2,
@@ -197,7 +197,7 @@ class WakeSolver:
         self.x, self.y, self.z = None, None, None  # full simulation domain
 
         # solver init
-        self.wakelength = float(wakelength) if wakelength is not None else None
+        self.wakelength = wakelength
         self.s = None
         self.lambdas = None
         self.WP = None
@@ -376,8 +376,8 @@ class WakeSolver:
         # time variables
         self.t = np.asarray(self.t, dtype=np.float64)
         nt = len(self.t)
-        dt = float(self.t[2] - self.t[1])
-        ti = float(self.ti)
+        dt = self.t[2] - self.t[1]
+        ti = self.ti
 
         # zf locates the saved Ez samples; z optionally describes the full
         # simulation domain. Keep the legacy z-only input convention.
@@ -510,8 +510,8 @@ class WakeSolver:
         # time variables
         self.t = np.asarray(self.t, dtype=np.float64)
         nt = len(self.t)
-        dt = float(self.t[2] - self.t[1])
-        ti = float(self.ti)
+        dt = self.t[2] - self.t[1]
+        ti = self.ti
 
         # zf locates the saved Ez samples; z optionally describes the full
         # simulation domain. Keep the legacy z-only input convention.

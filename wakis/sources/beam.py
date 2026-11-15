@@ -61,13 +61,13 @@ class Beam:
             Minimum z position (set on first update).
         """
 
-        self.xsource, self.ysource = float(xsource), float(ysource)
-        self.sigmaz = float(sigmaz) if sigmaz is not None else None
-        self.q = float(q)
-        self.beta = float(beta)
-        self.v = c_light * self.beta
+        self.xsource, self.ysource = xsource, ysource
+        self.sigmaz = sigmaz
+        self.q = q
+        self.beta = beta
+        self.v = c_light * beta
         if ti is not None:
-            self.ti = float(ti)
+            self.ti = ti
         else:
             self.ti = 8.548921333333334 * self.sigmaz / self.v
         self.is_first_update = True
@@ -116,9 +116,9 @@ class Beam:
             np.abs(solver.y - self.ysource).argmin(),
         )
         if hasattr(solver, "ZMIN"):  # support for MPI
-            self.zmin = float(solver.ZMIN)
+            self.zmin = solver.ZMIN
         else:
-            self.zmin = float(solver.z.min())
+            self.zmin = solver.z.min()
         if solver.source_type == "tfsf":
             self._initialize_tfsf(solver, t)
         else:
@@ -126,9 +126,7 @@ class Beam:
 
     def _initialize_direct(self, solver):
         """Allocate the previous current profile for direct injection."""
-        self.Jold = np.zeros_like(
-            solver.J[self.ixs, self.iys, :, "z"], dtype=np.float64
-        )
+        self.Jold = np.zeros_like(solver.J[self.ixs, self.iys, :, "z"])
 
     def _initialize_tfsf(self, solver, t):
         """Set TF/SF planes, current history, and incident field templates."""
@@ -140,8 +138,7 @@ class Beam:
         self._set_tfsf_planes(solver)
         self._tfsf_field_templates = {}
         self.Jold = np.zeros_like(
-            solver.J[self.ixs, self.iys, self.j_start : self.j_stop, "z"],
-            dtype=np.float64,
+            solver.J[self.ixs, self.iys, self.j_start : self.j_stop, "z"]
         )
         solver.J_max = (
             self.q

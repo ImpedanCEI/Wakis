@@ -101,16 +101,16 @@ class GaussianPacket(WaveformSource):
         super().__init__(injection=injection)
 
         # Check inputs and update self
-        self.beta = float(beta)
+        self.beta = beta
         self.xs, self.ys = xs, ys
         self.zs = zs
-        self.sigmaxy = float(sigmaxy) if sigmaxy is not None else None
-        self.sigmaz = float(sigmaz) if sigmaz is not None else None
-        self.sigmaf = float(sigmaf) if sigmaf is not None else None
-        self.tinj = float(tinj) if tinj is not None else None
-        self.amplitude = float(amplitude)
-        self.phase = float(phase)
-        self.theta = float(theta)
+        self.sigmaxy = sigmaxy
+        self.sigmaz = sigmaz
+        self.sigmaf = sigmaf
+        self.tinj = tinj
+        self.amplitude = amplitude
+        self.phase = phase
+        self.theta = theta
         self.field = str(field).upper()
         if self.field not in ("E", "H"):
             raise ValueError("field must be either 'E' or 'H'")
@@ -166,7 +166,7 @@ class GaussianPacket(WaveformSource):
 
     def _compute_temporal_envelope(self, t, z_pos=0):
         """Return the Gaussian temporal envelope at a longitudinal position."""
-        coordinate = self.tinj - self.beta * c_light * np.asarray(t, dtype=float)
+        coordinate = self.tinj - self.beta * c_light * t
         return self.gaussian_profile(coordinate, self.sigmaz)
 
     def plot(self, t, zmin=0):

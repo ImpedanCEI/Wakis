@@ -73,13 +73,13 @@ class Dipole(WaveformSource):
         super().__init__(injection=injection)
 
         # Check inputs and update self
-        self.nodes = float(nodes)
+        self.nodes = nodes
         self.xs, self.ys, self.zs = xs, ys, zs
-        self.f = float(f) if f is not None else None
+        self.f = f
         self.field = field
         self.component = component
-        self.amplitude = float(amplitude)
-        self.phase = float(phase)
+        self.amplitude = amplitude
+        self.phase = phase
         self.omega = None if self.f is None else 2 * np.pi * self.f
 
         if len(field) == 2:  # support for e.g. field='Ex'
@@ -125,7 +125,7 @@ class Dipole(WaveformSource):
         if self.omega is None:
             raise ValueError("f must be provided or resolved by update() before plot()")
 
-        phase = self.omega * np.asarray(t, dtype=float) + self.phase
+        phase = self.omega * np.asarray(t) + self.phase
         waveform = self.amplitude * self.harmonic_carrier(phase, kind="sin")
         units = {"E": "V/m", "H": "A/m", "J": "A/m²"}[self.field]
         quantity = {

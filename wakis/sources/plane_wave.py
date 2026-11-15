@@ -93,14 +93,14 @@ class PlaneWave(WaveformSource):
         super().__init__(injection=injection)
 
         # Check inputs and update self
-        self.nodes = float(nodes) if nodes is not None else None
-        self.beta = float(beta)
+        self.nodes = nodes
+        self.beta = beta
         self.xs, self.ys = xs, ys
         self.zs = zs
-        self.f = float(f)
-        self.amplitude = float(amplitude)
-        self.phase = float(phase)
-        self.theta = float(theta)
+        self.f = f
+        self.amplitude = amplitude
+        self.phase = phase
+        self.theta = theta
 
         self.vp = self.beta * c_light  # wavefront velocity beta*c
         self.omega = 2 * np.pi * self.f
@@ -168,10 +168,8 @@ class PlaneWave(WaveformSource):
 
     def _waveform(self, t, w=0.0):
         """Return the windowed base waveform in A/m at coordinate ``w``."""
-        t = np.asarray(t, dtype=float)
-        w = np.asarray(w, dtype=float)
-        retarded_time = t - w / self.vp
-        phase = self.omega * t - self.k * w + self.phase
+        retarded_time = np.asarray(t) - np.asarray(w) / self.vp
+        phase = self.omega * np.asarray(t) - self.k * np.asarray(w) + self.phase
         waveform = self.amplitude * self.harmonic_carrier(phase)
         active = self.finite_window(retarded_time, stop=self.tmax)
         return np.where(active, waveform, 0.0)

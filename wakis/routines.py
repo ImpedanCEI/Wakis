@@ -107,7 +107,7 @@ class RoutinesMixin:
                 else:
                     hfs[field] = h5py.File(field + ".h5", "w")
 
-            for hf in hfs:
+            for hf in hfs.values():
                 hf["x"], hf["y"], hf["z"] = self.x, self.y, self.z
                 hf["dx"], hf["dy"], hf["dz"] = (
                     self.dx,
@@ -358,11 +358,10 @@ class RoutinesMixin:
             dz = self.dz
             zz = slice(0, self.Nz - 1)
 
-        dt = float(self.dt)
         tmax = (wakelength + self.ti * self.v + np.sum(dz)) / self.v  # [s]
-        Nt = int(tmax / dt)
+        Nt = int(tmax / self.dt)
         self.tmax, self.Nt = tmax, Nt
-        times = np.arange(Nt) * dt
+        times = np.arange(Nt) * float(self.dt)
 
         # Add beam source
         beam = Beam(
@@ -396,7 +395,7 @@ class RoutinesMixin:
                         self.dy,
                         dz,
                     )
-                    hfJ["t"] = times + 0.5 * dt
+                    hfJ["t"] = times + float(self.dt) / 2
         else:
             hf = h5py.File(self.Ez_file, "w")
             hf["x"], hf["y"], hf["z"] = self.x[xx], self.y[yy], z
@@ -415,7 +414,7 @@ class RoutinesMixin:
                     self.dy,
                     dz,
                 )
-                hfJ["t"] = times + 0.5 * dt
+                hfJ["t"] = times + float(self.dt) / 2
 
         def save_to_h5(self, hf, field, x, y, z, comp, n):
             if self.use_mpi:
@@ -428,7 +427,7 @@ class RoutinesMixin:
         if plot_until is None:
             plot_until = Nt
         if plot_from is None:
-            plot_from = int(self.ti / dt)
+            plot_from = int(self.ti / self.dt)
 
         print("Running electromagnetic time-domain simulation...")
 
@@ -446,7 +445,7 @@ class RoutinesMixin:
             self.one_step()
 
             if use_field_monitor and field_monitor is not None:
-                field_monitor.update(self.E, dt)
+                field_monitor.update(self.E, self.dt)
 
             # Plot
             if plot:

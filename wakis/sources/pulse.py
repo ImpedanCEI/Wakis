@@ -6,7 +6,6 @@
 """Electromagnetic pulse source."""
 
 import matplotlib.pyplot as plt
-import numpy as np
 from scipy.constants import c as c_light
 
 from .source import WaveformSource
@@ -81,10 +80,10 @@ class Pulse(WaveformSource):
         self.xs, self.ys, self.zs = xs, ys, zs
         self.field = field
         self.component = component
-        self.amplitude = float(amplitude)
+        self.amplitude = amplitude
         self.shape = shape
-        self.L = float(L) if L is not None else None
-        self.delay = float(delay)
+        self.L = L
+        self.delay = delay
 
         if len(field) == 2:  # support for e.g. field='Ex'
             self.component = field[1]
@@ -118,7 +117,7 @@ class Pulse(WaveformSource):
         float or ndarray
             Harris pulse value(s).
         """
-        coordinate = np.asarray(t, dtype=float) * c_light - self.delay
+        coordinate = t * c_light - self.delay
         return self.harris_profile(coordinate, self.L)
 
     def gaussian_pulse(self, t):
@@ -135,7 +134,7 @@ class Pulse(WaveformSource):
         float or ndarray
             Gaussian pulse value(s).
         """
-        coordinate = np.asarray(t, dtype=float) * c_light - self.delay
+        coordinate = t * c_light - self.delay
         return self.gaussian_profile(coordinate - self.L / 2, self.L / 10)
 
     def rectangular_pulse(self, t):
@@ -152,7 +151,7 @@ class Pulse(WaveformSource):
         float or ndarray
             Rectangular pulse value(s).
         """
-        coordinate = np.asarray(t, dtype=float) * c_light - self.delay
+        coordinate = t * c_light - self.delay
         return self.rectangular_profile(coordinate, self.L)
 
     def _initialize(self, solver):
