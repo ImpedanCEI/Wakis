@@ -88,7 +88,7 @@ Each Field stores `3 * Nx * Ny * Nz` values, one block per component. Both masks
 
 **Current limits:**
 
-- Subpixel smoothing and conductive SIBC solids raise `NotImplementedError`.
+- Subpixel smoothing and `use_sibc=True` raise `NotImplementedError`. The old SIBC implementation has been removed.
 - Scalar `grid.grid[key]` labels are no longer generated. Plot masks with `grid.plot_stl_mask()` / `grid.plot_stl_mask_slice()`, or inspect their Fields directly.
 - Recreate grids saved without staggered masks before using STL material allocation.
 
