@@ -419,7 +419,7 @@ class TestPML:
         ax.legend()
 
 
-def _pml_probe_reflection(eps_r, sigma, match_bg=True):
+def _pml_probe_reflection(eps_r, mu_r, sigma, match_bg=True):
     """Measure reflected energy at a probe against a long-domain reference."""
     Nx, Ny = 2, 2
     dz = 0.005
@@ -430,16 +430,18 @@ def _pml_probe_reflection(eps_r, sigma, match_bg=True):
     f = 15.0 * c
     dt = 1.0 / f / 200.0
     z_pml = n_pml * dz
-    Nt = int(np.sqrt(eps_r) * 2.2 * (1.0 - z_pml) / c / dt)
+    n_idx = np.sqrt(eps_r * mu_r)
+    Nt = int(n_idx * 2.2 * (1.0 - z_pml) / c / dt)
 
     traces = {}
     for label, Nz in (("short", Nz_short), ("ref", Nz_long)):
         zmax = (Nz - 1) * dz
         grid = wakis.GridFIT3D(0.0, 0.02, 0.0, 0.02, 0.0, zmax, Nx, Ny, Nz, verbose=0)
+        bg = [eps_r, mu_r, sigma] if (label == "ref" or match_bg) else [1.0, 1.0, 0.0]
         solver = wakis.SolverFIT3D(
             grid,
             use_stl=False,
-            bg=[eps_r, 1.0, sigma],
+            bg=bg,
             bc_low=["periodic", "periodic", "pec"],
             bc_high=["periodic", "periodic", "pml"],
             n_pml=n_pml,
@@ -448,20 +450,19 @@ def _pml_probe_reflection(eps_r, sigma, match_bg=True):
             verbose=0,
         )
         if label == "short" and not match_bg:
-            orig_bg = (solver.eps_bg, solver.mu_bg, solver.sigma_bg)
-            solver.eps_bg, solver.mu_bg, solver.sigma_bg = eps_0, mu_0, 0.0
-            solver._initialize_PML()
-            solver.eps_bg, solver.mu_bg, solver.sigma_bg = orig_bg
+            for d in ("x", "y", "z"):
+                solver.ieps[:, :, :-n_pml, d] = 1.0 / (eps_r * eps_0)
+                solver.imu[:, :, :-n_pml, d] = 1.0 / (mu_r * mu_0)
+                solver.sigma[:, :, :-n_pml, d] = sigma
             solver.update_tensors(tensor="all")
-            solver.step_0 = True
 
         source = wakis.sources.PlaneWave(
             xs=slice(0, Nx),
             ys=slice(0, Ny),
             zs=0,
-            beta=1.0 / np.sqrt(eps_r),
+            beta=1.0 / n_idx,
             amplitude=100.0,
-            f=f / np.sqrt(eps_r),
+            f=f / n_idx,
             nodes=7,
             phase=np.pi / 2,
         )
@@ -478,28 +479,31 @@ def _pml_probe_reflection(eps_r, sigma, match_bg=True):
 
 
 @pytest.mark.parametrize(
-    "eps_r,sigma",
-    [(4.0, 0.0), (4.0, 0.01)],
-    ids=["lossless_eps4", "lossy_eps4_sigma0p01"],
+    "eps_r,mu_r,sigma",
+    [(4.0, 1.0, 0.0), (4.0, 1.0, 0.01), (1.0, 4.0, 0.0)],
+    ids=["lossless_eps4", "lossy_eps4_sigma0p01", "magnetic_mu4"],
 )
-def test_pml_background_material_reflection(eps_r, sigma):
-    """PML matched to dielectric/lossy background suppresses interface reflection."""
-    r_vac, w_refl_vac, w_inc_vac = _pml_probe_reflection(1.0, 0.0, match_bg=True)
-    r_matched, w_refl_m, w_inc_m = _pml_probe_reflection(eps_r, sigma, match_bg=True)
-    r_unmatched, w_refl_u, _ = _pml_probe_reflection(eps_r, sigma, match_bg=False)
+def test_pml_background_material_reflection(eps_r, mu_r, sigma):
+    """PML matched to dielectric/magnetic/lossy background suppresses interface reflection."""
+    r_vac, w_refl_vac, w_inc_vac = _pml_probe_reflection(1.0, 1.0, 0.0, match_bg=True)
+    r_matched, w_refl_m, w_inc_m = _pml_probe_reflection(
+        eps_r, mu_r, sigma, match_bg=True
+    )
+    r_unmatched, w_refl_u, _ = _pml_probe_reflection(eps_r, mu_r, sigma, match_bg=False)
     print(
-        f"\nPML reflection (eps_r={eps_r}, sigma={sigma}): "
+        f"\nPML reflection (eps_r={eps_r}, mu_r={mu_r}, sigma={sigma}): "
         f"R_vac={r_vac:.4e} (W_refl={w_refl_vac:.4e}, W_inc={w_inc_vac:.4e}), "
         f"R_matched={r_matched:.4e} (W_refl={w_refl_m:.4e}, W_inc={w_inc_m:.4e}), "
         f"R_unmatched={r_unmatched:.4e} (W_refl={w_refl_u:.4e}), "
-        f"ratio={r_unmatched / r_matched:.1f}x"
+        f"R_matched/R_vac={r_matched / r_vac:.4f}x, "
+        f"R_unmatched/R_matched={r_unmatched / r_matched:.1f}x"
     )
-    assert r_matched < 3.0 * r_vac
     assert r_unmatched > 10.0 * r_matched
+    assert r_matched < 3.0 * r_vac
 
 
 def test_pml_vacuum_default_bit_identical(use_gpu):
-    """Default vacuum PML reproduces the pre-change vacuum tensors and fields bit-for-bit."""
+    """Default vacuum PML is bit-identical to the pre-change vacuum expressions transcribed below."""
     grid = wakis.GridFIT3D(-1.0, 1.0, -1.0, 1.0, 0.0, 1.0, 6, 6, 80, verbose=0)
     solver = wakis.SolverFIT3D(
         grid,
@@ -533,7 +537,6 @@ def test_pml_vacuum_default_bit_identical(use_gpu):
             ref.imu[:, :, -k, d] = 1.0 / mu_0
             ref.sigma[:, :, -k, d] = sz[-k]
     ref.update_tensors(tensor="all")
-    ref.step_0 = True
 
     for attr in ("ieps", "imu", "sigma"):
         assert np.array_equal(getattr(solver, attr).array, getattr(ref, attr).array)

@@ -340,7 +340,7 @@ def test_cpml_symmetry(axis, n_pml, graded, plot_comparison):
     np.testing.assert_allclose(field_h, -field_h[::-1], rtol=1e-10, atol=1e-12)
 
 
-def _cpml_probe_reflection(eps_r, sigma, match_bg=True):
+def _cpml_probe_reflection(eps_r, mu_r, sigma, match_bg=True):
     """Measure reflected energy at a probe against a long-domain reference."""
     Nx, Ny = 2, 2
     dz = 0.005
@@ -349,16 +349,18 @@ def _cpml_probe_reflection(eps_r, sigma, match_bg=True):
     z_probe = 120
     n_pml = 10
     dt = 0.45 * dz / c
-    Nt = int(2.2 * np.sqrt(eps_r) * 1.0 / c / dt)
+    n_idx = np.sqrt(eps_r * mu_r)
+    Nt = int(2.2 * n_idx * 1.0 / c / dt)
 
     traces = {}
     for label, Nz in (("short", Nz_short), ("ref", Nz_long)):
         zmax = (Nz - 1) * dz
         grid = wakis.GridFIT3D(0.0, 0.02, 0.0, 0.02, 0.0, zmax, Nx, Ny, Nz, verbose=0)
+        bg = [eps_r, mu_r, sigma] if (label == "ref" or match_bg) else [1.0, 1.0, 0.0]
         solver = wakis.SolverFIT3D(
             grid,
             use_stl=False,
-            bg=[eps_r, 1.0, sigma],
+            bg=bg,
             bc_low=["periodic", "periodic", "pec"],
             bc_high=["periodic", "periodic", "cpml"],
             n_pml=n_pml,
@@ -367,15 +369,11 @@ def _cpml_probe_reflection(eps_r, sigma, match_bg=True):
             verbose=0,
         )
         if label == "short" and not match_bg:
-            orig_bg = (solver.eps_bg, solver.mu_bg, solver.sigma_bg)
-            solver.eps_bg, solver.mu_bg, solver.sigma_bg = eps_0, mu_0, 0.0
-            solver._initialize_CPML()
-            solver._initialize_CPML_matrices()
-            if getattr(solver, "_one_step_periodic", None) == getattr(
-                solver, "_one_step_cpml_mkl", None
-            ):
-                solver._move_CPML_to_mkl()
-            solver.eps_bg, solver.mu_bg, solver.sigma_bg = orig_bg
+            for d in ("x", "y", "z"):
+                solver.ieps[:, :, :-n_pml, d] = 1.0 / (eps_r * eps_0)
+                solver.imu[:, :, : -n_pml - 1, d] = 1.0 / (mu_r * mu_0)
+                solver.sigma[:, :, :-n_pml, d] = sigma
+            solver.update_tensors(tensor="all")
 
         source = wakis.sources.Pulse(
             field="Ex",
@@ -383,7 +381,7 @@ def _cpml_probe_reflection(eps_r, sigma, match_bg=True):
             ys=slice(0, Ny),
             zs=20,
             shape="harris",
-            L=0.15 * np.sqrt(eps_r),
+            L=0.15 * n_idx,
             amplitude=1.0,
             injection="soft",
         )
@@ -400,28 +398,50 @@ def _cpml_probe_reflection(eps_r, sigma, match_bg=True):
 
 
 @pytest.mark.parametrize(
-    "eps_r,sigma",
-    [(4.0, 0.0), (4.0, 0.01)],
-    ids=["lossless_eps4", "lossy_eps4_sigma0p01"],
+    "eps_r,mu_r,sigma",
+    [
+        pytest.param(4.0, 1.0, 0.0, id="lossless_eps4"),
+        pytest.param(4.0, 1.0, 0.01, id="lossy_eps4_sigma0p01"),
+        pytest.param(
+            1.0,
+            4.0,
+            0.0,
+            id="magnetic_mu4",
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason=(
+                    "Unscaled alpha_max=0.05 with eps_r=1, mu_r=4 gives "
+                    "R_matched=2.8656e-06 > 3*R_vac=2.4208e-07 "
+                    "(still 39146.0x below R_unmatched=1.1218e-01)"
+                ),
+            ),
+        ),
+    ],
 )
-def test_cpml_background_material_reflection(eps_r, sigma):
-    """CPML matched to dielectric/lossy background suppresses interface reflection."""
-    r_vac, w_refl_vac, w_inc_vac = _cpml_probe_reflection(1.0, 0.0, match_bg=True)
-    r_matched, w_refl_m, w_inc_m = _cpml_probe_reflection(eps_r, sigma, match_bg=True)
-    r_unmatched, w_refl_u, _ = _cpml_probe_reflection(eps_r, sigma, match_bg=False)
+def test_cpml_background_material_reflection(eps_r, mu_r, sigma):
+    """CPML matched to dielectric/magnetic/lossy background suppresses interface reflection."""
+    r_vac, w_refl_vac, w_inc_vac = _cpml_probe_reflection(1.0, 1.0, 0.0, match_bg=True)
+    r_matched, w_refl_m, w_inc_m = _cpml_probe_reflection(
+        eps_r, mu_r, sigma, match_bg=True
+    )
+    r_unmatched, w_refl_u, _ = _cpml_probe_reflection(
+        eps_r, mu_r, sigma, match_bg=False
+    )
     print(
-        f"\nCPML reflection (eps_r={eps_r}, sigma={sigma}): "
+        f"\nCPML reflection (eps_r={eps_r}, mu_r={mu_r}, sigma={sigma}): "
         f"R_vac={r_vac:.4e} (W_refl={w_refl_vac:.4e}, W_inc={w_inc_vac:.4e}), "
         f"R_matched={r_matched:.4e} (W_refl={w_refl_m:.4e}, W_inc={w_inc_m:.4e}), "
         f"R_unmatched={r_unmatched:.4e} (W_refl={w_refl_u:.4e}), "
-        f"ratio={r_unmatched / r_matched:.1f}x"
+        f"R_matched/R_vac={r_matched / r_vac:.4e}x, "
+        f"R_vac/R_matched={r_vac / r_matched:.1f}x, "
+        f"R_unmatched/R_matched={r_unmatched / r_matched:.1f}x"
     )
-    assert r_matched < 3.0 * r_vac
     assert r_unmatched > 10.0 * r_matched
+    assert r_matched < 3.0 * r_vac
 
 
 def test_cpml_vacuum_default_bit_identical(use_gpu):
-    """Default vacuum CPML reproduces the pre-change vacuum coefficients and fields bit-for-bit."""
+    """Default vacuum CPML is bit-identical to the pre-change vacuum expressions transcribed below."""
     grid = wakis.GridFIT3D(-1.0, 1.0, -1.0, 1.0, 0.0, 1.0, 6, 6, 80, verbose=0)
     solver = wakis.SolverFIT3D(
         grid,
@@ -453,7 +473,7 @@ def test_cpml_vacuum_default_bit_identical(use_gpu):
         dtype=np.float32,
         verbose=0,
     )
-    # Explicitly rebuild ref's high-z CPML coefficients with pre-change vacuum constants
+    # Explicitly rebuild ref's high-z CPML coefficients with pre-change vacuum expressions
     eta_0 = mu_0 * c
     interface = ref.grid.z[-1 - ref.n_pml]
     L = ref.grid.z[-1] - interface
@@ -479,12 +499,19 @@ def test_cpml_vacuum_default_bit_identical(use_gpu):
         talpha[:, :, i - 1, "z"] = ref.alpha_max * (1 - taz)
 
     b_E = wakis.Field(ref.Nx, ref.Ny, ref.Nz, dtype=ref.dtype)
+    c_E = wakis.Field(ref.Nx, ref.Ny, ref.Nz, dtype=ref.dtype)
     b_H = wakis.Field(ref.Nx, ref.Ny, ref.Nz, dtype=ref.dtype)
+    c_H = wakis.Field(ref.Nx, ref.Ny, ref.Nz, dtype=ref.dtype)
     b_E.fromarray(
         np.exp(
             -(sigma_pml.toarray() / kappa.toarray() + alpha.toarray()) * ref.dt / eps_0
         )
     )
+    denom_e = sigma_pml.toarray() + kappa.toarray() * alpha.toarray()
+    ratio_e = np.divide(
+        sigma_pml.toarray(), denom_e, out=np.zeros_like(denom_e), where=denom_e != 0
+    )
+    c_E.fromarray(ratio_e * (b_E.toarray() - 1.0))
     b_H.fromarray(
         np.exp(
             -(tsigma_pml.toarray() / tkappa.toarray() + talpha.toarray())
@@ -492,14 +519,19 @@ def test_cpml_vacuum_default_bit_identical(use_gpu):
             / eps_0
         )
     )
-    assert np.array_equal(
-        solver.pml_b_E_z_high,
-        b_E[:, :, -ref.n_pml :, "z"].copy().flatten(order="F"),
+    denom_h = tsigma_pml.toarray() + tkappa.toarray() * talpha.toarray()
+    ratio_h = np.divide(
+        tsigma_pml.toarray(), denom_h, out=np.zeros_like(denom_h), where=denom_h != 0
     )
-    assert np.array_equal(
-        solver.pml_b_H_z_high,
-        b_H[:, :, -ref.n_pml - 1 : -1, "z"].copy().flatten(order="F"),
-    )
+    c_H.fromarray(ratio_h * (b_H.toarray() - 1.0))
+    ref.pml_b_E_z_high = b_E[:, :, -ref.n_pml :, "z"].copy().flatten(order="F")
+    ref.pml_c_E_z_high = c_E[:, :, -ref.n_pml :, "z"].copy().flatten(order="F")
+    ref.pml_b_H_z_high = b_H[:, :, -ref.n_pml - 1 : -1, "z"].copy().flatten(order="F")
+    ref.pml_c_H_z_high = c_H[:, :, -ref.n_pml - 1 : -1, "z"].copy().flatten(order="F")
+    assert np.array_equal(solver.pml_b_E_z_high, ref.pml_b_E_z_high)
+    assert np.array_equal(solver.pml_c_E_z_high, ref.pml_c_E_z_high)
+    assert np.array_equal(solver.pml_b_H_z_high, ref.pml_b_H_z_high)
+    assert np.array_equal(solver.pml_c_H_z_high, ref.pml_c_H_z_high)
     for attr in ("ieps", "imu", "sigma"):
         assert np.array_equal(getattr(solver, attr).array, getattr(ref, attr).array)
 

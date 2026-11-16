@@ -671,11 +671,19 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 dtype=self.dtype,
             )
 
+        if tensor in ("sigma", "all"):
+            self.use_conductivity = self.activate_pml or bool(
+                np.any(self.sigma.toarray() != 0)
+            )
+
         if self.verbose:
             print("Re-Pre-computing ...")
-        self.tDsiDmuiDaC = self.iDa * self.iDmu * self.C * self.Ds
-        self.itDaiDepsDstC = self.iDeps * self.itDa * self.C.transpose() * self.tDs
-        self.step_0 = False
+        if not self.activate_cpml:
+            self.tDsiDmuiDaC = self.iDa * self.iDmu * self.C * self.Ds
+            self.itDaiDepsDstC = self.iDeps * self.itDa * self.C.transpose() * self.tDs
+            if self.imported_mkl and not self.use_gpu:
+                self.tDsiDmuiDaC = mkl_sparse_mat(self.tDsiDmuiDaC)
+                self.itDaiDepsDstC = mkl_sparse_mat(self.itDaiDepsDstC)
 
     def _apply_stl_materials(self):
         """

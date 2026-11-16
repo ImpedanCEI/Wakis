@@ -482,10 +482,10 @@ $$
 S_{\mathrm{PML}} = \kappa + \frac{\sigma_{\mathrm{PML}}}{\alpha + j\omega\varepsilon_b}.
 $$
 
-Here $\kappa \geq 1$ scales the coordinate stretch, $\sigma_{\mathrm{PML}}$ is the graded stretching conductivity, and $\alpha$ is a non-negative frequency-shift parameter. Replacing $(\varepsilon_0, \mu_0, c)$ by $(\varepsilon_b, \mu_b, c/n)$ in the polynomial grading of order $m$ (`pml_exp`) for cell width $\Delta u$ ($u \in \{x, y, z\}$) scales the maximum conductivity with the background wave impedance $\eta_b = \eta_0\sqrt{\mu_r/\varepsilon_r}$:
+Here $\kappa \geq 1$ scales the coordinate stretch, $\sigma_{\mathrm{PML}}$ is the graded stretching conductivity, and $\alpha$ is a non-negative frequency-shift parameter. Replacing $(\varepsilon_0, \mu_0, c)$ by $(\varepsilon_b, \mu_b, c/n)$ in the polynomial grading of order $m$ (`pml_exp`) across a layer of physical thickness $L$ ($L = u_{n_{\mathrm{pml}}} - u_0$ on the low side and $L = u_{-1} - u_{-1-n_{\mathrm{pml}}}$ on the high side, for $u \in \{x, y, z\}$) and target normal-incidence reflection $R(0) = 10^{-8}$ (`R0 = 1e-8` in `wakis/boundaries.py`) scales the maximum conductivity with the background wave impedance $\eta_b = \eta_0\sqrt{\mu_r/\varepsilon_r}$:
 
 $$
-\sigma_{\max} = \sigma_{\mathrm{factor}}\,\frac{m + 1}{150\,\pi\,\Delta u\,\eta_b}.
+\sigma_{\max} = -\frac{\sigma_{\mathrm{factor}}\,(m + 1)\,\ln R(0)}{2\,\eta_b\,L}.
 $$
 
 Transforming the stretched curl equations to the time domain via recursive convolution replaces $\varepsilon_0$ by $\varepsilon_b$ in the discrete recursion coefficients ([Roden & Gedney, 2000](https://doi.org/10.1002/1098-2760(20001205)27:5<334::AID-MOP14>3.0.CO;2-A)),
@@ -496,7 +496,7 @@ b = \exp\!\left[-\left(\frac{\sigma_{\mathrm{PML}}}{\kappa} + \alpha\right)\frac
 a = \frac{\sigma_{\mathrm{PML}}}{\sigma_{\mathrm{PML}}\kappa + \kappa^2\alpha}\,(b - 1),
 $$
 
-which Wakis evaluates on both primal electric nodes and dual magnetic edge midpoints (storing $b$ as `pml_b_E`, `pml_b_H` and $a$ as `pml_c_E`, `pml_c_H`). Because the auxiliary convolution fields correct the spatial derivatives prior to multiplication by $\varepsilon_b^{-1}$ and $\mu_b^{-1}$, using the same $\varepsilon_b$-normalized stretch for both electric and magnetic updates enforces the impedance-matching condition $\sigma_{\mathrm{PML}}/\varepsilon_b = \sigma_{\mathrm{PML}}^*/\mu_b$. The CPML cells keep the background material tensors ($\varepsilon^{-1} = \varepsilon_b^{-1}$, $\mu^{-1} = \mu_b^{-1}$, and bulk conductivity $\sigma = \sigma_b$); when $\sigma_b > 0$, the background conduction current $\vec{J} = \sigma_b\vec{E}$ is updated in the main FIT time step while the CPML auxiliary fields apply the coordinate-stretching loss.
+which Wakis evaluates on both primal electric nodes and dual magnetic edge midpoints (storing $b$ as `pml_b_E`, `pml_b_H` and $a$ as `pml_c_E`, `pml_c_H`). Because the auxiliary convolution fields correct the spatial derivatives prior to multiplication by $\varepsilon_b^{-1}$ and $\mu_b^{-1}$, using the same $\varepsilon_b$-normalized stretch for both electric and magnetic updates enforces the impedance-matching condition $\sigma_{\mathrm{PML}}/\varepsilon_b = \sigma_{\mathrm{PML}}^*/\mu_b$. The CPML cells keep the background material tensors ($\varepsilon^{-1} = \varepsilon_b^{-1}$, $\mu^{-1} = \mu_b^{-1}$, and bulk conductivity $\sigma = \sigma_b$); when $\sigma_b > 0$, the background conduction current $\vec{J} = \sigma_b\vec{E}$ is updated in the main FIT time step while the CPML auxiliary fields apply the coordinate-stretching loss. When comparing a dielectric background ($n = \sqrt{\varepsilon_r\mu_r} > 1$) against vacuum at a fixed timestep $\Delta t$, the phase speed $v_b = c/n$ reduces the effective Courant number $v_b\Delta t/\Delta u$ by $1/n$, which lowers discrete CPML reflection relative to the vacuum run at the same $\Delta t$.
 
 The layer thickness `n_pml` counts physical cells. Along an axis with $N$
 stored nodes and $m$ high-side CPML cells, the interface is at $x_{N-m-1}$.

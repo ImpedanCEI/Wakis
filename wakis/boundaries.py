@@ -486,6 +486,7 @@ class BCsMixin:
                 -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_b)
             )
             if not self.use_stl:
+                # Dual H edges lie one index inward on the high side (-n_pml-1:-1 vs low-side :n_pml).
                 for d in ["x", "y", "z"]:
                     self.ieps[-self.n_pml :, :, :, d] = ieps_0_pml
                     self.imu[-self.n_pml - 1 :, :, :, d] = imu_0_pml
