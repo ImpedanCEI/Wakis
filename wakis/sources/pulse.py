@@ -163,11 +163,12 @@ class Pulse(WaveformSource):
         if self.zs is None:
             self.zs = int(solver.Nz / 2)
         if self.L is None:
-            self.L = 50 * c_light * solver.dt
+            self.L = 50 * c_light * float(solver.dt)
 
     def update(self, solver, t):
         """Inject the selected pulse component at time ``t``."""
         self._ensure_initialized(solver)
+        t = float(t)
 
         waveform = self.amplitude * self.tprofile(t)
         index = (self.xs, self.ys, self.zs, self.component)

@@ -107,6 +107,7 @@ class Dipole(WaveformSource):
     def update(self, solver, t):
         """Inject the selected sinusoidal field component at time ``t``."""
         self._ensure_initialized(solver)
+        t = float(t)
 
         phase = self.omega * t + self.phase
         waveform = self.amplitude * self.harmonic_carrier(phase, kind="sin")

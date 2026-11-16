@@ -152,6 +152,7 @@ class WavePacket(WaveformSource):
     def update(self, solver, t):
         """Inject the matched TM Gaussian wave packet at time ``t``."""
         self._ensure_initialized(solver)
+        t = float(t)
 
         # tx[0] is the boundary, H starts at tx[1]
         x_edge, y_node = np.meshgrid(

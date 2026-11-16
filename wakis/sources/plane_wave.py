@@ -120,6 +120,7 @@ class PlaneWave(WaveformSource):
     def update(self, solver, t):
         """Inject matched TM fields for the plane wave at time ``t``."""
         self._ensure_initialized(solver)
+        t = float(t)
 
         # Evaluate each component at its staggered field position.
         x_edge = solver.tx[1:][self.xs]

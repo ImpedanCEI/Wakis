@@ -337,3 +337,55 @@ def test_cpml_symmetry(axis, n_pml, graded, plot_comparison):
     np.testing.assert_allclose(field, field[::-1], rtol=1e-10, atol=1e-12)
     field_h = solver.H.to_matrix(magnetic)[tuple(line)][:-1] * mu_0 * c
     np.testing.assert_allclose(field_h, -field_h[::-1], rtol=1e-10, atol=1e-12)
+
+
+def test_cpml_beam_float32_timing(tmp_path, monkeypatch):
+    """Keep float32 CPML beam timing and source profiles in float64."""
+    import h5py
+
+    from wakis.sources import Beam, Pulse
+
+    grid = wakis.GridFIT3D(-0.05, 0.05, -0.05, 0.05, -0.2, 0.2, 12, 12, 36, verbose=0)
+    solver = wakis.SolverFIT3D(
+        grid,
+        bc_low=["pec", "pec", "cpml"],
+        bc_high=["pec", "pec", "cpml"],
+        use_stl=False,
+        dtype=np.float32,
+        n_pml=4,
+        verbose=0,
+    )
+    nt = 200
+    expected_times = np.arange(nt) * float(solver.dt)
+    callback_times = []
+    beam = Beam(q=1e-9, sigmaz=18.5e-3, beta=1.0)
+    solver.emsolve(
+        nt,
+        source=beam,
+        save=False,
+        callback=lambda s, t: callback_times.append(t),
+    )
+    times = np.asarray(callback_times)
+    assert times.dtype == np.float64
+    assert np.array_equal(times, expected_times)
+
+    t = float(np.float32(100 * solver.dt))
+    injected_j = []
+    for scalar_t in (np.float32(t), float(t), np.float64(t)):
+        solver.reset_fields()
+        Beam(q=1e-9, sigmaz=18.5e-3, beta=1.0).update(solver, scalar_t)
+        injected_j.append(solver.J.toarray().copy())
+    assert np.array_equal(injected_j[0], injected_j[1])
+    assert np.array_equal(injected_j[1], injected_j[2])
+
+    pulse = Pulse(xs=6, ys=6, zs=18)
+    pulse.update(solver, 0.0)
+    assert float(pulse.L) == 50 * c * float(solver.dt)
+
+    monkeypatch.chdir(tmp_path)
+    solver.emsolve(nt, save=True, fields=["Ez"], save_every=20)
+    with h5py.File(tmp_path / "Ez.h5", "r") as hf:
+        saved_times = hf["t"][()]
+    (tmp_path / "Ez.h5").unlink()
+    assert saved_times.dtype == np.float64
+    assert np.array_equal(saved_times, expected_times[::20])
