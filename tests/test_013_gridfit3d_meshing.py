@@ -343,22 +343,6 @@ def test_unsupported_stl_method(tmp_path, method):
         )
 
 
-def test_unsupported_sibc(tmp_path):
-    """Volume masks cannot substitute for SIBC geometry."""
-    path = tmp_path / "solid.stl"
-    pv.Cube().triangulate().save(path)
-    grid = GridFIT3D(
-        x=[-1.0, 0.0, 1.0],
-        y=[-1.0, 0.0, 1.0],
-        z=[-1.0, 0.0, 1.0],
-        stl_solids={"solid": str(path)},
-        stl_materials={"solid": [2.0, 1.0, 0.1]},
-        verbose=0,
-    )
-    with pytest.raises(NotImplementedError):
-        SolverFIT3D(grid, use_stl=True, use_sibc=True, verbose=0)
-
-
 @pytest.mark.parametrize("method", ["legacy", "voxelize_rectilinear"])
 def test_mirrored_beam_wakes(tmp_path, monkeypatch, method):
     """A symmetric PEC pipe/cavity gives opposite on-axis kicks for mirrored beams.

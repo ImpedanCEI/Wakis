@@ -89,16 +89,18 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             If True, assign permittivity/conductivity from grid.primal_masks
             and permeability from grid.dual_masks. Later solids take precedence
             in overlaps. TF/SF initialization additionally completes PEC edges
-            between conductor nodes. Conductive SIBC solids are unsupported.
+            between conductor nodes.
         use_conductors : bool, optional
             [LEGACY] will be removed in future releases.
             If True, import conductor geometry from ``conductors.py`` masks.
         use_sibc : bool, optional
-            Enable surface impedance boundary condition for high-conductivity solids.
+            [LEGACY] will be removed in future releases.
+            True raises NotImplementedError; default False.
         fmax : float, optional
-            Maximum frequency for SIBC calculations, used to determine the
-            conductivity threshold for applying SIBC instead of explicit conductivity.
-            Default is 1 GHz if not set and a wakeSolver object is not provided.
+            [LEGACY] will be removed in future releases.
+            Nominal frequency of interest [Hz], stored as metadata; it does not
+            restrict the simulated spectrum. Defaults to 1 GHz, or wake.fmax
+            when a wake is supplied and the default value is retained.
         use_gpu : bool, optional
             Enable GPU acceleration via ``cupyx`` (if available).
         use_mpi : bool, optional
@@ -159,6 +161,11 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             CFL number used when computing dt from grid spacing.
         """
 
+        if use_sibc:
+            raise NotImplementedError(
+                "Surface impedance boundary conditions are not implemented."
+            )
+
         print("Initializing Electromagnetic solver...")
         self.verbose = verbose
         t0 = time.time()
@@ -172,8 +179,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.use_stl = use_stl
         self.use_gpu = use_gpu
         self.use_mpi = use_mpi
-        self.use_sibc = use_sibc  # surface impedance boundary condition
-        self.fmax = fmax  # maximum frequency for SIBC
+        self.use_sibc = use_sibc
+        self.fmax = fmax  # nominal frequency of interest [Hz]
         self.activate_abc = False  # Will turn true if abc BCs are chosen
         self.activate_pml = False  # Will turn true if pml BCs are chosen
         self.activate_cpml = False  # Will turn true if cpml BCs are chosen
@@ -345,12 +352,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 bg[1] * mu_0,
                 0.0,
             )
-
-        # Max conductivity that can be resolved without SIBC
-        dn = np.sqrt(2) * min(self.dx.min(), self.dy.min(), self.dz.min())
-        self.sigma_max = 10 / (np.pi * self.fmax * mu_0 * dn**2)
-        if self.verbose > 1:
-            print(f"    * Max resolved conductivity without SIBC: {self.sigma_max} S/m")
 
         self.ieps = Field(
             self.Nx,
@@ -734,9 +735,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         ValueError
             If a solid lacks a packed primal or dual mask (for example, an old grid
             restored from a scalar-mask HDF5 file).
-        NotImplementedError
-            If a conductive solid requests SIBC. Volume masks cannot classify
-            a surface impedance boundary.
         """
         self.stl_solids = self.grid.stl_solids
         self.stl_materials = self.grid.stl_materials
@@ -752,10 +750,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             eps = self.stl_materials[key][0] * eps_0
             mu = self.stl_materials[key][1] * mu_0
             sigma = self.stl_materials[key][2]
-            if sigma > 0.0 and self.use_sibc:
-                raise NotImplementedError(
-                    "SIBC with staggered material masks is not implemented."
-                )
             if sigma > 0.0:
                 if self.verbose and sigma > 10 * eps / eps_0:
                     print(
@@ -768,30 +762,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.imu.array[self.grid.dual_masks[key].array] = 1.0 / mu
             self.ieps.array[mask] = 1.0 / eps
             self.sigma.array[mask] = sigma
-
-    def _apply_SIBC(self, key):
-        eps = self.stl_materials[key][0] * eps_0
-        mu = self.stl_materials[key][1] * mu_0
-        sigma = self.stl_materials[key][2]
-
-        # Mark surface cells for SIBC if conductivity is high
-        if self.verbose > 1:
-            print(f'    * Applying SIBC for solid "{key}" with sigma={sigma} S/m')
-
-        # Retrieve surface mask
-        surface_mask = self.grid._mark_cells_in_surface(key)
-        mask = np.reshape(surface_mask, (self.Nx, self.Ny, self.Nz)).astype(int)
-
-        # Calculate effective surface impedance and update tensors at the surface
-        Z_s = np.sqrt(np.pi * self.fmax * mu / sigma)
-        sigma_eff = 1 / Z_s  # SIBC surface conductivity [S]
-        eps_eff = (1 / Z_s - 1) * eps_0 + eps
-
-        # Update tensors
-        self.sigma += self.sigma * (-1.0 * mask)
-        self.sigma += mask * sigma_eff
-        self.ieps += self.ieps * (-1.0 * mask)
-        self.ieps += mask * 1.0 / eps_eff
 
     def _one_step_with_abc(self):
         """Wrap the selected backend timestep with the longitudinal Mur ABC."""

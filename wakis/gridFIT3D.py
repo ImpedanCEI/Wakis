@@ -810,24 +810,6 @@ class GridFIT3D(PlotMixin):
             bg_mask &= ~self.grid[key].astype(int).astype(bool)
         return bg_mask
 
-    def _mark_cells_in_surface(self, key):
-        # Modify the STL mask to account only for the surface
-        # Needed for the SIBC boundary condition when conductivity > 1e3 S/m
-        grad = np.array(
-            self.grid.compute_derivative(scalars=key, gradient="gradient")["gradient"]
-        )
-
-        # Compute normals and transverse cell size dn
-        # grad_mag = np.linalg.norm(grad, axis=1)
-        # n = grad / (grad_mag[:, None] + 1e-14)
-        # dn = np.sqrt((n[mask,0]*self.dx)**2 + (n[mask,1]*self.dy)**2 + (n[mask,2]*self.dz)**2)
-
-        # Get boundary cells via gradient magnitude
-        grad = np.sqrt(grad[:, 0] ** 2 + grad[:, 1] ** 2 + grad[:, 2] ** 2)
-        mask = grad.astype(bool)  # TODO: subpixel smoothing
-
-        return mask
-
     def read_stl(self, key):
         """
         Read and transform an STL solid by key.
