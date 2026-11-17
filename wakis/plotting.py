@@ -1751,6 +1751,8 @@ class PlotMixinGrid:
         off_screen=False,
         component="x",
         grid_type="primal",
+        *,
+        clip_plane=None,  # temporary, just for deprecation error
     ):
         """Plot nonzero mask voxels with an optional STL overlay.
 
@@ -1779,11 +1781,18 @@ class PlotMixinGrid:
             Component to display. Default 'x'.
         grid_type : {'primal', 'dual'}, optional
             Select electric or magnetic material masks. Default 'primal'.
+        clip_plane : bool, optional
+            Removed option. Omit it to use interactive box clipping.
 
         Returns
         -------
         pyvista.Plotter or None
             Plotter when off_screen is True.
+
+        Raises
+        ------
+        NotImplementedError
+            If the removed clip_plane option is specified as True or False.
 
         Notes
         -----
@@ -1793,6 +1802,11 @@ class PlotMixinGrid:
         Grid data and masks are unchanged.
         For large grids, use plot_stl_mask_slice to avoid a 3D voxel extraction.
         """
+        if clip_plane is not None:
+            raise NotImplementedError(
+                "plot_stl_mask(clip_plane=...) was deprecated in v0.9.0; omit clip_plane "
+                "to use interactive box clipping."
+            )
         values, _, edges = self._stl_mask_plot_data(stl_solid, component, grid_type)
         volume = pv.RectilinearGrid(*edges)
         volume.cell_data[stl_solid] = np.asarray(

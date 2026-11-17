@@ -558,6 +558,11 @@ class GridFIT3D(PlotMixin):
         Legacy uses select_interior_points on an interleaved rectilinear grid,
         including nonuniform axes. Both store boolean Fields in primal_masks and dual_masks.
         """
+        if method.lower() in ("interior_points", "implicit_distance"):
+            raise NotImplementedError(
+                f"stl_method={method!r} was deprecated in v0.9.0; use 'voxelize_rectilinear' "
+                "for uniform grids or 'legacy' for non-uniform grids."
+            )
         if method.lower() not in ("legacy", "voxelize_rectilinear"):
             raise ValueError("stl_method must be 'legacy' or 'voxelize_rectilinear'.")
         # Obtain masks with grid cells inside each stl solid
