@@ -362,12 +362,13 @@ def test_voxel_terminal_material(tmp_path, xmin):
         )
 
 
+# To be removed after v0.9.0
 @pytest.mark.parametrize("method", ["implicit_distance", "interior_points"])
 def test_unsupported_stl_method(tmp_path, method):
     """Removed classification methods fail explicitly rather than producing scalar masks."""
     path = tmp_path / "solid.stl"
     pv.Cube().triangulate().save(path)
-    with pytest.raises(ValueError):
+    with pytest.raises(NotImplementedError):
         GridFIT3D(
             x=[-1.0, 0.0, 1.0],
             y=[-1.0, 0.0, 1.0],

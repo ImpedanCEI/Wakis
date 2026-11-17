@@ -353,14 +353,15 @@ def test_field_inspect_one_cell(backend):
             result.close()
 
 
-@pytest.mark.parametrize("coordinates", ["primal_coords", "dual_coords", None])
+@pytest.mark.parametrize("coordinates", ["primal_coords", "dual_coords", "grid", None])
 @pytest.mark.parametrize("component", ["x", "y", "z", "all"])
 @pytest.mark.parametrize("backend", ["matplotlib", "pyvista"])
 def test_field_inspect3d_coordinates(tmp_path, coordinates, component, backend):
     """3D inspection uses staggered positions with optional STL context.
 
     A linear field makes interpolated clip values independently verifiable;
-    sentinel terminal values must be absent from the physical plot.
+    sentinel terminal values must be absent from the physical plot. Without
+    field coordinates, a supplied grid still places PyVista geometry in metres.
     """
     import matplotlib.pyplot as plt
 
@@ -380,7 +381,11 @@ def test_field_inspect3d_coordinates(tmp_path, coordinates, component, backend):
     grid.stl_scale = {"solid": 1.0}
     grid.stl_rotate = {"solid": [0.0, 0.0, 0.0]}
     grid.stl_translate = {"solid": [0.0, 0.0, 0.0]}
-    coords = getattr(grid, coordinates) if coordinates is not None else None
+    coords = (
+        getattr(grid, coordinates)
+        if coordinates in ("primal_coords", "dual_coords")
+        else None
+    )
     field = Field(grid.Nx, grid.Ny, grid.Nz, coordinates=coords, use_ones=True)
     if coords is not None:
         field.array[:] = -999
@@ -388,8 +393,8 @@ def test_field_inspect3d_coordinates(tmp_path, coordinates, component, backend):
             xyz = np.meshgrid(*coords[name], indexing="ij")
             physical = tuple(slice(0, len(axis)) for axis in coords[name])
             field.to_matrix(name)[physical] = xyz[0] + 2 * xyz[1] + 3 * xyz[2]
-    # Coordinate-free cases exercise the index fallback without physical geometry.
-    context = grid if coords is not None else None
+    # Cover both physical grid context and the coordinate-free index fallback.
+    context = grid if coordinates is not None else None
     result = field.inspect3D(
         field=component,
         backend=backend,
@@ -426,6 +431,14 @@ def test_field_inspect3d_coordinates(tmp_path, coordinates, component, backend):
                         [v for axis in coords[name] for v in (axis[0], axis[-1])],
                         atol=1e-7,
                     )
+                elif context is not None:
+                    assert "stl_solid" in result.actors
+                    np.testing.assert_allclose(mesh.bounds, grid.grid.bounds)
+                    np.testing.assert_array_equal(
+                        mesh.cell_data[f"Field {name}"],
+                        field.to_matrix(name).ravel(order="F"),
+                    )
+                    assert field.coordinates is None
         finally:
             result.close()
 
