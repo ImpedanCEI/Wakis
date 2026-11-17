@@ -4,7 +4,7 @@ This section provides the theoretical foundations behind Wakis, offering a clear
 
 We begin by revisiting Maxwell’s equations in their integral form and explaining how they are discretized using the Finite Integration Technique (FIT) on a structured Cartesian grid. The formulation naturally leads to Maxwell Grid Equations (MGEs), which are solved in time using a leapfrog scheme. The fields and material properties are represented on a Yee-type staggered lattice, and anisotropic or spatially varying materials are handled via sparse metric tensors.
 
-Boundary conditions (PEC, PMC, periodic, Mur ABC, PML, and CPML) are discussed along with the treatment of sources and initial conditions. We also highlight how the solver supports geometry import and sub-pixel smoothing for embedded CAD models.
+Boundary conditions (PEC, PMC, periodic, Mur ABC, PML, and CPML) are discussed along with the treatment of sources and initial conditions. We also describe geometry import and staggered material sampling for embedded CAD models.
 
 Finally, we cover the implementation aspects, including GPU acceleration with CuPy and parallelization with mpi4py, enabling high-resolution 3D simulations across multiple devices.
 
@@ -211,7 +211,7 @@ To support **anisotropic materials** and **imported geometries**, Wakis stores t
 
 Before time-stepping, these directional fields are assembled into the corresponding **sparse diagonal matrices** using `scipy.sparse.diags`. This preserves the **locality of FIT updates** while enabling efficient CPU and GPU execution.
 
-Wakis also supports spatially varying media, embedded materials from CAD imports, and subpixel smoothing, ensuring accurate representation of complex geometries and composite structures.
+Wakis also supports spatially varying media and embedded materials from CAD imports through binary sampling at staggered field locations. Subpixel interface averaging is not supported.
 
 ### 🕒 Time-Stepping Routine
 
@@ -532,6 +532,18 @@ The injection potential and time-domain fields must share a conductor boundary. 
 For marked-node indicators $M_p$ and $M_q$, the second step is $M_p M_q=1\Rightarrow\varepsilon^{-1}_{pq}=0$. This preserves existing PEC edges without adding marked nodes and excludes inactive terminal storage. It prevents a grounded injection node from supporting an unconstrained longitudinal field along an extruded wall.
 
 **Direct-source simulations do not apply this correction.** Stored masks, permeability, and conductivity remain unchanged. The effective PEC wall can extend by a neighboring edge: resolve narrow gaps and check curved walls under mesh refinement.
+
+Completion currently applies throughout the domain, rather than only at the
+injection planes. Restricting it to transverse edges on those planes and
+longitudinal edges touching them restores a spurious transverse DC impedance
+of approximately 119 Ω in the coarse straight-pipe regression
+(`test_straight_pipe_wake`, both meshing methods and precisions). With this
+sampling and injection formulation, unconstrained longitudinal wall edges in
+the interior also matter. Plane-only completion therefore requires a separate
+change to the wall/injection discretization; it is not an equivalent reduction
+of the current correction. The global correction can close narrow gaps away
+from injection planes, so TF/SF and direct-source material assignments should
+not be assumed identical.
 
 This completion rule is a **Wakis adaptation**. The underlying edge/node representation and discrete gradient/curl identities follow [Clemens and Weiland (2001)](https://doi.org/10.2528/PIER00080103).
 

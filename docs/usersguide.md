@@ -71,7 +71,8 @@ Choose a **meshing method**:
 
 - `"legacy"` (default): supports uniform and nonuniform grids; uses PyVista's `select_interior_points`.
 - `"voxelize_rectilinear"`: requires a uniform grid.
-- `"implicit_distance"` and `"interior_points"` are no longer supported method values.
+- `"implicit_distance"` and `"interior_points"` have been removed and raise
+  `NotImplementedError` with a migration message.
 
 Both methods produce two boolean `Field` objects per solid:
 
@@ -86,9 +87,18 @@ Each Field stores `3 * Nx * Ny * Nz` values, one block per component. Both masks
 
 **TF/SF only:** PEC constraints are completed between marked conductor nodes to match the injection potential. This can extend the staircase wall by a neighboring edge. Direct-source simulations retain the sampled coefficients. Check curved walls and narrow gaps under mesh refinement.
 
+**Thin material features:** grid construction prints one `[!]` diagnostic per solid, reporting the
+number of edges whose midpoint is inside a solid while both endpoint nodes are
+outside. These under-resolved features can misrepresent the material response;
+PEC sheets may leave tangential electric fields unconstrained and appear
+transparent to direct sources. Refine the mesh to resolve their thickness. The diagnostic uses the existing sampling lattice;
+it does not alter the masks and is printed when `verbose > 0`. Features
+missed by all samples cannot be detected by this check.
+
 **Current limits:**
 
-- Subpixel smoothing and `use_sibc=True` raise `NotImplementedError`. The old SIBC implementation has been removed.
+- Subpixel smoothing and its `GridFIT3D` configuration options have been removed. Use binary staggered masks; interface averaging is not supported.
+- `use_sibc=True` raises `NotImplementedError`. The old SIBC implementation has been removed.
 - Scalar `grid.grid[key]` labels are no longer generated. Plot masks with `grid.plot_stl_mask()` / `grid.plot_stl_mask_slice()`, or inspect their Fields directly.
 - Recreate grids saved without staggered masks before using STL material allocation.
 
@@ -328,6 +338,10 @@ grid.plot_stl_mask_slice("pipe", component="z", grid_type="dual", plane="XZ")
 ```
 
 Both default to `component="x"` and `grid_type="primal"`. The 3D plot starts with all occupied voxels visible; resize or move its axis-aligned box to retain voxels whose centres are inside. Display voxels surround the component samples and end at the domain boundaries. **Use the slice plot for large grids:** it builds only one 2D plane; the 3D plot extracts all occupied voxels. Neither changes the stored masks or `grid.grid` data.
+
+The old `plot_stl_mask(clip_plane=...)` option raises `NotImplementedError`.
+Remove that argument to use interactive box clipping, or use
+`plot_stl_mask_slice()` for a 2D view.
 
 **Magnitude plots remain approximate:** `field="abs"` uses the existing index-wise norm on the x-component display axes. Interpolation to common locations is tracked in [issue #116](https://github.com/ImpedanCEI/Wakis/issues/116).
 
