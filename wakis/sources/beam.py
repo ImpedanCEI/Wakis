@@ -284,6 +284,8 @@ class Beam:
         to any PEC electric edge use the Dirichlet condition ``potential = 0``.
         TF/SF initialization completes the PEC edge constraints between
         these nodes so the potential and time-domain walls agree.
+        Primal and dual edge lengths come from ``solver.L`` and ``solver.tL``
+        on this plane, matching the lengths used by the time-domain operators.
 
         Every remaining node contributes one row of a five-point finite-
         difference stencil, ordered as::
@@ -314,10 +316,14 @@ class Beam:
 
         # Compute the four directional coefficients for every free node at once.
         # Each free row contains [center, east, west, north, south].
-        east = 1.0 / (solver.dx[free_x] * solver.tdx[free_x])
-        west = 1.0 / (solver.dx[free_x - 1] * solver.tdx[free_x])
-        north = 1.0 / (solver.dy[free_y] * solver.tdy[free_y])
-        south = 1.0 / (solver.dy[free_y - 1] * solver.tdy[free_y])
+        lx = solver.L[:, :, z_index, "x"]
+        ly = solver.L[:, :, z_index, "y"]
+        tlx = solver.tL[:, :, z_index, "x"]
+        tly = solver.tL[:, :, z_index, "y"]
+        east = 1.0 / (lx[free_x, free_y] * tlx[free_x, free_y])
+        west = 1.0 / (lx[free_x - 1, free_y] * tlx[free_x, free_y])
+        north = 1.0 / (ly[free_x, free_y] * tly[free_x, free_y])
+        south = 1.0 / (ly[free_x, free_y - 1] * tly[free_x, free_y])
 
         stencil_columns = np.column_stack(
             (
@@ -361,7 +367,7 @@ class Beam:
         return potential.reshape((nx, ny))
 
     def _calculate_tfsf_injected_fields(self, solver, z_index, side):
-        """Precompute normalized transverse TEM fields on an injection plane."""
+        """Compute transverse TEM templates using the plane's primal edge lengths."""
         if self.beta != 1.0:
             raise NotImplementedError(
                 "Only relativistic beta=1 is currently implemented."
@@ -372,8 +378,15 @@ class Beam:
         potential = self._solve_tfsf_transverse_potential(solver, z_index)
         electric_x = np.zeros((solver.Nx, solver.Ny), dtype=solver.dtype)
         electric_y = np.zeros_like(electric_x)
-        electric_x[:-1, :] = -np.diff(potential, axis=0) / solver.dx[:, None]
-        electric_y[:, :-1] = -np.diff(potential, axis=1) / solver.dy[None, :]
+        lx = solver.L[:-1, :, z_index, "x"]
+        ly = solver.L[:, :-1, z_index, "y"]
+        # Zero-length constrained edges carry no electric line integral.
+        np.divide(
+            -np.diff(potential, axis=0), lx, out=electric_x[:-1, :], where=lx != 0
+        )
+        np.divide(
+            -np.diff(potential, axis=1), ly, out=electric_y[:, :-1], where=ly != 0
+        )
 
         wave_impedance = np.dtype(solver.dtype).type(Z0)
         magnetic_x = -electric_y / wave_impedance
