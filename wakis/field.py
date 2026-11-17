@@ -1188,6 +1188,9 @@ class Field:
                 if self.coordinates is not None:
                     volume = pv.RectilinearGrid(*coords)
                     volume.point_data[scalars] = values.ravel(order="F")
+                elif grid is not None:
+                    volume = grid.grid.copy(deep=False)
+                    volume.cell_data[scalars] = values.ravel(order="F")
                 else:
                     volume = pv.ImageData(
                         dimensions=(self.Nx + 1, self.Ny + 1, self.Nz + 1)
