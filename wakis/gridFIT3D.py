@@ -782,34 +782,6 @@ class GridFIT3D(PlotMixin):
 
         self.grid.cell_data[key] = np.pad(mask, ((0, 1),) * 3, mode="edge").ravel()
 
-    def check_stl_masks_overlap(self):
-        """
-        Check for overlapping STL masks in the grid
-        and print warnings if overlaps are found.
-
-        This method computes the sum of all STL masks and identifies cells
-        that are marked as inside more than one solid.
-        """
-        mask_sum = np.zeros(self.Nx * self.Ny * self.Nz, dtype=int)
-        for key in self.stl_solids.keys():
-            mask_sum += self.grid[key].astype(int)
-
-        overlap_mask = mask_sum > 1
-        num_overlaps = np.sum(overlap_mask)
-
-        if num_overlaps > 0 and self.verbose > 1:
-            print(
-                f"[!] Warning: {num_overlaps} cells are marked as inside multiple STL solids. \
-                Consider checking for overlapping geometries."
-            )
-
-    def _get_background_mask(self):
-        # Get a mask for the background (cells not inside any STL solid)
-        bg_mask = np.ones(self.Nx * self.Ny * self.Nz, dtype=bool)
-        for key in self.stl_solids.keys():
-            bg_mask &= ~self.grid[key].astype(int).astype(bool)
-        return bg_mask
-
     def read_stl(self, key):
         """
         Read and transform an STL solid by key.
