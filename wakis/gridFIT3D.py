@@ -8,7 +8,6 @@ import time
 import h5py
 import numpy as np
 import pyvista as pv
-from scipy.ndimage import gaussian_filter
 from scipy.optimize import least_squares
 
 from .field import Field
@@ -63,10 +62,6 @@ class GridFIT3D(PlotMixin):
         stl_colors=None,
         stl_tol=1e-3,
         stl_method="legacy",
-        subpixel_smoothing=False,
-        subpixel_smoothing_factor=4,
-        subpixel_smoothing_threshold=0.3,
-        subpixel_smoothing_bool=True,
         load_from_h5=None,
         verbose=2,
     ):
@@ -130,19 +125,6 @@ class GridFIT3D(PlotMixin):
             and store packed Fields in primal_masks and dual_masks. Voxelization
             requires uniform axes; legacy also supports nonuniform axes.
             Scalar cell masks are not generated.
-        subpixel_smoothing : bool, optional
-            Default False. Smoothing of packed electric material masks is under
-            development; requesting it raises NotImplementedError.
-        subpixel_smoothing_factor : int, optional
-            Factor by which to increase the resolution for subpixel smoothing. Default is 4.
-            Memory usage increases with the cube of this factor, so use with caution!
-        subpixel_smoothing_threshold : float, optional
-            Threshold value (0–1) for classifying smoothed cells as inside/outside the solid.
-            Default is 0.3. A lower value includes more boundary cells; typical choice is
-            ``1/(subpixel_smoothing_factor**3)``.
-        subpixel_smoothing_bool : bool, optional
-            If True, convert the smoothed mask to a boolean array after thresholding.
-            Default is True.
         load_from_h5 : str, optional
             Load grid from an h5 file previously saved with `save_to_h5`.
         verbose : int or bool, optional
@@ -324,14 +306,8 @@ class GridFIT3D(PlotMixin):
             print("Importing STL solids...")
         self.stl_tol = stl_tol
         self.stl_method = stl_method
-        self.use_subpixel_smoothing = subpixel_smoothing
-        self.subpixel_smoothing_factor = subpixel_smoothing_factor
-        self.subpixel_smoothing_threshold = subpixel_smoothing_threshold
-        self.subpixel_smoothing_bool = subpixel_smoothing_bool
         self.primal_masks = {}
         self.dual_masks = {}
-        if self.subpixel_smoothing_threshold is None:
-            self.subpixel_smoothing_threshold = 1 / (self.subpixel_smoothing_factor**3)
         if stl_solids is not None:
             self._mark_cells_in_stl(method=self.stl_method)
 
@@ -678,13 +654,10 @@ class GridFIT3D(PlotMixin):
             dual_mask.to_matrix("z")[:-1, :-1, :] = mask[1::2, 1::2, ::2]
             self.dual_masks[key] = dual_mask
 
+            self._check_thin_features(key, mask)
+
             solid_mask = primal_mask.array
             del mask, classified_grid
-
-            if self.use_subpixel_smoothing:
-                raise NotImplementedError(
-                    "Subpixel smoothing is currently under development"
-                )
 
             # Verbose output
             if self.verbose and not np.any(solid_mask):
@@ -697,90 +670,20 @@ class GridFIT3D(PlotMixin):
                     f"    * STL solid {key}: {np.sum(solid_mask)} samples marked inside the solid."
                 )
 
-    def _apply_subpixel_smoothing(
-        self,
-        key,
-        factor=4,
-        sigma=0.5,
-        make_bool=True,  # default is True
-        threshold=None,  # default is 1/(factor**3)
-    ):
-        """
-        Apply subpixel smoothing to the STL mask.
-
-        This method creates a higher resolution reference volume for voxelization,
-        applies the voxelization at this higher resolution, and then combines
-        the results to create a more accurate mask with the original grid resolution.
-
-        The smoothing is done by averaging the values from the higher resolution grid
-        and computing the gradient at mask edges, then applying a Gaussian filter.
-
-        Parameters
-        ----------
-        key : str
-            Key of the STL solid to smooth.
-        factor : int, optional
-            Factor by which to increase the resolution for subpixel smoothing. Default is 4.
-        sigma : float, optional
-            Standard deviation for Gaussian filter. Default is 0.5.
-        make_bool : bool, optional
-            Whether to convert the smoothed mask to boolean. Default is True.
-        threshold : float, optional
-            Threshold for converting the smoothed mask to boolean. Default is 0.1.
-        """
-
-        # Skip for vacuum solids
-        if (
-            self.stl_materials[key][0] == 1.0
-            and self.stl_materials[key][1] == 1.0
-            and self.stl_materials[key][2] == 0.0
-        ):
+    def _check_thin_features(self, key, mask):
+        """Report under-resolved solid features sampled only at edge midpoints."""
+        if not self.verbose:
             return
-
-        if self.verbose > 1:
-            print(f"    * Applying subpixel smoothing with factor {factor}...")
-
-        surface = self.read_stl(key)
-
-        shape = tuple(factor * (n - 1) for n in (self.Nx, self.Ny, self.Nz))
-        dx = self.dx[0] / factor
-        dy = self.dy[0] / factor
-        dz = self.dz[0] / factor
-        # Place subcell centres inside each physical cell, including the first.
-        origin = (
-            self.x[0] + dx / 2,
-            self.y[0] + dy / 2,
-            self.z[0] + dz / 2,
-        )
-        reference_vol = pv.ImageData(
-            dimensions=shape, origin=origin, spacing=(dx, dy, dz)
-        )
-        vox = surface.voxelize_rectilinear(reference_volume=reference_vol)
-        mask_ref = np.asarray(vox["mask"]).reshape(shape, order="F")
-
-        # Combine the higher resolution mask back to the original grid resolution
-        mask = np.zeros((self.Nx - 1, self.Ny - 1, self.Nz - 1))
-        for i in range(factor):
-            for j in range(factor):
-                for k in range(factor):
-                    sub_mask = mask_ref[i::factor, j::factor, k::factor].astype(float)
-                    # A one-cell axis has no resolved mask gradient.
-                    sub_mask += np.sqrt(
-                        sum(
-                            np.gradient(sub_mask, axis=axis) ** 2
-                            for axis, size in enumerate(sub_mask.shape)
-                            if size > 1
-                        )
-                    )
-                    mask += gaussian_filter(np.clip(sub_mask, 0, 1), sigma=sigma)
-
-        # Overwrite the previous binary/boolean mask in the PyVista grid
-        mask = np.clip(mask, 0, factor**3) / factor**3  # Normalize to [0, 1]
-        mask = np.where(mask < threshold, 0 * mask, mask)  # clip below threshold
-        if make_bool:
-            mask = mask > threshold
-
-        self.grid.cell_data[key] = np.pad(mask, ((0, 1),) * 3, mode="edge").ravel()
+        outside = ~mask[::2, ::2, ::2].astype(bool)
+        count = 0
+        for axis in range(3):
+            midpoints = np.moveaxis(mask, axis, 0)[1::2, ::2, ::2]
+            endpoints = np.moveaxis(outside, axis, 0)
+            count += np.count_nonzero(midpoints & endpoints[:-1] & endpoints[1:])
+        if count:
+            print(
+                f"[!] STL '{key}': {count} midpoint-only edges, thin features may not be well resolved"
+            )
 
     def read_stl(self, key):
         """

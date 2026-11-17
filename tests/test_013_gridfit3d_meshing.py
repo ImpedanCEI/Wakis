@@ -1,4 +1,4 @@
-"""Voxelized pipe geometry, smoothing, and material assignment."""
+"""Voxelized pipe geometry and staggered material assignment."""
 
 import numpy as np
 import pytest
@@ -6,6 +6,44 @@ import pyvista as pv
 from scipy.constants import epsilon_0, mu_0
 
 from wakis import GridFIT3D, SolverFIT3D
+
+
+@pytest.mark.parametrize("method", ["legacy", "voxelize_rectilinear"])
+@pytest.mark.parametrize("axis", [0, 1, 2])
+@pytest.mark.parametrize("thin", [False, True])
+@pytest.mark.parametrize("material", ["pec", [2.0, 1.0, 0.0]])
+@pytest.mark.parametrize("verbose", [0, 1])
+def test_thin_sheet(tmp_path, capsys, method, axis, thin, material, verbose):
+    """Report midpoint-only material sheets once, preserving their sampled masks.
+
+    The sheet crosses 25 normal edges for both PEC and dielectric materials.
+    Resolved walls and verbosity zero do not emit the diagnostic.
+    """
+    bounds = np.tile([-1.0, 2.0], (3, 1))
+    bounds[axis] = (0.35, 0.4) if thin else (0.2, 0.55)
+    path = tmp_path / "sheet.stl"
+    pv.Cube(bounds=bounds.ravel()).triangulate().save(path)
+    nodes = np.linspace(0, 1, 5)
+    grid = GridFIT3D(
+        x=nodes,
+        y=nodes,
+        z=nodes,
+        stl_solids={"sheet": str(path)},
+        stl_materials={"sheet": material},
+        stl_method=method,
+        verbose=verbose,
+    )
+    diagnostics = [
+        line for line in capsys.readouterr().out.splitlines() if line.startswith("[!]")
+    ]
+    assert len(diagnostics) == int(bool(verbose) and thin)
+    for component in "xyz":
+        coords = np.meshgrid(*grid.primal_coords[component], indexing="ij")
+        expected = (coords[axis] > bounds[axis, 0]) & (coords[axis] < bounds[axis, 1])
+        physical = tuple(slice(0, n) for n in expected.shape)
+        np.testing.assert_array_equal(
+            grid.primal_masks["sheet"].to_matrix(component)[physical], expected
+        )
 
 
 def test_grid_h5_roundtrip_without_solids(tmp_path):
@@ -101,8 +139,6 @@ def test_staggered_masks(tmp_path, method, nonuniform):
         stl_solids=solids,
         stl_materials={"vacuum": "vacuum", "dielectric": [2.0, 2.0, 0.01]},
         stl_method=method,
-        subpixel_smoothing=False,
-        subpixel_smoothing_factor=2,
         verbose=0,
     )
     dimensions = (grid.Nx, grid.Ny, grid.Nz)
