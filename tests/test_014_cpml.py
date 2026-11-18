@@ -18,59 +18,59 @@ class TestCPML:
     second test is a TFSF simulation of a cubic cavity. It benchmarks the impedance of the cavity against
     the current simulation results with CPML and TF/SF as reference."""
 
-    # Float32 regression samples on the boundary-inclusive symmetric grid.
+    # Float32 regression samples with staggered primal/dual material masks.
     Zabs = np.array(
         [
-            18.49585683,
-            16.19635935,
-            25.20411577,
-            16.02416801,
-            19.57833625,
-            35.232466,
-            9.19646643,
-            34.35405426,
-            42.46661832,
-            9.82798517,
-            52.19158755,
-            45.72192545,
-            27.21097532,
-            70.22140859,
-            44.82656799,
-            51.40633105,
-            86.78512971,
-            41.78677403,
-            81.34314558,
-            100.23222394,
-            44.90325211,
-            117.04192884,
-            108.57805873,
-            67.7476287,
-            158.95025075,
-            109.33661187,
-            116.68320142,
-            208.35239325,
-            100.29542781,
-            199.53259566,
-            268.86562186,
-            90.91492375,
-            344.26424134,
-            352.43056069,
-            169.92774012,
-            663.18985431,
-            518.88816955,
-            665.54735142,
-            2324.55127956,
-            3427.04599589,
-            3169.29268253,
-            1715.86072242,
-            178.04754852,
-            785.85894015,
-            570.87671942,
-            239.40239336,
-            510.17186805,
-            329.17328483,
-            299.24634159,
-            385.85367419,
+            15.75764965,
+            13.85779274,
+            21.16003422,
+            14.25772982,
+            15.50898055,
+            29.65309051,
+            9.96798193,
+            26.53629941,
+            36.81299176,
+            7.3859594,
+            40.99576167,
+            41.7773939,
+            16.92637497,
+            56.91937479,
+            44.04693687,
+            34.03521084,
+            73.53811852,
+            43.52426329,
+            57.12658748,
+            90.21286986,
+            41.62376802,
+            87.15107178,
+            106.12415506,
+            44.90552051,
+            126.21946796,
+            119.99707039,
+            67.11952177,
+            178.43445819,
+            129.58144254,
+            121.30565008,
+            252.859898,
+            130.37273836,
+            230.68400914,
+            374.72528473,
+            113.14491437,
+            484.83134478,
+            651.69845519,
+            144.16316761,
+            1615.99132114,
+            3044.79910198,
+            3413.83904278,
+            2427.13952109,
+            752.81189389,
+            568.97599326,
+            797.63507479,
+            265.71440505,
+            446.76309584,
+            494.19057395,
+            220.49691821,
+            404.1397193,
         ]
     )
 
@@ -292,6 +292,15 @@ class TestCPML:
         peak = np.argmax(self.Zabs)
         assert frequencies[np.argmax(impedance)] == frequencies[peak]
         assert np.isclose(impedance[peak], self.Zabs[peak], rtol=5e-4, atol=5e-4)
+
+        # The dominant mode is close to the closed square-cavity TM110 mode;
+        # allow one physical wake-record frequency resolution for port loading.
+        width_x = grid.xmax - grid.xmin
+        width_y = grid.ymax - grid.ymin
+        expected_frequency = c / 2 * np.sqrt(1 / width_x**2 + 1 / width_y**2)
+        peak_frequency = wake.f[np.argmax(np.abs(wake.Z))]
+        resolution = wake.v / wake.wakelength
+        assert abs(peak_frequency - expected_frequency) < resolution
 
 
 @pytest.mark.parametrize("axis", range(3), ids=list("xyz"))

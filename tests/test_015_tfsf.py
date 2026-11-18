@@ -8,9 +8,9 @@ checks propagation through the lossy STL geometry used by test 007. Run with
 import numpy as np
 import pytest
 import pyvista as pv
-from scipy.constants import c
+from scipy.constants import c, epsilon_0
 
-from wakis import GridFIT3D, SolverFIT3D
+from wakis import GridFIT3D, SolverFIT3D, WakeSolver
 from wakis.sources import Beam
 from wakis.sources.beam import Z0
 
@@ -152,6 +152,102 @@ def test_serial_tfsf_injection_lifecycle():
     assert np.any(solver.E.toarray())
 
 
+@pytest.fixture(params=["legacy", "voxelize_rectilinear"])
+def straight_pipe_grid(tmp_path, request):
+    """Circular vacuum pipe extending beyond both longitudinal boundaries."""
+    path = tmp_path / "pipe.stl"
+    pv.Cylinder(
+        center=(0, 0, 0.4),
+        direction=(0, 0, 1),
+        radius=0.045,
+        height=1.0,
+        resolution=128,
+    ).triangulate().save(path)
+    return GridFIT3D(
+        -0.06,
+        0.06,
+        -0.06,
+        0.06,
+        0,
+        0.8,
+        13,
+        13,
+        81,
+        stl_solids={"pipe": str(path)},
+        stl_materials={"pipe": "vacuum"},
+        stl_method=request.param,
+        verbose=0,
+    )
+
+
+@pytest.mark.parametrize(
+    "source_type,boundary",
+    [("direct", "pec"), ("tfsf", "pec"), ("direct", "cpml")],
+)
+def test_tfsf_material_scope(straight_pipe_grid, source_type, boundary):
+    """Only TF/SF adds PEC constraints; CPML selects TF/SF automatically."""
+    grid = straight_pipe_grid
+    sampled_mask = grid.primal_masks["pipe"].array.copy()
+    solver = SolverFIT3D(
+        grid,
+        use_stl=True,
+        bg="pec",
+        source_type=source_type,
+        bc_low=["pec", "pec", boundary],
+        bc_high=["pec", "pec", boundary],
+        n_pml=6,
+        verbose=0,
+    )
+    np.testing.assert_array_equal(grid.primal_masks["pipe"].array, sampled_mask)
+    if solver.source_type == "direct":
+        np.testing.assert_array_equal(solver.ieps.array, sampled_mask / epsilon_0)
+    else:
+        assert np.all(solver.ieps.array[~sampled_mask] == 0)
+        assert np.count_nonzero(solver.ieps.array) < np.count_nonzero(sampled_mask)
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_straight_pipe_wake(tmp_path, straight_pipe_grid, dtype):
+    """A relativistic off-axis beam has no geometric wake in a straight PEC pipe.
+
+    Curved STL walls exercise component-dependent PEC sampling. On this coarse
+    mesh dispersion leaves an oscillatory transient, but the integrated wake
+    must not acquire a wall-charge or injection-cutoff DC contribution.
+    """
+    grid = straight_pipe_grid
+    wake = WakeSolver(
+        q=1e-9,
+        sigmaz=0.03,
+        xsource=0.02,
+        xtest=0.0,
+        skip_cells=9,
+        save=False,
+        verbose=0,
+        results_folder=str(tmp_path),
+        Ez_file=str(tmp_path / "Ez.h5"),
+    )
+    solver = SolverFIT3D(
+        grid,
+        wake,
+        use_stl=True,
+        bg="pec",
+        bc_low=["pec", "pec", "cpml"],
+        bc_high=["pec", "pec", "cpml"],
+        n_pml=6,
+        cfln=0.5,
+        dtype=dtype,
+        verbose=0,
+    )
+    solver.wakesolve(wakelength=1.5)
+    # The ideal value is zero. Float64 leaves about 1 mΩ from the finite wake
+    # record/dispersion; float32 leaves about 50 mΩ after repeated field updates
+    # and wake integration. Both must stay far below the spurious ~120 Ω
+    # obtained with inconsistent PEC masks on this same pipe.
+    dc_tolerance = 0.1 if dtype == np.float32 else 0.005
+    assert abs(wake.Zx[0]) < dc_tolerance
+    assert abs(wake.Zy[0]) < dc_tolerance
+
+
 def test_tfsf_matches_serial_across_mpi_boundary():
     MPI = pytest.importorskip("mpi4py.MPI")
     comm = MPI.COMM_WORLD
@@ -213,7 +309,7 @@ def test_007_geometry_with_tfsf_across_mpi_boundaries(request):
     grid_kw = dict(
         stl_solids=solids,
         stl_materials=materials,
-        stl_method="implicit_distance",
+        stl_method="voxelize_rectilinear",
         verbose=0,
     )
     solver_kw = dict(

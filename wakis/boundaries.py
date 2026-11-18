@@ -914,6 +914,29 @@ class BCsMixin:
 
         del self.pml_b_E, self.pml_c_E, self.pml_b_H, self.pml_c_H
 
+    def _complete_tfsf_pec_edges(self):
+        """Align the time-domain PEC constraints with the TF/SF potential nodes.
+
+        Complete edges between endpoints of sampled PEC edges, excluding
+        inactive terminal storage. This changes solver ieps near staircase
+        walls; the geometric masks remain unchanged. Call before material
+        matrices and conductivity timestep limits are constructed.
+        """
+        pec_nodes = np.zeros((self.Nx, self.Ny, self.Nz), dtype=bool)
+
+        # |= adds nodes with logical OR, preserving nodes already marked True.
+        pec_nodes[:-1, :, :] |= self.ieps[:-1, :, :, "x"] == 0  # starting nodes
+        pec_nodes[1:, :, :] |= self.ieps[:-1, :, :, "x"] == 0  # ending nodes
+        pec_nodes[:, :-1, :] |= self.ieps[:, :-1, :, "y"] == 0
+        pec_nodes[:, 1:, :] |= self.ieps[:, :-1, :, "y"] == 0
+        pec_nodes[:, :, :-1] |= self.ieps[:, :, :-1, "z"] == 0
+        pec_nodes[:, :, 1:] |= self.ieps[:, :, :-1, "z"] == 0
+
+        # Set an edge to PEC when both endpoint nodes are marked PEC
+        self.ieps[:-1, :, :, "x"][pec_nodes[:-1, :, :] & pec_nodes[1:, :, :]] = 0
+        self.ieps[:, :-1, :, "y"][pec_nodes[:, :-1, :] & pec_nodes[:, 1:, :]] = 0
+        self.ieps[:, :, :-1, "z"][pec_nodes[:, :, :-1] & pec_nodes[:, :, 1:]] = 0
+
     def _initialize_tfsf(self):
         """
         Initialize the Total-Field/Scattered-Field (TFSF) boundary conditions.
@@ -923,6 +946,9 @@ class BCsMixin:
         the simulation to handle incident fields and scattered fields
         appropriately.
         """
+
+        if self.use_stl:
+            self._complete_tfsf_pec_edges()
 
         N = self.N
         tLx = diags(self.tL.field_x, shape=(N, N), dtype=self.dtype)

@@ -4,7 +4,7 @@ This section provides the theoretical foundations behind Wakis, offering a clear
 
 We begin by revisiting Maxwell’s equations in their integral form and explaining how they are discretized using the Finite Integration Technique (FIT) on a structured Cartesian grid. The formulation naturally leads to Maxwell Grid Equations (MGEs), which are solved in time using a leapfrog scheme. The fields and material properties are represented on a Yee-type staggered lattice, and anisotropic or spatially varying materials are handled via sparse metric tensors.
 
-Boundary conditions (PEC, PMC, periodic, Mur ABC, PML, and CPML) are discussed along with the treatment of sources and initial conditions. We also highlight how the solver supports geometry import and sub-pixel smoothing for embedded CAD models.
+Boundary conditions (PEC, PMC, periodic, Mur ABC, PML, and CPML) are discussed along with the treatment of sources and initial conditions. We also describe geometry import and staggered material sampling for embedded CAD models.
 
 Finally, we cover the implementation aspects, including GPU acceleration with CuPy and parallelization with mpi4py, enabling high-resolution 3D simulations across multiple devices.
 
@@ -211,7 +211,7 @@ To support **anisotropic materials** and **imported geometries**, Wakis stores t
 
 Before time-stepping, these directional fields are assembled into the corresponding **sparse diagonal matrices** using `scipy.sparse.diags`. This preserves the **locality of FIT updates** while enabling efficient CPU and GPU execution.
 
-Wakis also supports spatially varying media, embedded materials from CAD imports, and subpixel smoothing, ensuring accurate representation of complex geometries and composite structures.
+Wakis also supports spatially varying media and embedded materials from CAD imports through binary sampling at staggered field locations. Subpixel interface averaging is not supported.
 
 ### 🕒 Time-Stepping Routine
 
@@ -337,7 +337,12 @@ The computational domain is divided into total-field and scattered-field regions
 
 $$E^t = E^s + E^i$$
 
-At the boundary, the curl operator is modified to add or subtract the incident fields, rendering the boundary transparent to field propagation. For ultrarelativistic beams, incident transverse electric fields are pre-calculated using a 2D Poisson solver and dynamically scaled by the instantaneous longitudinal current density during time integration.
+At each TF/SF boundary, curl corrections add or subtract the incident fields. A **2D Poisson solve** supplies transverse electric-field templates, scaled by the instantaneous bunch current.
+
+- **Assumptions:** $\beta=1$, vacuum wave impedance, and straight vacuum pipe cross-sections at both injection planes.
+- **Potential boundary:** zero potential on the outer transverse boundary and at nodes incident to PEC electric edges, including longitudinal edges.
+- **Staggering:** E and H profiles use their respective sample positions and times.
+- **Cutoff:** injection ends when the bunch centre passes the exit plane by **8σ**. The omitted charge is approximately $6.2\times10^{-16}$ of the bunch, compared with $2.9\times10^{-7}$ at 5σ. The later cutoff reduces the residual amplified by transverse wake integration.
 
 ```{tip}
 #### ⚙️ Source callbacks
@@ -482,25 +487,65 @@ CPML is therefore distinct from the scalar `pml` path: it does not modify the bu
 
 ### 📥🗿 Geometry Importing & Embedded Boundaries
 
-Wakis integrates with [**PyVista**](https://docs.pyvista.org/) to import CAD geometries in `.STL`, `.STEP`, or `.OBJ` formats. The mesh is overlaid onto the simulation domain and mapped onto the Cartesian grid using:
-- `pyvista`'s surface collision algorithm, based on VTK optimized ray-tracing, allows to detect where the input geometry intersects the primal and dual grids.
-- Assignment of material properties ($\varepsilon_r$, $\mu_r$, $\sigma$) in $x$, $y$, and $z$ to the intersected cells using a first-order subpixel smoothing, inspired by the open-source solver MEEP (MIT).
+Wakis uses [PyVista](https://docs.pyvista.org/) to classify imported solids at the staggered electric and magnetic sample locations.
 
-For `stl_method="voxelize_rectilinear"`, the mesh must be uniform. Each
-physical cell is classified at its centre, with spacing $\Delta x=L_x/(N_x-1)$
-and first sample $x_{\min}+\Delta x/2$ (and similarly for $y,z$).
-Subpixel smoothing samples `factor` evenly spaced subcell centres per axis
-inside each physical cell. Its existing gradient enhancement, Gaussian filter,
-and threshold are retained; the resulting weights are not exact geometric
-volume fractions.
+```{note}
+**Added in v0.9.0:** primal and dual material masks, physical Field coordinates, and TF/SF PEC boundary completion.
+```
 
-Stored masks keep shape `(Nx, Ny, Nz)`. Terminal cells have zero physical
-volume, but boundary fields can still require material coefficients there.
-Their labels extend the nearest physical-cell values onto high domain faces,
-edges, and corners, after smoothing if enabled. This avoids extra geometry
-queries and assumes the material does not change within the final half-cell;
-features confined to that unresolved interval are not separately classified. Nonuniform grids should use
-`stl_method="interior_points"` instead.
+**Sampling methods:**
+
+- `"voxelize_rectilinear"` requires uniform spacing.
+- `"legacy"` supports nonuniform axes by inserting each interval's actual midpoint and querying `select_interior_points`.
+
+Both use one shared **2× reference lattice**: even indices are primal nodes; odd indices are interior dual nodes.
+
+- **Primal grid:** `x`, `y`, `z`.
+- **Dual (tilde) grid:** `tx`, `ty`, `tz`, corresponding to $\tilde{x}$, $\tilde{y}$, $\tilde{z}$.
+
+The dual arrays include the domain endpoints. Field samples use their interior entries, `tx[1:-1]`, `ty[1:-1]`, and `tz[1:-1]`:
+
+| Component | Primal: E/J, ε, σ | Dual: H, μ |
+| --- | --- | --- |
+| x | `(tx[1:-1], y, z)` | `(x, ty[1:-1], tz[1:-1])` |
+| y | `(x, ty[1:-1], z)` | `(tx[1:-1], y, tz[1:-1])` |
+| z | `(x, y, tz[1:-1])` | `(tx[1:-1], ty[1:-1], z)` |
+
+Primal and dual refer to the edges carrying E and H; their component coordinates mix the two grids as shown above.
+
+**Storage and allocation:**
+
+- Each solid has boolean Fields in `grid.primal_masks` and `grid.dual_masks`, bound to the matching coordinate dictionaries.
+- Each Field contains three Fortran-ordered component blocks. Together they store **6N booleans per solid**, where $N=N_xN_yN_z$.
+- Inactive terminal planes are false; other boundary samples are classified directly.
+- The solver assigns inverse permittivity/conductivity from primal masks and inverse permeability from dual masks. Later solids overwrite earlier assignments; other samples retain background coefficients.
+
+This is a **staircase point classification**, without interface averaging or conformal boundaries. Subpixel smoothing and SIBC are not supported. Scalar cell labels are no longer generated. Mask plots use the selected primal/dual Field component: the 3D plot shows occupied display voxels, while the slice plot builds only the selected 2D plane. Display voxels span halfway between neighboring samples and are truncated at domain boundaries; they do not change the material sampling.
+
+**PEC consistency for TF/SF:**
+
+The injection potential and time-domain fields must share a conductor boundary. During TF/SF initialization, before material matrices and conductivity timestep limits are built, Wakis:
+
+1. Marks both endpoints of every active electric edge with zero inverse permittivity.
+2. Sets inverse permittivity to zero on edges joining two marked nodes.
+
+For marked-node indicators $M_p$ and $M_q$, the second step is $M_p M_q=1\Rightarrow\varepsilon^{-1}_{pq}=0$. This preserves existing PEC edges without adding marked nodes and excludes inactive terminal storage. It prevents a grounded injection node from supporting an unconstrained longitudinal field along an extruded wall.
+
+**Direct-source simulations do not apply this correction.** Stored masks, permeability, and conductivity remain unchanged. The effective PEC wall can extend by a neighboring edge: resolve narrow gaps and check curved walls under mesh refinement.
+
+Completion currently applies throughout the domain, rather than only at the
+injection planes. Restricting it to transverse edges on those planes and
+longitudinal edges touching them restores a spurious transverse DC impedance
+of approximately 119 Ω in the coarse straight-pipe regression
+(`test_straight_pipe_wake`, both meshing methods and precisions). With this
+sampling and injection formulation, unconstrained longitudinal wall edges in
+the interior also matter. Plane-only completion therefore requires a separate
+change to the wall/injection discretization; it is not an equivalent reduction
+of the current correction. The global correction can close narrow gaps away
+from injection planes, so TF/SF and direct-source material assignments should
+not be assumed identical.
+
+This completion rule is a **Wakis adaptation**. The underlying edge/node representation and discrete gradient/curl identities follow [Clemens and Weiland (2001)](https://doi.org/10.2528/PIER00080103).
 
 | STL geometry | Imported material mask |
 | ----- | ---- |
@@ -510,69 +555,11 @@ Future versions aim to include a more advanced meshing algorithm for improved fi
 
 ### Surface impedance boundary condition (SIBC)
 
-When the metal walls are very good conductors and the skin depth is much smaller than the grid spacing, it becomes inefficient (and inaccurate) to resolve the fields inside the conductor volume. Instead of using a volumetric conductivity, Wakis can model such metals with a **Leontovich surface impedance boundary condition (SIBC)** applied only on the surface cells. This can be disabled in the solver by turning `use_sibc=False`
+```{note}
+**Unavailable in v0.9.0:** the previous SIBC implementation and its scalar surface-mask helper have been removed. `use_sibc=True` raises `NotImplementedError`.
+```
 
-**🔍 Algorithm explanation**
-
-Starting from the imported solid mask of the full volume, our algorithm tags the **surface of solid regions** by computing the gradient magnitude of a scalar field (e.g. material mask) and converting it to a boolean mask. It uses [PyVista's Gradient filter](https://docs.pyvista.org/api/core/_autosummary/pyvista.datasetfilters.compute_derivative):
-
-The surface is identified where the gradient of the scalar field is non-zero:
-
-$\|\nabla \phi\| = \sqrt{ (\partial_x \phi)^2 + (\partial_y \phi)^2 + (\partial_z \phi)^2 }$
-
-Cells where $\|\nabla \phi\| > 0$ are marked as surface.
-
-| SIBC  float  | SIBC bool                                                                             | No SIBC                                                                             |
-| --- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-|   ![](img/sibc_float.png)  | ![](img/sibc_bool.png) | ![](img/no_sibc.png) |
-
-**See also:**
-<details>
-<summary> Maximum conductivity resolvable w/o a Leontovich boundary</summary>
-
-To accurately model a conducting material volumetrically in FIT/FDTD, the **skin depth**
-
-$$\delta = \sqrt{\frac{2}{2\pi f_{\max}\,\mu_0\,\sigma}}$$
-
-must be resolved by the grid. A common requirement is at least **3 cells per skin depth**, i.e.
-
-$$\delta \gtrsim 3\Delta_n$$
-
-where $(\Delta_n)$ is the grid spacing normal to the wall, considered as $\sqrt{2}\cdot \text{min}(\Delta x, \Delta y, \Delta z)$. Substituting the skin-depth expression and solving for $\sigma$ gives the maximum conductivity that can be volumetrically resolved at a target frequency $f_{\max}$:
-
-$$\sigma_{\max} = \frac{10}{\pi f_{\max}\,\mu \Delta_n^2}$$
-
-Materials with $\sigma > \sigma_{\max}$ have a skin depth too small to be captured by the mesh and should be modeled using a **Leontovich (surface impedance) boundary condition** instead of volumetric conductivity.
-</details>
-
-
-<details>
-<summary> Surface parameters for the Leontovich (SIBC) boundary</summary>
-
-For a good conductor, the Leontovich surface impedance has the form
-
-$$Z_s = (1+j)\sqrt{\dfrac{\omega\mu}{2\sigma}}$$
-
-meaning that the resistive and reactive parts are equal (a $45^\circ$ phase).
-In the SIBC implementation, we approximate $Z_s$ by its magnitude-based form
-
-$$Z_s \approx \sqrt{\pi f_{\max}\mu / \sigma}$$
-
-and define an equivalent **surface admittance**
-
-$$Y_s = 1/Z_s$$
-
-To embed this into the time-domain FIT update, we convert $Y_s$ into effective
-surface parameters:
-- **surface conductivity:** $\sigma_s = 1/Z_s$
-- **surface permittivity term:** $\varepsilon_s = 1/Z_s$
-
-Both appear with the same magnitude because the $45^\circ$ impedance angle implies
-equal real and imaginary parts in the admittance. These values are applied only to
-boundary edges or cells marked as SIBC, replacing the volumetric response of the metal.
-
-</details>
-
+Use **resolved bulk conductivity** for lossy conductors, or **PEC** when the perfect-conductor approximation is appropriate. Bulk simulations must resolve the field penetration into the wall; no surface-impedance model is currently provided.
 
 ### 🚀 GPU and MPI Parallelization
 
