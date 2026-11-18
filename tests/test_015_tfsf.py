@@ -9,6 +9,8 @@ import numpy as np
 import pytest
 import pyvista as pv
 from scipy.constants import c, epsilon_0
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
 
 from wakis import GridFIT3D, SolverFIT3D, WakeSolver
 from wakis.sources import Beam
@@ -427,3 +429,47 @@ def test_mpi_wake_output(tmp_path):
                     )
         np.testing.assert_allclose(wake.s, serial_wake.s)
         np.testing.assert_allclose(wake.WP, serial_wake.WP, rtol=1e-8, atol=1e-12)
+
+
+# Narrow vacuum gap: a PEC block in a vacuum box cut from a PEC background, 1.5 cells apart
+GAP_DX = 1e-3  # cell size [m]
+GAP_BOX = 4.25 * GAP_DX  # vacuum box half-width [m]
+GAP_BLOCK = 2.75 * GAP_DX  # PEC block half-width [m]
+
+
+def pec_components(solver):
+    """Node labels of the graph of PEC edges (ieps == 0)."""
+    ie = {c: np.asarray(solver.ieps.to_matrix(c)) for c in "xyz"}
+    shape = ie["x"].shape
+    node = np.arange(np.prod(shape)).reshape(shape)
+    src, dst = [], []
+    for a, c in enumerate("xyz"):
+        lo, hi = [slice(None)] * 3, [slice(None)] * 3
+        lo[a], hi[a] = slice(0, -1), slice(1, None)
+        pec = ie[c][tuple(lo)] == 0
+        src.append(node[tuple(lo)][pec])
+        dst.append(node[tuple(hi)][pec])
+    src, dst = np.concatenate(src), np.concatenate(dst)
+    graph = coo_matrix((np.ones(src.size), (src, dst)), shape=(node.size,) * 2)
+    return connected_components(graph, directed=False)[1].reshape(shape)
+
+
+@pytest.mark.parametrize("source_type", ["direct", "tfsf"])
+def test_narrow_gap_keeps_conductors_separate(tmp_path, source_type):
+    pv.Box(bounds=(-GAP_BOX, GAP_BOX) * 3).triangulate().save(tmp_path / "box.stl")
+    pv.Box(bounds=(-GAP_BLOCK, GAP_BLOCK) * 3).triangulate().save(tmp_path / "block.stl")
+    axis = np.arange(-8, 9) * GAP_DX
+    grid = GridFIT3D(
+        x=axis, y=axis, z=np.arange(-20, 21) * GAP_DX, stl_method="legacy", verbose=0,
+        stl_solids={"box": str(tmp_path / "box.stl"), "block": str(tmp_path / "block.stl")},
+        stl_materials={"box": "vacuum", "block": "pec"},
+    )  # fmt: skip
+    solver = SolverFIT3D(
+        grid, use_stl=True, bg="pec", source_type=source_type, n_pml=4,
+        bc_low=["pec", "pec", "cpml" if source_type == "tfsf" else "pec"],
+        bc_high=["pec", "pec", "cpml" if source_type == "tfsf" else "pec"], verbose=0,
+    )  # fmt: skip
+    lab = pec_components(solver)
+    centre, wall = lab[8, 8, 20], lab[0, 8, 20]
+    assert centre != wall, f"{source_type}: block shorted to the background across the gap"
+

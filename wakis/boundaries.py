@@ -12,6 +12,7 @@ from scipy.constants import mu_0
 from scipy.sparse import coo_matrix
 from scipy.sparse import csc_matrix as sparse_mat
 from scipy.sparse import diags, eye, hstack, kron, vstack
+from scipy.sparse.csgraph import connected_components
 
 from .field import Field
 
@@ -917,9 +918,10 @@ class BCsMixin:
     def _complete_tfsf_pec_edges(self):
         """Align the time-domain PEC constraints with the TF/SF potential nodes.
 
-        Complete edges between endpoints of sampled PEC edges, excluding
-        inactive terminal storage. This changes solver ieps near staircase
-        walls; the geometric masks remain unchanged. Call before material
+        Complete edges between endpoints of sampled PEC edges of the same
+        conductor, excluding inactive terminal storage. This changes solver
+        ieps near staircase walls but never joins separate conductors; the
+        geometric masks remain unchanged. Call before material
         matrices and conductivity timestep limits are constructed.
         """
         pec_nodes = np.zeros((self.Nx, self.Ny, self.Nz), dtype=bool)
@@ -932,10 +934,23 @@ class BCsMixin:
         pec_nodes[:, :, :-1] |= self.ieps[:, :, :-1, "z"] == 0
         pec_nodes[:, :, 1:] |= self.ieps[:, :, :-1, "z"] == 0
 
-        # Set an edge to PEC when both endpoint nodes are marked PEC
-        self.ieps[:-1, :, :, "x"][pec_nodes[:-1, :, :] & pec_nodes[1:, :, :]] = 0
-        self.ieps[:, :-1, :, "y"][pec_nodes[:, :-1, :] & pec_nodes[:, 1:, :]] = 0
-        self.ieps[:, :, :-1, "z"][pec_nodes[:, :, :-1] & pec_nodes[:, :, 1:]] = 0
+        # Label conductors: nodes joined by a chain of sampled PEC edges
+        shape = (self.Nx, self.Ny, self.Nz)
+        node = np.arange(pec_nodes.size).reshape(shape)
+        full, head, tail = slice(None), slice(None, -1), slice(1, None)
+        lo = ((head, full, full), (full, head, full), (full, full, head))
+        hi = ((tail, full, full), (full, tail, full), (full, full, tail))
+        edges = [self.ieps[(*lo[a], c)] == 0 for a, c in enumerate("xyz")]
+        src = np.concatenate([node[lo[a]][e] for a, e in enumerate(edges)])
+        dst = np.concatenate([node[hi[a]][e] for a, e in enumerate(edges)])
+        graph = coo_matrix((np.ones(src.size, dtype=bool), (src, dst)), shape=(node.size,) * 2)
+        conductor = connected_components(graph, directed=False)[1].reshape(shape)
+
+        # Set an edge to PEC when both endpoint nodes are marked PEC on the same conductor,
+        # so completion never joins separate conductors across a narrow vacuum gap
+        for a, c in enumerate("xyz"):
+            join = pec_nodes[lo[a]] & pec_nodes[hi[a]] & (conductor[lo[a]] == conductor[hi[a]])
+            self.ieps[(*lo[a], c)][join] = 0
 
     def _initialize_tfsf(self):
         """
