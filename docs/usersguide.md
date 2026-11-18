@@ -265,7 +265,11 @@ solver.J[ix, iy, :,'y']
 
 # get the absolute value of the electric field
 E_abs = solver.E.get_abs() #size [Nx, Ny, Nz]
+# magnitude at the physical cell centres, size [Nx-1, Ny-1, Nz-1]
+E_abs_cc = solver.E.get_abs(collocated=True)
 ```
+
+The default `get_abs()` takes the norm index-wise, but the three components stored at index `(i, j, k)` of the staggered FIT grid sit at different points. With `collocated=True` each component is first linearly interpolated, using the coordinates the solver attaches to `E`, `H` and `J`, to the physical cell centres `(grid.tx[1:-1], grid.ty[1:-1], grid.tz[1:-1])`; terminal ghost storage is excluded.
 
 The `inspect()` and `inspect3D()` methods allow quick visualization of field values:
 ``` python
