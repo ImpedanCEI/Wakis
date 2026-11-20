@@ -565,41 +565,98 @@ class Field:
 
         return i, j, k
 
-    def get_abs(self, as_matrix=True):
+    def get_abs(self, as_matrix=True, collocated=False):
         """
         Compute the magnitude of the field.
+
+        By default the norm ``sqrt(|Fx|**2 + |Fy|**2 + |Fz|**2)`` is taken
+        index-wise. On the staggered FIT grid the three components stored at
+        index ``(i, j, k)`` sit at different physical points, so with
+        ``collocated=True`` each component is first linearly interpolated, using
+        the attached ``coordinates``, to the physical cell centres
+        ``(tx[1:-1], ty[1:-1], tz[1:-1])`` of the grid.
 
         Parameters
         ----------
         as_matrix : bool, optional
-            If True, return as a 3D matrix. If False, return as a 1D array.
+            If True, return as a 3D matrix. If False, return as a 1D array
+            (Fortran order for the collocated result, matching ``to_matrix``).
+        collocated : bool, optional
+            If True, interpolate the components to the cell centres before
+            taking the norm. Requires ``coordinates``. Default is False.
 
         Returns
         -------
         abs_field : ndarray
-            Magnitude of the field.
+            Magnitude of the field: shape ``(Nx, Ny, Nz)`` index-wise, or
+            ``(Nx-1, Ny-1, Nz-1)`` at the cell centres when ``collocated``.
+            Returned on the host.
         """
-        if as_matrix:
-            if self.on_gpu:
-                return xp.sqrt(
-                    self.to_matrix("x") ** 2
-                    + self.to_matrix("y") ** 2
-                    + self.to_matrix("z") ** 2
-                ).get()
-            else:
-                return xp.sqrt(
-                    self.to_matrix("x") ** 2
-                    + self.to_matrix("y") ** 2
-                    + self.to_matrix("z") ** 2
-                )
-
+        if collocated:
+            mag = xp.sqrt(sum(abs(c) ** 2 for c in self._collocated_components()))
+            if not as_matrix:
+                mag = mag.ravel(order="F")
+        elif as_matrix:
+            mag = xp.sqrt(
+                abs(self.to_matrix("x")) ** 2
+                + abs(self.to_matrix("y")) ** 2
+                + abs(self.to_matrix("z")) ** 2
+            )
         else:  # 1d array
-            if self.on_gpu:
-                return xp.sqrt(
-                    self.field_x**2 + self.field_y**2 + self.field_z**2
-                ).get()
-            else:
-                return xp.sqrt(self.field_x**2 + self.field_y**2 + self.field_z**2)
+            mag = xp.sqrt(
+                abs(self.field_x) ** 2 + abs(self.field_y) ** 2 + abs(self.field_z) ** 2
+            )
+        return mag.get() if self.on_gpu and hasattr(mag, "get") else mag
+
+    def _collocated_components(self):
+        """Interpolate the x, y, z components to common cell-centre axes.
+
+        Each component's physical samples are ``to_matrix(c)`` restricted to the
+        lengths of its axes in ``coordinates`` (terminal ghost storage is
+        excluded). Along each direction the target axis is the shortest of the
+        three components' axes (the primal cell midpoints for both primal and
+        dual coordinates); components sampled elsewhere along that direction are
+        linearly interpolated with weights from the actual coordinates, so
+        non-uniform grids are handled exactly for fields linear in space.
+        """
+        if self.coordinates is None:
+            raise ValueError(
+                "get_abs(collocated=True) needs the component coordinates; "
+                "create the Field with coordinates=grid.primal_coords (E, J) "
+                "or grid.dual_coords (H)"
+            )
+        axes = {
+            c: [xp.asarray(a, dtype=float) for a in self.coordinates[c]] for c in "xyz"
+        }
+        targets = [min((axes[c][d] for c in "xyz"), key=len) for d in range(3)]
+
+        out = []
+        for c in "xyz":
+            arr = self.to_matrix(c)
+            arr = arr[tuple(slice(0, len(a)) for a in axes[c])]
+            for d, (src, tgt) in enumerate(zip(axes[c], targets)):
+                if len(src) == len(tgt) and xp.array_equal(src, tgt):
+                    continue
+                if len(src) < 2 or tgt[0] < src[0] or tgt[-1] > src[-1]:
+                    raise ValueError(
+                        f"cannot interpolate component {c!r} along axis {d}: "
+                        "target cell centres lie outside its sample axis"
+                    )
+                i0 = xp.clip(
+                    xp.searchsorted(src, tgt, side="right") - 1, 0, len(src) - 2
+                )
+                w1 = (tgt - src[i0]) / (src[i0 + 1] - src[i0])
+                shape = [1, 1, 1]
+                shape[d] = len(tgt)
+                w1 = w1.reshape(shape)
+                if self.on_gpu:
+                    w1 = self.xp.asarray(w1)
+                    i0 = self.xp.asarray(i0)
+                lo = self.xp.take(arr, i0, axis=d)
+                hi = self.xp.take(arr, i0 + 1, axis=d)
+                arr = (1.0 - w1) * lo + w1 * hi
+            out.append(arr)
+        return out
 
     def inspect(
         self,

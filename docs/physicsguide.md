@@ -194,6 +194,9 @@ T_00 = 0.5*(solver.E.get_abs()**2 + solver.H.get_abs()**2)
 solver.J.inspect()
 ```
 
+The index-wise `get_abs()` combines components that sit on different edges (E, J) or faces (H), an $O(h)$ error in the magnitude. `get_abs(collocated=True)` interpolates each component linearly to the cell centres $(x_{i+1/2}, y_{j+1/2}, z_{k+1/2})$ first, which is exact for linear fields and second order for smooth fields on non-uniform grids (the centres are midpoints of the primal nodes, so the weights are 1/2).
+
+
 This formulation enables stable, explicit time stepping and modular extensions to lossy media, materials, and sources.
 
 #### Material tensors and grid information
