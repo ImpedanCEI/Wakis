@@ -317,6 +317,31 @@ class WakeSolver:
         if it == self.Nt - 1:
             self.WP = self.WP / (self.q * 1e12)
 
+
+    def _cell_widths(self, zz, nz):
+        """Width of each selected z cell, one entry per cell.
+
+        ``self.dz`` arrives in three shapes: a scalar on a uniform grid, one
+        width per field cell, or ``len(zf) - 1`` widths from ``np.diff``, which
+        is what the MPI writer stores. One entry per cell lets the integration
+        index it with the cell it multiplies; a scalar used to raise
+        ``TypeError`` at ``dz[k]``, and a ``np.diff`` array used to run one cell
+        short.
+        """
+        zf = self.zf if self.zf is not None else self.z
+        dz = np.asarray(self.dz, dtype=float)
+        if dz.ndim == 0 or dz.size == 1:
+            return np.full(nz, float(dz.ravel()[0]))
+        dz = dz.ravel()
+        if dz.size == len(zf) - 1:
+            # np.diff spacing: the last cell is as wide as the interval before it.
+            dz = np.append(dz, dz[-1])
+        if dz.size != len(zf):
+            raise ValueError(
+                f"dz has {dz.size} entries but the field has {len(zf)} z cells"
+            )
+        return dz[zz]
+
     def calc_long_WP(self, Ezt=None, **kwargs):
         """
         Obtain the wake potential from the pre-computed longitudinal Ez(z,t) field.
@@ -366,13 +391,8 @@ class WakeSolver:
         else:
             zz = np.s_[:]
         z = self.zf[zz]
-        if not np.ndim(self.dz):
-            dz = self.dz
-        elif len(self.dz) == len(self.zf):
-            dz = self.dz[zz]
-        else:
-            dz = self.dz[self.skip_cells : self.skip_cells + len(z)]
         nz = len(z)
+        dz = self._cell_widths(zz, nz)
 
         # Set Wake length and s
         if self.wakelength is not None:
@@ -477,13 +497,8 @@ class WakeSolver:
         else:
             zz = np.s_[:]
         z = self.zf[zz]
-        if not np.ndim(self.dz):
-            dz = self.dz
-        elif len(self.dz) == len(self.zf):
-            dz = self.dz[zz]
-        else:
-            dz = self.dz[self.skip_cells : self.skip_cells + len(z)]
         nz = len(z)
+        dz = self._cell_widths(zz, nz)
 
         # Set Wake length and s
         if self.wakelength is not None:
@@ -536,7 +551,7 @@ class WakeSolver:
                                 it = int(ts / dt)  # find index for t
                                 if it < nt:
                                     WP[n] = WP[n] + (Ezt[-k - 1, it]) * (
-                                        -1 * dz[k]
+                                        -1 * dz[-k - 1]
                                     )  # compute integral
                             pbar.update(1)
 
