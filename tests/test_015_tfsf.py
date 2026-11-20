@@ -204,6 +204,11 @@ def test_tfsf_material_scope(straight_pipe_grid, source_type, boundary):
     else:
         assert np.all(solver.ieps.array[~sampled_mask] == 0)
         assert np.count_nonzero(solver.ieps.array) < np.count_nonzero(sampled_mask)
+        for component in "xy":
+            np.testing.assert_array_equal(
+                solver.ieps.to_matrix(component),
+                grid.primal_masks["pipe"].to_matrix(component) / epsilon_0,
+            )
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
@@ -427,3 +432,112 @@ def test_mpi_wake_output(tmp_path):
                     )
         np.testing.assert_allclose(wake.s, serial_wake.s)
         np.testing.assert_allclose(wake.WP, serial_wake.WP, rtol=1e-8, atol=1e-12)
+
+
+@pytest.mark.parametrize("method", ["legacy", "voxelize_rectilinear"])
+@pytest.mark.parametrize(
+    "geometry,gap_cells,gap_eps_r,source_type",
+    [
+        pytest.param("block", 1.5, 1.0, "direct", id="block-direct"),
+        pytest.param("block", 1.5, 1.0, "tfsf", id="block-tfsf"),
+        pytest.param("axial", 0.5, 1.0, "tfsf", id="axial-half-vacuum"),
+        pytest.param("axial", 1.5, 1.0, "tfsf", id="axial-wide-vacuum"),
+        pytest.param("axial", 0.5, 4.0, "tfsf", id="axial-half-dielectric"),
+        pytest.param("axial", 1.5, 4.0, "tfsf", id="axial-wide-dielectric"),
+    ],
+)
+def test_narrow_gap_keeps_conductors_separate(
+    tmp_path, method, geometry, gap_cells, gap_eps_r, source_type
+):
+    """Preserve sampled insulation around a block or between axial PEC slabs.
+
+    The block is enclosed by a vacuum shell inside a PEC background. The axial
+    slabs have an independent PEC rod beside their vacuum/dielectric gap, so
+    dilating only the longitudinal mask would incorrectly bridge them.
+    """
+    dx = 1e-3
+    if geometry == "block":
+        box_half = 4.25 * dx
+        block_half = box_half - gap_cells * dx
+        bounds = {
+            "box": (-box_half, box_half) * 3,
+            "block": (-block_half, block_half) * 3,
+        }
+        materials = {"box": "vacuum", "block": "pec"}
+        background = "pec"
+        axis = np.arange(-8, 9) * dx
+        z = np.arange(-20, 21) * dx
+        boundary_z = "cpml" if source_type == "tfsf" else "pec"
+    else:
+        centre = 0.5 * dx
+        half_gap = 0.5 * gap_cells * dx
+        bounds = {
+            "upstream": (
+                -0.25 * dx,
+                0.25 * dx,
+                -20 * dx,
+                20 * dx,
+                -20 * dx,
+                centre - half_gap,
+            ),
+            "downstream": (
+                -0.25 * dx,
+                0.25 * dx,
+                -20 * dx,
+                20 * dx,
+                centre + half_gap,
+                20 * dx,
+            ),
+            "rod": (0.75 * dx, 1.25 * dx, -20 * dx, 20 * dx, -20 * dx, 20 * dx),
+        }
+        materials = {name: "pec" for name in bounds}
+        background = [gap_eps_r, 1.0, 0.0]
+        axis = np.arange(-4, 5) * dx
+        z = np.arange(-8, 10) * dx
+        boundary_z = "pec"
+    solids = {}
+    for name, solid_bounds in bounds.items():
+        path = tmp_path / f"{name}.stl"
+        pv.Box(bounds=solid_bounds).triangulate().save(path)
+        solids[name] = str(path)
+    grid = GridFIT3D(
+        x=axis,
+        y=axis,
+        z=z,
+        stl_method=method,
+        verbose=0,
+        stl_solids=solids,
+        stl_materials=materials,
+    )
+    solver = SolverFIT3D(
+        grid,
+        use_stl=True,
+        bg=background,
+        source_type=source_type,
+        n_pml=4,
+        bc_low=["pec", "pec", boundary_z],
+        bc_high=["pec", "pec", boundary_z],
+        verbose=0,
+    )
+    if geometry == "block":
+        # A closed shell of vacuum edges separates every sampled block node
+        # from the PEC background, without needing a connectivity graph.
+        axes = (axis, axis, z)
+        shell_half = np.ceil(block_half / dx) * dx
+        for direction, component in enumerate("xyz"):
+            indices = [np.flatnonzero(np.abs(nodes) <= shell_half) for nodes in axes]
+            midpoints = (axes[direction][:-1] + axes[direction][1:]) / 2
+            for sign in (-1, 1):
+                edge = np.argmin(np.abs(midpoints - sign * (shell_half + dx / 2)))
+                indices[direction] = np.array([edge])
+                gap = solver.ieps.to_matrix(component)[np.ix_(*indices)]
+                np.testing.assert_allclose(gap, 1 / epsilon_0)
+    else:
+        sampled_pec = np.logical_or.reduce(
+            [grid.primal_masks[name].array for name in solids]
+        )
+        # All sampled dielectric/vacuum edges, including the axial gap, remain.
+        np.testing.assert_array_equal(
+            solver.ieps.array, (~sampled_pec) / (gap_eps_r * epsilon_0)
+        )
+        assert solver.ieps[4, 4, 8, "z"] > 0
