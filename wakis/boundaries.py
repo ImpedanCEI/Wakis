@@ -12,7 +12,6 @@ from scipy.constants import mu_0
 from scipy.sparse import coo_matrix
 from scipy.sparse import csc_matrix as sparse_mat
 from scipy.sparse import diags, eye, hstack, kron, vstack
-from scipy.sparse.csgraph import connected_components
 
 from .field import Field
 
@@ -916,41 +915,31 @@ class BCsMixin:
         del self.pml_b_E, self.pml_c_E, self.pml_b_H, self.pml_c_H
 
     def _complete_tfsf_pec_edges(self):
-        """Align the time-domain PEC constraints with the TF/SF potential nodes.
+        """Complete longitudinal PEC edges using local sampled-edge paths.
 
-        Complete edges between endpoints of sampled PEC edges of the same
-        conductor, excluding inactive terminal storage. This changes solver
-        ieps near staircase walls but never joins separate conductors; the
-        geometric masks remain unchanged. Call before material
-        matrices and conductivity timestep limits are constructed.
+        A candidate needs a three-edge PEC path around an adjacent xz or yz
+        face: two transverse edges and the opposite longitudinal edge. Thus
+        completion cannot join separate sampled conductors. Only original
+        sampled paths are used, without propagating newly completed edges.
+        Transverse coefficients, geometric masks, and terminal storage remain
+        unchanged. Call before material matrices and timestep limits are built.
         """
-        pec_nodes = np.zeros((self.Nx, self.Ny, self.Nz), dtype=bool)
-
-        # |= adds nodes with logical OR, preserving nodes already marked True.
-        pec_nodes[:-1, :, :] |= self.ieps[:-1, :, :, "x"] == 0  # starting nodes
-        pec_nodes[1:, :, :] |= self.ieps[:-1, :, :, "x"] == 0  # ending nodes
-        pec_nodes[:, :-1, :] |= self.ieps[:, :-1, :, "y"] == 0
-        pec_nodes[:, 1:, :] |= self.ieps[:, :-1, :, "y"] == 0
-        pec_nodes[:, :, :-1] |= self.ieps[:, :, :-1, "z"] == 0
-        pec_nodes[:, :, 1:] |= self.ieps[:, :, :-1, "z"] == 0
-
-        # Label conductors: nodes joined by a chain of sampled PEC edges
-        shape = (self.Nx, self.Ny, self.Nz)
-        node = np.arange(pec_nodes.size).reshape(shape)
-        full, head, tail = slice(None), slice(None, -1), slice(1, None)
-        lo = ((head, full, full), (full, head, full), (full, full, head))
-        hi = ((tail, full, full), (full, tail, full), (full, full, tail))
-        edges = [self.ieps[(*lo[a], c)] == 0 for a, c in enumerate("xyz")]
-        src = np.concatenate([node[lo[a]][e] for a, e in enumerate(edges)])
-        dst = np.concatenate([node[hi[a]][e] for a, e in enumerate(edges)])
-        graph = coo_matrix((np.ones(src.size, dtype=bool), (src, dst)), shape=(node.size,) * 2)
-        conductor = connected_components(graph, directed=False)[1].reshape(shape)
-
-        # Set an edge to PEC when both endpoint nodes are marked PEC on the same conductor,
-        # so completion never joins separate conductors across a narrow vacuum gap
-        for a, c in enumerate("xyz"):
-            join = pec_nodes[lo[a]] & pec_nodes[hi[a]] & (conductor[lo[a]] == conductor[hi[a]])
-            self.ieps[(*lo[a], c)][join] = 0
+        for k in range(self.Nz - 1):
+            pec_z = self.ieps[:, :, k, "z"] == 0
+            pec_x = (self.ieps[:-1, :, k, "x"] == 0) & (
+                self.ieps[:-1, :, k + 1, "x"] == 0
+            )
+            pec_y = (self.ieps[:, :-1, k, "y"] == 0) & (
+                self.ieps[:, :-1, k + 1, "y"] == 0
+            )
+            # Use the sampled z mask for all four detours. Newly completed
+            # edges must not authorize further completion in the same slab.
+            join = pec_z.copy()
+            join[:-1, :] |= pec_x & pec_z[1:, :]
+            join[1:, :] |= pec_x & pec_z[:-1, :]
+            join[:, :-1] |= pec_y & pec_z[:, 1:]
+            join[:, 1:] |= pec_y & pec_z[:, :-1]
+            self.ieps[:, :, k, "z"][join] = 0
 
     def _initialize_tfsf(self):
         """
