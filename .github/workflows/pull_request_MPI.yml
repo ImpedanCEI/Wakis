@@ -47,4 +47,4 @@ jobs:
     - name: Run pytest
       run:  |
         cd wakis
-        mpiexec -n 2 python -m pytest --color=yes -v tests/test_007_mpi_lossy_cavity.py
+        mpiexec -n 2 python -m pytest --color=yes -v tests/test_007_mpi_lossy_cavity.py tests/test_015_tfsf.py

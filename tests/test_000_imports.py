@@ -24,3 +24,30 @@ def test_module_imports():
     from wakis.sources import PlaneWave  # noqa
     from wakis.sources import Pulse  # noqa
     from wakis.sources import WavePacket  # noqa
+
+
+def test_source_package_exports():
+    import wakis.sources as sources
+    from wakis.sources.beam import Beam
+    from wakis.sources.dipole import Dipole
+    from wakis.sources.gaussian_packet import GaussianPacket
+    from wakis.sources.mode_packet import ModePacket
+    from wakis.sources.plane_wave import PlaneWave
+    from wakis.sources.pulse import Pulse
+    from wakis.sources.source import Source, WaveformSource
+    from wakis.sources.wave_packet import WavePacket
+
+    source_classes = {
+        "Beam": Beam,
+        "Dipole": Dipole,
+        "GaussianPacket": GaussianPacket,
+        "ModePacket": ModePacket,
+        "PlaneWave": PlaneWave,
+        "Pulse": Pulse,
+        "Source": Source,
+        "WaveformSource": WaveformSource,
+        "WavePacket": WavePacket,
+    }
+
+    for name, source_class in source_classes.items():
+        assert getattr(sources, name) is source_class

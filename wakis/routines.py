@@ -14,6 +14,12 @@ from wakis.sources import Beam
 
 
 class RoutinesMixin:
+    """Run electromagnetic and wakefield simulations for ``SolverFIT3D``.
+
+    Provides the time-stepping routines for field output, plotting, and wake
+    calculations, along with their plotting defaults.
+    """
+
     def emsolve(
         self,
         Nt,
@@ -67,38 +73,8 @@ class RoutinesMixin:
         **kwargs
             Keyword arguments to be passed to the Plot2D or Plot3D function.
 
-            * Default kwargs used for 2D plotting:
-            ```
-            plotkw = {
-                "field": "E",
-                "component": "z",
-                "plane": "ZY",
-                "pos": 0.5,
-                "cmap": "rainbow",
-                "patch_reverse": True,
-                "title": "Ez",
-                "off_screen": True,
-                "interpolation": "spline36",
-            }
-            ```
-
-            * Default kwargs used for 3D plotting:
-            ```
-            plotkw = {
-                "field": "E",
-                "component": "z",
-                "add_stl": None,
-                "stl_opacity": 0.0,
-                "stl_colors": "white",
-                "title": "Ez",
-                "cmap": "jet",
-                "clip_box": False,
-                "clip_normal": "-y",
-                "off_screen": True,
-                "zoom": 1.0,
-                "nan_opacity": 1.0,
-            }
-            ```
+            Default keyword arguments are provided by
+            :meth:`get_plotting_kwargs` for 2D and 3D plots.
 
         Raises
         ------
@@ -111,7 +87,7 @@ class RoutinesMixin:
 
         Notes
         -----
-        - If `activate_abc` is True, absorbing boundary conditions are updated each step.
+        - First-order extrapolating ABC faces are applied within each field update.
         - If `callback` is provided, it is called as `callback(self, t)` at each step.
         - The plotting keyword arguments are merged with defaults for 2D/3D plotting.
         """
@@ -133,9 +109,9 @@ class RoutinesMixin:
             for hf in hfs:
                 hf["x"], hf["y"], hf["z"] = self.x, self.y, self.z
                 hf["dx"], hf["dy"], hf["dz"] = (
-                    self.grid.dx,
-                    self.grid.dy,
-                    self.grid.dz,
+                    self.dx,
+                    self.dy,
+                    self.dz,
                 )
                 hf["t"] = np.arange(0, Nt * self.dt, save_every * self.dt)
 
@@ -180,11 +156,6 @@ class RoutinesMixin:
 
             plotkw.update(kwargs)
 
-        # get ABC values
-        if self.activate_abc:
-            E_abc_2, H_abc_2 = self.get_abc()
-            E_abc_1, H_abc_1 = self.get_abc()
-
         # Time loop
         for n in tqdm(range(Nt)):
             if source is not None:
@@ -212,12 +183,6 @@ class RoutinesMixin:
 
             if plot3d and n % plot_every == 0:
                 self.plot3D(n=n, **plotkw)
-
-            # ABC BCs
-            if self.activate_abc:
-                self.update_abc(E_abc_2, H_abc_2)  # n-2
-                E_abc_2, H_abc_2 = E_abc_1, H_abc_1  # n-1
-                E_abc_1, H_abc_1 = self.get_abc()  # n
 
             # Callback func(solver, t)
             if callback is not None:
@@ -251,20 +216,33 @@ class RoutinesMixin:
         wake potential WP(s) and impedance Z(s).
 
         The `Ez` field is saved every timestep in a subdomain (xtest, ytest, z) around
-        the beam trajectory in HDF5 format file `Ez.h5`.
+        the beam trajectory in HDF5 format file `Ez.h5`. The saved x/y coordinates
+        are primal nodes; z contains physical primal-edge midpoints, with dz
+        their integration lengths. The zero-length terminal edge is excluded.
+        Domain boundaries are recovered from the first/last midpoint and dz.
+        Ez is saved before advancing at t=n*dt; optional Jz is at t=(n+1/2)*dt.
 
-        The computed results are available as Solver class attributes:
+        The computed results are available as attributes of the WakeSolver object:
             - wake potential: WP (longitudinal), WPx, WPy (transverse) [V/pC]
             - impedance: Z (longitudinal), Zx, Zy (transverse) [Ohm]
-            - beam charge distribution: lambdas (distance) [C/m], lambdaf (spectrum) [C]
+            - normalized bunch profile: lambdas (distance) [1/m],
+              lambdaf (spectrum) [dimensionless]
+
+        By default, these results are also saved as `.txt` files in the
+        WakeSolver results folder. Set `WakeSolver(save=False)` to disable
+        txt output.
 
         Parameters
         ----------
         wakelength : float
             Desired length of the wake in [m] to be computed.
 
-            Maximum simulation time in [s] can be computed from the wakelength parameter as:
-            .. math::    t_{max} = t_{inj} + (wakelength + (z_{max}-z_{min}))/c
+            Maximum simulation time in [s] can be computed from the wakelength
+            parameter as:
+
+            .. math::
+
+               t_{max} = t_{inj} + (wakelength + (z_{max}-z_{min}))/c
         wake : object, optional
             `WakeSolver` object containing the information needed to run the wake solver
             calculation. See Wake docstring for more information. Can be passed at
@@ -296,10 +274,7 @@ class RoutinesMixin:
             Deprecated. If True, use exponential time differencing.
         **kwargs
             Keyword arguments to be passed to the Plot2D function.
-            Default kwargs used:
-                {'plane':'ZY', 'pos':0.5, 'title':'Ez',
-                'cmap':'rainbow', 'patch_reverse':True,
-                'off_screen': True, 'interpolation':'spline36'}
+            Defaults are provided by :meth:`get_plotting_kwargs`.
 
         Raises
         ------
@@ -329,6 +304,15 @@ class RoutinesMixin:
         if wakelength is None:
             wakelength = self.wake.wakelength
 
+        beam_wavelength = self.wake.v / self.wake.fmax
+        cells_per_wavelength = beam_wavelength / np.max(self.dz)
+        if cells_per_wavelength < 20 and (not self.use_mpi or self.rank == 0):
+            if self.verbose:
+                print(
+                    f"[!] Beam wavelength spans only {cells_per_wavelength:.1f} longitudinal "
+                    "cells; at least 20 are recommended."
+                )
+
         if add_space is not None:  # legacy support
             self.wake.skip_cells = add_space
 
@@ -342,32 +326,41 @@ class RoutinesMixin:
         # integration path (test position)
         self.xtest, self.ytest = self.wake.xtest, self.wake.ytest
         self.ixt, self.iyt = (
-            np.abs(self.grid.x - self.xtest).argmin(),
-            np.abs(self.grid.y - self.ytest).argmin(),
+            np.abs(self.x - self.xtest).argmin(),
+            np.abs(self.y - self.ytest).argmin(),
         )
         if compute_plane.lower() == "longitudinal":
             xx, yy = self.ixt, self.iyt
         else:
+            n = self.wake.n_transverse_cells
+            if not (n <= self.ixt < self.Nx - n and n <= self.iyt < self.Ny - n):
+                raise ValueError(
+                    "The test position needs neighboring x/y nodes for the transverse wake stencil."
+                )
             xx, yy = (
-                slice(self.ixt - 1, self.ixt + 2),
-                slice(self.iyt - 1, self.iyt + 2),
+                slice(self.ixt - n, self.ixt + n + 1),
+                slice(self.iyt - n, self.iyt + n + 1),
             )
 
         # Compute simulation time
         self.wake.wakelength = wakelength
         self.ti = self.wake.ti
         self.v = self.wake.v
+        # Ez and Jz are longitudinal primal-edge averages, located at edge
+        # midpoints. Exclude the zero-length terminal edge from the saved field.
         if self.use_mpi:
-            z = self.Z  # use global coords
-            dz = np.full(self.NZ, (self.ZMAX - self.ZMIN) / self.NZ)
-            zz = slice(0, self.NZ)
+            z = 0.5 * (self.Z[:-1] + self.Z[1:])
+            dz = np.diff(self.Z)
+            zz = slice(0, self.NZ - 1)
         else:
-            z = self.z
-            zz = slice(0, self.Nz)
+            z = self.tz[1:-1]
+            dz = self.dz
+            zz = slice(0, self.Nz - 1)
 
-        tmax = (wakelength + self.ti * self.v + (z.max() - z.min())) / self.v  # [s]
+        tmax = (wakelength + self.ti * self.v + np.sum(dz)) / self.v  # [s]
         Nt = int(tmax / self.dt)
         self.tmax, self.Nt = tmax, Nt
+        times = np.arange(Nt) * float(self.dt)
 
         # Add beam source
         beam = Beam(
@@ -385,42 +378,42 @@ class RoutinesMixin:
         if self.use_mpi:
             if self.rank == 0:
                 hf = h5py.File(self.Ez_file, "w")
-                hf["x"], hf["y"], hf["z"] = self.grid.x[xx], self.grid.y[yy], z[zz]
-                hf["dx"], hf["dy"], hf["dz"] = self.grid.dx, self.grid.dy, dz
-                hf["t"] = np.arange(0, Nt * self.dt, self.dt)
+                hf["x"], hf["y"], hf["z"] = self.x[xx], self.y[yy], z
+                hf["dx"], hf["dy"], hf["dz"] = self.dx, self.dy, dz
+                hf["t"] = times
 
                 if save_J:
                     hfJ = h5py.File("Jz.h5", "w")
                     hfJ["x"], hfJ["y"], hfJ["z"] = (
-                        self.grid.x[xx],
-                        self.grid.y[yy],
-                        z[zz],
+                        self.x[xx],
+                        self.y[yy],
+                        z,
                     )
                     hfJ["dx"], hfJ["dy"], hfJ["dz"] = (
-                        self.grid.dx,
-                        self.grid.dy,
+                        self.dx,
+                        self.dy,
                         dz,
                     )
-                    hfJ["t"] = np.arange(0, Nt * self.dt, self.dt)
+                    hfJ["t"] = times + float(self.dt) / 2
         else:
             hf = h5py.File(self.Ez_file, "w")
-            hf["x"], hf["y"], hf["z"] = self.grid.x[xx], self.grid.y[yy], z[zz]
+            hf["x"], hf["y"], hf["z"] = self.x[xx], self.y[yy], z
             hf["dx"], hf["dy"], hf["dz"] = (
-                self.grid.dx,
-                self.grid.dy,
-                self.grid.dz,
+                self.dx,
+                self.dy,
+                dz,
             )
-            hf["t"] = np.arange(0, Nt * self.dt, self.dt)
+            hf["t"] = times
 
             if save_J:
                 hfJ = h5py.File("Jz.h5", "w")
-                hfJ["x"], hfJ["y"], hfJ["z"] = self.grid.x[xx], self.grid.y[yy], z[zz]
+                hfJ["x"], hfJ["y"], hfJ["z"] = self.x[xx], self.y[yy], z
                 hfJ["dx"], hfJ["dy"], hfJ["dz"] = (
-                    self.grid.dx,
-                    self.grid.dy,
-                    self.grid.dz,
+                    self.dx,
+                    self.dy,
+                    dz,
                 )
-                hfJ["t"] = np.arange(0, Nt * self.dt, self.dt)
+                hfJ["t"] = times + float(self.dt) / 2
 
         def save_to_h5(self, hf, field, x, y, z, comp, n):
             if self.use_mpi:
@@ -440,7 +433,7 @@ class RoutinesMixin:
         t0 = time.time()
         for n in tqdm(range(Nt)):
             # Initial condition
-            beam.update(self, n * self.dt)
+            beam.update(self, times[n])
 
             # Save
             save_to_h5(self, hf, "E", xx, yy, zz, "z", n)
@@ -462,7 +455,7 @@ class RoutinesMixin:
 
             # Callback func(solver, t)
             if callback is not None:
-                callback(self, n * self.dt)
+                callback(self, times[n])
 
         # End of time loop
         if self.use_mpi:

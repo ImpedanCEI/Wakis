@@ -13,14 +13,14 @@ sd_hide_title: true
 
 * Wake potential and impedance calculations for particle beams with different relativistic $\beta$
 * Material tensors: permittivity $\varepsilon$, permeability $\mu$, conductivity $\sigma$. Possibility of anisotropy.
-* CAD geometry importer (`STL` & `STEP` format) for definition of embedded boundaries and material regions, based on [`pyvista`](https://github.com/pyvista/pyvista)
-* Boundary conditions: PEC, PMC, Periodic, ABC-FOEXTRAP, Perfect Matched Layers (PML)
+* CAD geometry importer (`STL` & `STEP` format) for embedded boundaries and material regions, based on [`pyvista`](https://github.com/pyvista/pyvista), with sub-cell smoothing
+* Boundary conditions: PEC, PMC, periodic, first-order Mur ABC (`abc`), PML, and CPML
 * Different time-domain sources: particle beam, planewave, gaussian wavepacket
 * 100% python, fully exposed API (material tensors, fields $E$, $H$, $J$). Matrix operators based on `numpy` and `scipy.sparse` routines ensure fast calculations.
 * 1d, 2d, 3d built-in plotting on-the-fly
 * Optimized memory consumption
 * GPU acceleration using `cupy/cupyx`
-* CUDA-aware MPI parallelization with `mpi4py` and `ipyparallel` *coming soon!*
+* MPI domain decomposition in the $z$ direction with `mpi4py`
 
 🧩 Other complementary tools in the ecosystem:
 * Wakefield extrapolation with PIML [`iddefix`](https://github.com/ImpedanCEI/IDDEFIX) evolutionary algorithms
@@ -34,10 +34,9 @@ The source code is available in the `wakis` [GitHub repository](https://github.c
 :caption: Table of Contents
 :maxdepth: 2
 
-index.md
 installation.md
 usersguide.md
 physicsguide.md
 releases.md
-wakis.rst
+wakis_api.rst
 ```

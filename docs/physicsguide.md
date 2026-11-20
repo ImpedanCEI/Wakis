@@ -4,7 +4,7 @@ This section provides the theoretical foundations behind Wakis, offering a clear
 
 We begin by revisiting Maxwell’s equations in their integral form and explaining how they are discretized using the Finite Integration Technique (FIT) on a structured Cartesian grid. The formulation naturally leads to Maxwell Grid Equations (MGEs), which are solved in time using a leapfrog scheme. The fields and material properties are represented on a Yee-type staggered lattice, and anisotropic or spatially varying materials are handled via sparse metric tensors.
 
-Boundary conditions (PEC, PMC, periodic, PML) are discussed along with the treatment of sources and initial conditions. We also highlight how the solver supports geometry import and sub-pixel smoothing for embedded CAD models.
+Boundary conditions (PEC, PMC, periodic, Mur ABC, PML, and CPML) are discussed along with the treatment of sources and initial conditions. We also describe geometry import and staggered material sampling for embedded CAD models.
 
 Finally, we cover the implementation aspects, including GPU acceleration with CuPy and parallelization with mpi4py, enabling high-resolution 3D simulations across multiple devices.
 
@@ -118,8 +118,17 @@ In these equations, $\varepsilon$, $\mu$, $\sigma$ can be considered tensors and
 Wakis discretizes the integral form of Maxwell's equations using the **Finite Integration Technique (FIT)** on a structured three-dimensional Cartesian grid.
 
 $$
-N_\text{cells} = N_x \times N_y \times N_z
+N_\text{comp} = N_xN_yN_z, \qquad
+N_\text{phys} = (N_x-1)(N_y-1)(N_z-1)
 $$
+
+Here $N_x$, $N_y$, and $N_z$ count stored primal nodes and computational
+cells; the final computational cell on each axis has zero primal extent. Mesh
+refinement and HDF5 loading preserve this convention: an axis array of length
+$N_x$ defines $N_x$ computational cells and $N_x-1$ physical intervals.
+MPI partitions the global primal nodes along $z$ and adds neighboring nodes
+for ghost exchange at internal interfaces. The beam origin remains the global
+low boundary, as in a serial simulation.
 
 This approach maps:
 - Line integrals → to grid **edges**
@@ -202,7 +211,7 @@ To support **anisotropic materials** and **imported geometries**, Wakis stores t
 
 Before time-stepping, these directional fields are assembled into the corresponding **sparse diagonal matrices** using `scipy.sparse.diags`. This preserves the **locality of FIT updates** while enabling efficient CPU and GPU execution.
 
-Wakis also supports spatially varying media, embedded materials from CAD imports, and subpixel smoothing, ensuring accurate representation of complex geometries and composite structures.
+Wakis also supports spatially varying media and embedded materials from CAD imports through binary sampling at staggered field locations. Subpixel interface averaging is not supported.
 
 ### 🕒 Time-Stepping Routine
 
@@ -232,107 +241,311 @@ Most matrix operations are precomputed and cached, enabling large-scale simulati
 
 Wakis allows arbitrary initial conditions on $\vec{E}$, $\vec{H}$, and $\vec{J}$. Sources can be defined in multiple ways:
 - **User-defined time-dependent callbacks** placed after each step
-- **Predefined source types**: Gaussian beams, dipoles, plane waves, laser pulses, available in `sources.py`
+- **Predefined source types**: particle beams, dipoles, plane waves, and pulses, available in `wakis.sources`
+
+#### Prescribed waveform sources
+
+These sources impose a waveform on selected field or current components at fixed grid indices. Their profiles can be separated into three factors:
+
+$$
+S(u,v,w,t) = A\,P(u,v)\,G(w,t)\,C(w,t),
+$$
+
+where $P(u,v)$ is the transverse profile, $G(w,t)$ is the temporal envelope, and $C(w,t)$ is the carrier. The envelope determines the pulse duration and spectral width, while the carrier sets its central frequency. A source with $C(w,t)=1$ is a carrier-free broadband pulse.
+
+The predefined plane sources use these factors as follows:
+
+| Source | Temporal envelope $G(w,t)$ | Transverse profile $P(u,v)$ | Carrier $C(w,t)$ | Injected fields |
+|---|---|---|---|---|
+| `PlaneWave` | Constant, optionally time limited | Uniform on the selected plane | $\cos(\omega t-kw+\phi)$ | Matched TM fields |
+| `GaussianPacket` | Gaussian | Gaussian | None, $C(t)=1$ | Either $E_x$ or $H_y$ |
+| `WavePacket` | Gaussian | Gaussian | $\cos(\omega t-kw+\phi)$ | Matched TM fields, normal or oblique |
+| `Pulse` | Harris, Gaussian, or rectangular | Defined by the selected indices | None | One selected component of $\mathbf{E}$, $\mathbf{H}$, or $\mathbf{J}$ |
+
+For `GaussianPacket`, the value imposed at the plane $z=z_s$ is
+
+$$
+S(x,y,t) = A
+\exp\left[-\frac{x^2+y^2}{2\sigma_{xy}^2}\right]
+\exp\left[-\frac{(\beta c t-t_{\mathrm{inj}})^2}{2\sigma_z^2}\right].
+$$
+
+The pulse peaks at $t=t_{\mathrm{inj}}/(\beta c)$. Selecting `field="E"` imposes $E_x=S$ with amplitude in V/m; selecting `field="H"` preserves the existing convention $H_y=-S$ with amplitude in A/m. Only the selected field is prescribed, and Maxwell's equations evolve the companion field. This differs from `WavePacket`, which explicitly imposes an impedance-matched electric and magnetic pair with an oscillating carrier.
+
+The source arrays are sampled at their staggered field positions: $E_x$ at an $x$-edge midpoint and primal $y,z$ nodes; $H_y$ at $x,z$ edge midpoints and a primal $y$ node. A tilted `WavePacket` also samples $E_z$ at a primal $x,y$ node and a $z$-edge midpoint. Its electric and magnetic amplitudes therefore obey the impedance relation for the underlying continuous packet, rather than at identical array indices.
+
+`PlaneWave` uses the same component positions for its carrier phase and finite-duration window; the half-cell offset delays the magnetic sample at normal incidence.
+
+`PlaneWave` and `WavePacket` use the same TM polarization and propagation angle $\theta$, measured from $+z$ towards $+x$. The propagation direction is
+
+$$
+\hat{\mathbf{k}}=(\sin\theta,0,\cos\theta), \qquad
+\mathbf{H}=H_y(0,1,0), \qquad
+\mathbf{E}=\mu_0\beta c H_y(\cos\theta,0,-\sin\theta).
+$$
+
+The source frame uses coordinates $(u,v,w)$: $w$ follows the propagation direction and $(u,v)$ span the transverse plane. Global Cartesian coordinates remain $(x,y,z)$, while $s$ is reserved for the distance between a source particle and an observation or integration point. On the injection plane, $w=x\sin\theta$, $u=x\cos\theta$, and $v=y$. Consequently, $\mathbf{k}\cdot\mathbf{E}=0$ and $\mathbf{E}\times\mathbf{H}$ points along $\hat{\mathbf{k}}$. The default $\theta=0$ gives the normal-incidence $E_x/H_y$ packet.
+
+The `Beam` source does not belong to this table because it prescribes a moving physical current distribution rather than a fixed-location waveform. The resulting fields are generated self-consistently by Maxwell's equations and the surrounding structure.
+
+#### Common waveform-source lifecycle
+
+The predefined waveform sources inherit from `WaveformSource` (`Source` remains an alias for compatibility). Their common update sequence is:
+
+1. Resolve mesh-dependent defaults once through `_initialize()`.
+2. Evaluate the shared spatial profile, temporal envelope, and carrier helpers.
+3. Compute and inject the physical field components explicitly in each concrete
+   source's `update()` method.
+
+With `injection="hard"`, which preserves the previous default behavior, the source replaces the selected field components. With `injection="soft"`, it adds to the existing field values. Plotting methods use the same shared profile and carrier helpers as the simulation updates.
+
+`WaveformSource` provides the reusable transformation from global Cartesian coordinates $(x,y,z)$ to source-frame coordinates $(u,v,w)$. `PlaneWave` and `WavePacket` use this transformation while keeping their polarization equations explicit in their own `update()` methods.
+
+#### Beam source for wakefield simulations
+
+`Beam` is the main excitation used for wakefield and beam-coupling impedance simulations. Calling `SolverFIT3D.wakesolve()` constructs it automatically from the bunch parameters stored in `WakeSolver`. It can also be passed directly to `emsolve()` when only the time-domain fields are needed.
+
+A rigid Gaussian bunch moving in the positive $z$ direction is represented in the continuum by
+
+$$
+J_z(x,y,z,t) =
+\frac{qv}{\sqrt{2\pi}\sigma_z}
+\delta(x-x_{\mathrm{src}})\delta(y-y_{\mathrm{src}})
+\exp\left[-\frac{(z-vt-s_0)^2}{2\sigma_z^2}\right],
+$$
+
+with:
+- $v=\beta c$: beam velocity
+- $s_0=z_{\min}-vt_{\mathrm{inj}}$: initial bunch-center offset
+- $q$: total bunch charge in C
+- $\sigma_z$: rms bunch length in m
+- $(x_{\mathrm{src}},y_{\mathrm{src}})$: transverse source position
+
+On the discrete grid, the transverse delta functions are deposited in the source cell by dividing the line current by its transverse cell area. The bunch current drives the solver fields, and those fields contain both the direct beam field and the wake scattered by the geometry. Wake potentials and impedances are then obtained from the fields sampled along the test trajectory, as described in Section 4.
+
+This source supports both **ultra-relativistic** ($\beta \approx 1$) and **low-beta** scenarios.
+
+```{warning}
+First-order Mur ABCs are not sufficient for open-boundary wakefield simulations driven by `Beam`. Mur assumes an outgoing plane wave close to normal incidence with a single propagation speed. A moving bunch also produces broadband, co-propagating space-charge and transverse/TEM-like field components that do not satisfy this approximation, so appreciable fields can be reflected from the longitudinal boundary and contaminate the computed wake.
+
+CPML is the recommended longitudinal absorber for beam-driven simulations because it handles broadband, low-frequency, evanescent, and non-normal field content more effectively. The simpler PML remains available, but its absorption is less robust.
+```
+
+With PML or CPML boundaries, the bunch current is injected only into the physical domain and excluded from the absorbing layer. Abruptly truncating the current would otherwise violate the discrete continuity relation and generate parasitic fields. Wakis therefore uses a Total-Field/Scattered-Field (TF/SF) formulation [M.C. Balk et al., 2006].
+
+The computational domain is divided into total-field and scattered-field regions, with the TF/SF boundary offset by one cell from the CPML interface. The beam is injected strictly within the total-field region, where the total field is defined as:
+
+$$E^t = E^s + E^i$$
+
+At each TF/SF boundary, curl corrections add or subtract the incident fields. A **2D Poisson solve** supplies transverse electric-field templates, scaled by the instantaneous bunch current.
+
+- **Assumptions:** $\beta=1$, vacuum wave impedance, and straight vacuum pipe cross-sections at both injection planes.
+- **Potential boundary:** zero potential on the outer transverse boundary and at nodes incident to PEC electric edges, including longitudinal edges.
+- **Staggering:** E and H profiles use their respective sample positions and times.
+- **Cutoff:** injection ends when the bunch centre passes the exit plane by **8σ**. The omitted charge is approximately $6.2\times10^{-16}$ of the bunch, compared with $2.9\times10^{-7}$ at 5σ. The later cutoff reduces the residual amplified by transverse wake integration.
 
 ```{tip}
 #### ⚙️ Source callbacks
 
 A source callback can be easily created as:
 - A function like `def update(solver, time)` placed in a `for` loop after each step `solver.one_step()`.
-- a class with the method `Source.update(solver, time)`, passed to the `solver.emsolve()` routine.
+- A class with the method `Source.update(solver, time)`, passed to the `solver.emsolve()` routine.
 ```
-
-#### Example: Gaussian Beam Current $J_z$
-
-A rigid Gaussian bunch current is modeled as a line distribution:
-
-$$
-\mathbf{J}_z(x_{\text{src}}, y_{\text{src}}, \vec{z}) =
-\frac{q \beta c}{\sqrt{2\pi} \sigma_z} \,
-\exp\left( -\frac{(\vec{s} - s_0)^2}{2\sigma_z^2} \right)
-$$
-
-with:
-- $\vec{s} = \vec{z} - \beta c t$: beam-frame coordinate
-- $s_0 = z_{\min} - \beta c t_{\text{inj}}$: center of bunch
-- $q$ the charge in $\text{nC}$
-- $\sigma_z$ the bunch length in $\text{m}$
-
-This supports both **ultra-relativistic** ($\beta \approx 1$) and **low-beta** scenarios.
-
-To avoid parasitic fields interacting with the Perfect Matched Layer (PML) boundary, particle beams are only injected into the physical domain, excluding the PML region. To mitigate the divergence error fields that arise from this truncation, a Total-Field/Scattered-Field (TF/SF) formulation is applied [M.C. Balk et al., 2006]. 
-
-The computational domain is divided into total-field and scattered-field regions, with the TF/SF boundary offset by one cell from the CPML interface. The beam is injected strictly within the total-field region, where the total field is defined as:
-
-$$E^t = E^s + E^i$$
-
-At the boundary, the curl operator is modified to add or subtract the incident fields, rendering the boundary transparent to field propagation. For ultrarelativistic beams, incident transverse electric fields are pre-calculated using a 2D Poisson solver and dynamically scaled by the instantaneous longitudinal current density during time integration.
 
 ### 🧊🔚 Boundary Conditions
 
 Wakis supports several boundary condition (BC) types:
-- **PEC (Perfect Electric Conductor)**: enforces $\vec{E}_{\parallel} = 0$
-- **PMC (Perfect Magnetic Conductor)**: enforces $\vec{H}_{\parallel} = 0$
-- **Periodic BCs**: implemented with synchronized ghost cells
-- **PML (Perfectly Matched Layers)**: often referred to open or absorbing BC, are made of matched ($\varepsilon = \mu$) layers using graded conductivity $\sigma$ profiles for reflection-free truncation of the computational domain
+- **PEC (Perfect Electric Conductor)**: masks tangential electric-field degrees of freedom, enforcing $\vec{E}_{\parallel} = 0$ at the selected face.
+- **PMC (Perfect Magnetic Conductor)**: uses the natural boundary of the staggered FIT grid. Tangential magnetic-field samples lie inside the first and last physical half-cells, rather than on the wall, so no interior H sample is masked. The high-side ghost samples have zero primal area. Tangential electric-field samples on a PMC face remain free.
+- **Periodic**: connects opposite faces so fields repeat across the boundary. The last physical cell wraps to the first node, and the boundary half-cells form one dual cell. Both faces of an axis must be periodic. All three directions work in serial runs but periodic $z$ is not supported with MPI.
+- **ABC**: a first-order Mur radiation condition for selected domain faces.
+- **PML**: a finite, graded, electrically lossy layer terminated by the usual electric boundary mask.
+- **CPML**: a convolutional absorbing layer that adds auxiliary curl-correction fields.
+
+#### Periodic stencil
+
+For an axis with $N_x$ stored primal nodes, the $N_x-1$ physical cells span
+$x_0$ to $x_{N_x-1}$. On a periodic axis, the two endpoint nodes represent
+the same location. The final physical forward difference and the terminal
+computational row are therefore
+
+$$
+(P_x u)_{N_x-2} = u_0-u_{N_x-2}, \qquad
+(P_x u)_{N_x-1} = 0.
+$$
+
+The dual width of the identified seam node combines the half-cells on either
+side:
+
+$$
+\widetilde L_{x,0} = \frac{\Delta x_0+\Delta x_{N_x-2}}{2}.
+$$
+
+The high stored plane is a copy for node-centred field components and an
+inactive ghost plane for components centred in primal cells. Wakis assembles
+the periodic metric corrections in solver-owned copies of the dual metrics
+when the solver is initialized, so the input grid can be reused with different
+boundary conditions. The solver aliases the primal metrics as `solver.L` and
+`solver.iA`, and owns the corrected dual metrics as `solver.tL` and `solver.itA`.
+This endpoint representation is a Wakis adaptation
+of the staggered-grid placement introduced by [Yee (1966)](https://doi.org/10.1109/TAP.1966.1138693).
+
+#### Mur ABC implementation
+
+The `abc` boundary applies the first-order Mur radiation condition to the
+tangential electric field on any selected low or high face. It approximates the
+one-way wave equation normal to that face,
+
+$$
+\frac{\partial E_t}{\partial t} + v\frac{\partial E_t}{\partial n} = 0,
+$$
+
+where $E_t$ is a tangential electric-field component, $n$ is the outward face
+normal, and the wave speed is taken from the homogeneous background material,
+
+$$
+v = \frac{1}{\sqrt{\varepsilon_{\mathrm{bg}}\mu_{\mathrm{bg}}}}.
+$$
+
+For a low face, Wakis updates the boundary plane after the usual electric and
+magnetic field step as
+
+$$
+E_t^{n+1}(0) = E_t^n(1) + r_{\mathrm{lo}}
+\left[E_t^{n+1}(1) - E_t^n(0)\right],
+$$
+
+and, for the corresponding high face,
+
+$$
+E_t^{n+1}(N_z-1) = E_t^n(N_z-2) + r_{\mathrm{hi}}
+\left[E_t^{n+1}(N_z-2) - E_t^n(N_z-1)\right].
+$$
+
+The face-local coefficient uses the adjacent normal cell spacing, $\Delta x$,
+$\Delta y$, or $\Delta z$ as appropriate,
+
+$$
+r = \frac{v\Delta t - \Delta z}{v\Delta t + \Delta z}.
+$$
+
+Only the previous boundary and adjacent-interior tangential-electric-field
+planes are stored, so the additional memory scales with the active boundary
+area rather than the domain volume. This implementation leaves the FIT curl
+topology and metric operators unchanged. It assumes a homogeneous background
+material at the absorbing boundary and cannot be combined with PML or CPML
+faces. When ABC faces are selected on more than one axis, they share edges;
+Wakis emits a warning because those edge values currently follow the explicit
+`x`, `y`, then `z` face-update order. It is most appropriate for waves close to
+normal incidence. CPML remains the preferred absorber for oblique, broadband,
+low-frequency, or evanescent fields.
 
 #### PML implementation
-PMLs follow the formulation by Berenger [1994] and are ramped using smooth profiles [Oskooi et al., 2008] to reach adiabatic reflection.
 
-Perfectly matched layers (PML) represent one of the most widely used absorbing boundary conditions due to their ability to achieve, in theory, reflectionless absorption of outgoing electromagnetic waves [Berenger, 1994]. The fundamental idea of the PML can be understood from the reflection coefficient at an interface between two media \cite{sullivan},
+An ideal PML is impedance matched to the adjacent medium while attenuating outgoing waves. For an interface between media A and B, the reflection coefficient is
 
-\begin{equation}
+$$
 \Gamma = \frac{\eta_B - \eta_A}{\eta_B + \eta_A},
-\label{eq:reflection}
-\end{equation}
+$$
 
-where $\eta = \sqrt{\mu/\varepsilon}$ denotes the wave impedance. For vanishing reflections ($\Gamma = 0$), the impedances of both media must be identical. This condition forms the basis of the PML concept: an artificial absorbing medium is constructed such that its impedance matches that of the adjacent physical domain, while simultaneously introducing attenuation.
+where $\eta = \sqrt{\mu/\varepsilon}$ is the wave impedance. In a matched electric-and-magnetic lossy medium, the damping rates satisfy
 
-To achieve this, loss is incorporated into the medium through complex-valued, generally anisotropic material parameters [Berenger, 2007]. For a medium matched to vacuum, the effective permittivity and permeability can be written as
+$$
+\frac{\sigma_{\mathrm{el}}}{\varepsilon}
+= \frac{\sigma_{\mathrm{mag}}}{\mu}.
+$$
 
-\begin{equation}
-\varepsilon^* = \varepsilon_0 \left( 1 + \frac{\sigma_{\mathrm{el}}}{j\omega \varepsilon_0} \right), 
-\qquad
-\mu^* = \mu_0 \left( 1 + \frac{\sigma_{\mathrm{mag}}}{j\omega \mu_0} \right),
-\label{eq:materials}
-\end{equation}
+This preserves the impedance while introducing attenuation. Equivalently, a PML can be formulated through complex coordinate stretching [Gedney et al., 2000]:
 
-where $\sigma_{\mathrm{el}}$ and $\sigma_{\mathrm{mag}}$ denote the electric and magnetic conductivities, respectively. In the general case, these quantities are tensorial, resulting in anisotropic absorption. To maintain impedance matching at the interface, the conductivities must satisfy the condition
+$$
+S_{\mathrm{PML}} = 1 + \frac{\sigma}{j\omega\varepsilon_0}.
+$$
 
-\begin{equation}
-\frac{\sigma_{\mathrm{el}}}{\varepsilon_0} = \frac{\sigma_{\mathrm{mag}}}{\mu_0}.
-\label{eq:matching}
-\end{equation}
-
-This ensures that the ratio $\mu^*/\varepsilon^*$ remains unchanged, preserving the wave impedance and thereby eliminating reflections at the boundary, while the fields are attenuated within the PML region [Berenger, 2007].
-
-An alternative and widely used interpretation of the PML is based on complex coordinate stretching [Gedney et al., 2000]. In this framework, spatial coordinates are analytically continued into the complex plane, resulting in exponentially decaying wave solutions. The stretching variable $s$ can be expressed as
-
-\begin{equation}
-s = 1 + \frac{\sigma}{j\omega \varepsilon_0}.
-\end{equation}
-
-
+The current Wakis `pml` boundary is a deliberately simple adiabatic absorber rather than a complete matched, stretched-coordinate PML. It adds a geometrically graded artificial electric conductivity to the PML cells and uses the regular electric-current update. The inverse permittivity in those cells is set to the vacuum value, and no corresponding artificial magnetic conductivity is applied. Consequently, its effectiveness depends on layer thickness and the low-conductivity ramp; it is not expected to be reflectionless, especially for oblique incidence, broadband pulses, or non-vacuum material at the interface.
 
 #### CPML implementation
-The Convolutional Perfectly Matched Layers are an advanced version of PML with improved absorption of grazing angle incidence, low frequency waves and evanescent fields [Gedney et al., 2000].
-The stretching variable can be extended to
 
-\begin{equation}
-s = \kappa + \frac{\sigma}{\alpha + j\omega \varepsilon_0},
-\label{eq:cfs}
-\end{equation}
+Convolutional PML (CPML) improves absorption of grazing-incidence, low-frequency, and evanescent fields by using a complex-frequency-shifted coordinate stretch [Gedney et al., 2000]:
 
-where $\kappa \geq 1$ is a scaling parameter and $\alpha$ is a positive real-valued frequency-shift parameter. In time-domain simulations, this formulation results in convolutional perfectly matched layers (CPML), which provide improved broadband absorption performance.
+$$
+S_{\mathrm{PML}} = \kappa + \frac{\sigma}{\alpha + j\omega\varepsilon_0}.
+$$
 
-It should be noted that the PML medium is an artificial construct that does not correspond to a physical material. Instead, it represents a mathematical transformation of Maxwell's equations designed to minimize reflections and efficiently absorb outgoing waves.
+Here $\kappa \geq 1$ scales the coordinate stretch, $\sigma$ is the graded conductivity, and $\alpha$ is a non-negative frequency-shift parameter. Wakis constructs $\sigma$, $\kappa$, and $\alpha$ on both primal and dual field locations with a polynomial distance profile. It converts them into recursion coefficients and stores only the CPML auxiliary fields needed to correct curl terms inside each boundary layer.
+
+The layer thickness `n_pml` counts physical cells. Along an axis with $N$
+stored nodes and $m$ high-side CPML cells, the interface is at $x_{N-m-1}$.
+Electric profiles use nodes $N-m,\ldots,N-1$, while magnetic profiles use
+physical edges $N-m-1,\ldots,N-2$, evaluated at
+$(x_i+x_{i+1})/2$. Their high-side auxiliary corrections therefore use separate
+node and edge index ranges. The terminal plane has no forward physical edge
+and receives no magnetic CPML correction. Using the actual endpoint midpoint
+also preserves this placement on nonuniform meshes.
+
+CPML is therefore distinct from the scalar `pml` path: it does not modify the bulk material conductivity tensor to absorb waves, and its auxiliary convolution fields make it the preferred absorbing boundary for the beam and TF/SF workflows. As with all finite layers, its practical reflection level still depends on the number of cells and the selected profile parameters.
 
 
 ### 📥🗿 Geometry Importing & Embedded Boundaries
 
-Wakis integrates with [**PyVista**](https://docs.pyvista.org/) to import CAD geometries in `.STL`, `.STEP`, or `.OBJ` formats. The mesh is overlaid onto the simulation domain and mapped onto the Cartesian grid using:
-- `pyvista`'s surface collision algorithm, based on VTK optimized ray-tracing, allows to detect where the input geometry intersects the primal and dual grids.
-- Assignment of material properties ($\varepsilon_r$, $\mu_r$, $\sigma$) in $x$, $y$, and $z$ to the intersected cells using a first-order subpixel smoothing, inspired by the open-source solver MEEP (MIT).
+Wakis uses [PyVista](https://docs.pyvista.org/) to classify imported solids at the staggered electric and magnetic sample locations.
+
+```{note}
+**Added in v0.9.0:** primal and dual material masks, physical Field coordinates, and TF/SF PEC boundary completion.
+```
+
+**Sampling methods:**
+
+- `"voxelize_rectilinear"` requires uniform spacing.
+- `"legacy"` supports nonuniform axes by inserting each interval's actual midpoint and querying `select_interior_points`.
+
+Both use one shared **2× reference lattice**: even indices are primal nodes; odd indices are interior dual nodes.
+
+- **Primal grid:** `x`, `y`, `z`.
+- **Dual (tilde) grid:** `tx`, `ty`, `tz`, corresponding to $\tilde{x}$, $\tilde{y}$, $\tilde{z}$.
+
+The dual arrays include the domain endpoints. Field samples use their interior entries, `tx[1:-1]`, `ty[1:-1]`, and `tz[1:-1]`:
+
+| Component | Primal: E/J, ε, σ | Dual: H, μ |
+| --- | --- | --- |
+| x | `(tx[1:-1], y, z)` | `(x, ty[1:-1], tz[1:-1])` |
+| y | `(x, ty[1:-1], z)` | `(tx[1:-1], y, tz[1:-1])` |
+| z | `(x, y, tz[1:-1])` | `(tx[1:-1], ty[1:-1], z)` |
+
+Primal and dual refer to the edges carrying E and H; their component coordinates mix the two grids as shown above.
+
+**Storage and allocation:**
+
+- Each solid has boolean Fields in `grid.primal_masks` and `grid.dual_masks`, bound to the matching coordinate dictionaries.
+- Each Field contains three Fortran-ordered component blocks. Together they store **6N booleans per solid**, where $N=N_xN_yN_z$.
+- Inactive terminal planes are false; other boundary samples are classified directly.
+- The solver assigns inverse permittivity/conductivity from primal masks and inverse permeability from dual masks. Later solids overwrite earlier assignments; other samples retain background coefficients.
+
+This is a **staircase point classification**, without interface averaging or conformal boundaries. Subpixel smoothing and SIBC are not supported. Scalar cell labels are no longer generated. Mask plots use the selected primal/dual Field component: the 3D plot shows occupied display voxels, while the slice plot builds only the selected 2D plane. Display voxels span halfway between neighboring samples and are truncated at domain boundaries; they do not change the material sampling.
+
+**PEC consistency for TF/SF:**
+
+The injection potential and time-domain fields must share a conductor boundary. During TF/SF initialization, before material matrices and conductivity timestep limits are built, Wakis:
+
+1. Marks both endpoints of every active electric edge with zero inverse permittivity.
+2. Sets inverse permittivity to zero on edges joining two marked nodes.
+
+For marked-node indicators $M_p$ and $M_q$, the second step is $M_p M_q=1\Rightarrow\varepsilon^{-1}_{pq}=0$. This preserves existing PEC edges without adding marked nodes and excludes inactive terminal storage. It prevents a grounded injection node from supporting an unconstrained longitudinal field along an extruded wall.
+
+**Direct-source simulations do not apply this correction.** Stored masks, permeability, and conductivity remain unchanged. The effective PEC wall can extend by a neighboring edge: resolve narrow gaps and check curved walls under mesh refinement.
+
+Completion currently applies throughout the domain, rather than only at the
+injection planes. Restricting it to transverse edges on those planes and
+longitudinal edges touching them restores a spurious transverse DC impedance
+of approximately 119 Ω in the coarse straight-pipe regression
+(`test_straight_pipe_wake`, both meshing methods and precisions). With this
+sampling and injection formulation, unconstrained longitudinal wall edges in
+the interior also matter. Plane-only completion therefore requires a separate
+change to the wall/injection discretization; it is not an equivalent reduction
+of the current correction. The global correction can close narrow gaps away
+from injection planes, so TF/SF and direct-source material assignments should
+not be assumed identical.
+
+This completion rule is a **Wakis adaptation**. The underlying edge/node representation and discrete gradient/curl identities follow [Clemens and Weiland (2001)](https://doi.org/10.2528/PIER00080103).
 
 | STL geometry | Imported material mask |
 | ----- | ---- |
@@ -342,69 +555,11 @@ Future versions aim to include a more advanced meshing algorithm for improved fi
 
 ### Surface impedance boundary condition (SIBC)
 
-When the metal walls are very good conductors and the skin depth is much smaller than the grid spacing, it becomes inefficient (and inaccurate) to resolve the fields inside the conductor volume. Instead of using a volumetric conductivity, Wakis can model such metals with a **Leontovich surface impedance boundary condition (SIBC)** applied only on the surface cells. This can be disabled in the solver by turning `use_sibc=False`
+```{note}
+**Unavailable in v0.9.0:** the previous SIBC implementation and its scalar surface-mask helper have been removed. `use_sibc=True` raises `NotImplementedError`.
+```
 
-**🔍 Algorithm explanation**
-
-Starting from the imported solid mask of the full volume, our algorithm tags the **surface of solid regions** by computing the gradient magnitude of a scalar field (e.g. material mask) and converting it to a boolean mask. It uses [PyVista's Gradient filter](https://docs.pyvista.org/api/core/_autosummary/pyvista.datasetfilters.compute_derivative):
-
-The surface is identified where the gradient of the scalar field is non-zero:
-
-$\|\nabla \phi\| = \sqrt{ (\partial_x \phi)^2 + (\partial_y \phi)^2 + (\partial_z \phi)^2 }$
-
-Cells where $\|\nabla \phi\| > 0$ are marked as surface.
-
-| SIBC  float  | SIBC bool                                                                             | No SIBC                                                                             |
-| --- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-|   ![](img/sibc_float.png)  | ![](img/sibc_bool.png) | ![](img/no_sibc.png) |
-
-**See also:**
-<details>
-<summary> Maximum conductivity resolvable w/o a Leontovich boundary</summary>
-
-To accurately model a conducting material volumetrically in FIT/FDTD, the **skin depth**
-
-$$\delta = \sqrt{\frac{2}{2\pi f_{\max}\,\mu_0\,\sigma}}$$
-
-must be resolved by the grid. A common requirement is at least **3 cells per skin depth**, i.e.
-
-$$\delta \gtrsim 3\Delta_n$$
-
-where $(\Delta_n)$ is the grid spacing normal to the wall, considered as $\sqrt{2}\cdot \text{min}(\Delta x, \Delta y, \Delta z)$. Substituting the skin-depth expression and solving for $\sigma$ gives the maximum conductivity that can be volumetrically resolved at a target frequency $f_{\max}$:
-
-$$\sigma_{\max} = \frac{10}{\pi f_{\max}\,\mu \Delta_n^2}$$
-
-Materials with $\sigma > \sigma_{\max}$ have a skin depth too small to be captured by the mesh and should be modeled using a **Leontovich (surface impedance) boundary condition** instead of volumetric conductivity.
-</details>
-
-
-<details>
-<summary> Surface parameters for the Leontovich (SIBC) boundary</summary>
-
-For a good conductor, the Leontovich surface impedance has the form
-
-$$Z_s = (1+j)\sqrt{\dfrac{\omega\mu}{2\sigma}}$$
-
-meaning that the resistive and reactive parts are equal (a $45^\circ$ phase).
-In the SIBC implementation, we approximate $Z_s$ by its magnitude-based form
-
-$$Z_s \approx \sqrt{\pi f_{\max}\mu / \sigma}$$
-
-and define an equivalent **surface admittance**
-
-$$Y_s = 1/Z_s$$
-
-To embed this into the time-domain FIT update, we convert $Y_s$ into effective
-surface parameters:
-- **surface conductivity:** $\sigma_s = 1/Z_s$
-- **surface permittivity term:** $\varepsilon_s = 1/Z_s$
-
-Both appear with the same magnitude because the $45^\circ$ impedance angle implies
-equal real and imaginary parts in the admittance. These values are applied only to
-boundary edges or cells marked as SIBC, replacing the volumetric response of the metal.
-
-</details>
-
+Use **resolved bulk conductivity** for lossy conductors, or **PEC** when the perfect-conductor approximation is appropriate. Bulk simulations must resolve the field penetration into the wall; no surface-impedance model is currently provided.
 
 ### 🚀 GPU and MPI Parallelization
 
@@ -423,85 +578,201 @@ Wakis supports heterogeneous architecture computing thanks to open-source packag
 - Includes **CI/CD**, with end-to-end tests running nightly on GitHub actions, tagged **versioned releases**, and numerous **ready-to-run examples** in both Python scripts and notebooks, inluding a dedicated [playground](https://github.com/ImpedanCEI/CEI-logo) repository.
 ```
 
-## 3. Wake Potential and Impedance calculation
+## 4. Wake potential, impedance, and wake factors
 
 Wakis computes beam coupling impedance from time-domain electromagnetic field simulations by evaluating the wakefields generated by a moving charged particle (or bunch) as it traverses an accelerator structure.
 
-### 📚 Physical Definition: Wake function and Impedance
+### 📚 Wake function and wake potential
 
-The longitudinal **wake function** $w(\vec{r_s}, \vec{r_t}, s)$ of an accelerator component can be defined as a Green function in the time domain (i.e., the component electromagnetic response to a pulse excitation):
+Wakis uses $s>0$ for a test particle behind the source and $v=\beta c$ for
+the beam velocity. The transverse source and test positions are
+$\mathbf r_s=(x_s,y_s)$ and $\mathbf r_t=(x_t,y_t)$.
 
-$$
-w(\vec{r_s}, \vec{r_t}, s) = \frac{1}{q_s q_t} \int_{-\infty}^{\infty} \vec{F}_{\text{Lorentz}} \ d\vec{z} = \frac{1}{q_s q_t} \int_{-\infty}^{\infty} E_z(z, t) + \beta c \, \vec{e}_z \times \vec{B}(z, t) \ d\vec{z}
-$$
-
-With:
-- $\vec{r_s} = (x_s, y_s, z_s)$ be the position of a **source particle** -or pulse excitation.
-- $\vec{r_t} = (x_t, y_t, z_t)$ the **test particle** position -or integration point.
-- $s = z_{min} - \beta c t$ the **catch-up distance**, with $s_{max}$ beign the desired wakefield's length.
-
-The wake function is the input to beam-dynamics simulations. Its Fourier transform yields the **longitudinal impedance**, in frequency domain:
+The **wake function** $\mathbf w(\mathbf r_s,\mathbf r_t,s)$ is the response
+of the structure to a point source. It is a Green function normalized by the
+source charge $q_s$:
 
 $$
-Z_{\parallel}(\omega) = \int_{-\infty}^{\infty} w_{\parallel}(s) \, e^{-i \omega s / c} \frac{ds}{c}
+\mathbf w(\mathbf r_s,\mathbf r_t,s)
+=\frac{1}{q_s}\int_{-\infty}^{\infty}
+\left[\mathbf E(\mathbf r_t,z,t)
++v\,\mathbf e_z\times\mathbf B(\mathbf r_t,z,t)\right]
+_{t=(z+s)/v}\,dz .
 $$
 
-In practice, since a beam is a **distributed source**, the wake function is not directly accessible through wakefield simulations, where the excitation is a gaussian-shaped current. Instead, in wakefield simulations we compute the **wake potential** $W(s)$ generated by the full bunch distribution.
-
-### 📈 Wake Potential from 3D electromganetic simulations
-
-The **wake potential**, expressed in $\text{V/pC}$, is calculated by integrating the electric and magnetic fields seen by a test particle as it follows behind the source:
+Its longitudinal component contains only $E_z$,
 
 $$
-W(s) = \frac{1}{q_s} \int_{-\infty}^{\infty} \left[ E_z(z, t) + \beta c \, \vec{e}_z \times \vec{B}(z, t) \right]_{t = (s + z)/c} \, dz
+w_\parallel(\mathbf r_s,\mathbf r_t,s)
+=\frac{1}{q_s}\int_{-\infty}^{\infty}
+E_z(\mathbf r_t,z,t=(z+s)/v)\,dz ,
 $$
 
-For ultra-relativistic beams, the transverse component vanishes, and the expression simplifies to:
+while the transverse component contains the transverse Lorentz force. Both
+are quoted in $\mathrm{V/C}$, or more commonly $\mathrm{V/pC}$. A test charge
+$q_t$ receives an integrated voltage $q_s w$ and an energy change proportional
+to $q_tq_s w$; the sign depends on the charge and wake conventions.
+
+A simulation uses a finite bunch rather than a point source. Let
+$\lambda(s)$ be its **charge-normalized longitudinal profile**,
 
 $$
-W_\parallel(s) = \frac{1}{q_s} \int_{-\infty}^{\infty} E_z(z, t = (s + z)/c) \, dz
+\int_{-\infty}^{\infty}\lambda(s)\,ds=1,
+\qquad [\lambda]=\mathrm{m}^{-1}.
 $$
 
-The **transverse wake potential** is recovered via the **Panofsky-Wenzel theorem**:
+The resulting **wake potential** is the convolution
 
 $$
-W_{\perp,\alpha}(s) = \frac{\partial}{\partial \alpha} \int_{-\infty}^{s} W_\parallel(s') \, ds', \quad \alpha = x, y
+W_{\parallel,\perp}(s)
+=\int_{-\infty}^{\infty}
+w_{\parallel,\perp}(s-s')\lambda(s')\,ds'.
 $$
 
-Wakis implements this gradient using second-order finite differences.
+Thus $w$ denotes the point-charge response and $W$ the response to the bunch
+profile. `WakeSolver.WP`, `WPx`, and `WPy` store the latter in
+$\mathrm{V/pC}$. This distinction follows the definitions in
+[Teofili et al., *Phys. Rev. Accel. Beams* **24**, 041001 (2021)](https://doi.org/10.1103/PhysRevAccelBeams.24.041001).
 
-#### Transverse Decomposition
+On the symmetric Wakis grid, the longitudinal electric field and beam current are
+located at $(x_i,y_j,z_{k+1/2})$, where
+$z_{k+1/2}=(z_k+z_{k+1})/2$. Electric fields are stored at $t_n=n\Delta t$,
+while the beam deposits $J_z$ at $t_n+\Delta t/2$. Its transverse location
+snaps to the nearest primal x/y nodes. The current density is normalized by
+the transverse dual-cell area at those nodes.
+
+`wakesolve` saves physical $E_z$ edges only: HDF5 `z` contains their midpoints,
+and `dz` their lengths. Domain boundaries follow from the end midpoints:
+$z_\min=z_{1/2}-\Delta z_0/2$ and
+$z_\max=z_{N-3/2}+\Delta z_{N-2}/2$ for $N$ primal nodes.
+The zero-length high-side edge contributes no physical integral.
+For a bunch entering the low boundary $z_\min$ at time $t_i$, the discrete
+longitudinal integration samples the trajectory
+
+$$
+t_k(s)=t_i+\frac{z_{k+1/2}-z_\min+s}{v}, \qquad
+W_\parallel(s)=\frac{1}{q}\sum_k E_z(x_t,y_t,z_{k+1/2},t_k(s))\,\Delta z_k.
+$$
+
+The saved field timestep immediately preceding the requested trajectory time
+is used. `skip_cells` removes the same physical edges and lengths at both ends;
+it does not move the bunch's reference origin. The 1D integration and the
+central point of the transverse stencil follow the same trajectory.
+
+Wakis obtains the transverse wake potential from the 3D longitudinal wake
+potential using the Panofsky--Wenzel relation. With the $s$ and force signs
+used in Wakis,
+
+$$
+\frac{\partial\mathbf W_\perp}{\partial s}
+=-\nabla_\perp W_\parallel,
+$$
+
+and therefore
+
+$$
+W_{\perp,\alpha}(s)
+=-\frac{\partial}{\partial\alpha}
+\int_{-\infty}^{s}W_\parallel(s')\,ds',
+\qquad \alpha=x,y.
+$$
+
+The transverse gradient is evaluated with second-order finite differences.
+
+#### Transverse decomposition
 
 Wakis supports transverse wake analysis:
 
 $$
-W_{\perp,x}(x, y, s) = W_C(s) + W_D(s) \Delta x_s + W_Q(s) \Delta x_t + \mathcal{O}(x^2)
+W_{\perp,\alpha}(\mathbf r_s,\mathbf r_t,s)
+=W_{C,\alpha}(s)
++W_{D,\alpha}(s)\Delta\alpha_s
++W_{Q,\alpha}(s)\Delta\alpha_t
++\mathcal O(\lVert\mathbf r\rVert^2),
+\qquad \alpha=x,y.
 $$
 
 - $W_D$: **dipolar wake**, linear in source offset
 - $W_Q$: **quadrupolar wake**, linear in test offset
 - $W_C$: **coherent term**, for asymmetric geometries
 
-These are extracted by sampling field responses at multiple $(x_s, y_s, x_t, y_t)$ combinations, either by displacing the beam source ($x_s, y_s$) or the integration path ($x_t, y_t$).
+They can be separated by sampling field responses at multiple
+$(x_s,y_s,x_t,y_t)$ combinations, either by displacing the beam source or the
+integration path.
 
 
 ### 🔁 From Wake to Impedance
 
-Given the bunch profile $\lambda(s)$ and the wake potential $W(s)$, the beam coupling impedance is computed in Fourier space ia a deconvolution:
+Given the bunch profile $\lambda(s)$ and wake potential $W(s)$, Wakis obtains
+the point-charge impedance by deconvolution. Define the spatial Fourier
+transform
+
+$$
+\widetilde g(f)=\int_{-\infty}^{\infty}
+g(s)e^{-i2\pi f s/v}\,ds .
+$$
+
+The charge-normalized bunch spectrum $\widetilde\lambda(f)$ is dimensionless.
+With the Wakis sign convention, the impedances are
 
 - **Longitudinal impedance** in $\Omega$:
 
 $$
-Z_\parallel(\omega) = \beta c \cdot \frac{\mathcal{F}[W_\parallel(s)]}{\mathcal{F}[\lambda(s)]}
+Z_\parallel(f)=-\frac{\widetilde W_\parallel(f)}
+{v\,\widetilde\lambda(f)}
 $$
 
-- **Transverse impedance** in $\Omega/m$:
+- **Transverse impedance of the simulated offset** in $\Omega$:
 
 $$
-Z_\perp(\omega) = -i \beta c \cdot \frac{\mathcal{F}[W_\perp(s)]}{\mathcal{F}[\lambda(s)]}
+Z_{\perp,\alpha}(f)=i\frac{\widetilde W_{\perp,\alpha}(f)}
+{v\,\widetilde\lambda(f)},
+\qquad \alpha=x,y.
 $$
 
-where $\mathcal{F}$ denotes the Fourier transform. Wakis uses `numpy.fft` with a Hanning window and zero-padding for smooth frequency analysis.
+`WakeSolver.Zx` and `Zy` contain this offset-dependent transverse impedance.
+For a purely dipolar wake, division by the corresponding nonzero source
+offset gives the commonly quoted dipolar impedance,
+
+$$
+Z_{\perp,\alpha}^{\mathrm{dip}}(f)
+=\frac{Z_{\perp,\alpha}(f)}{\Delta\alpha_s},
+\qquad [Z_{\perp}^{\mathrm{dip}}]=\Omega/\mathrm m.
+$$
+
+Wakis uses `numpy.fft` and zero-padding. No window is applied automatically.
+
+### ⚖️ Loss and kick factors
+
+The bunch **loss factor** is the bunch-profile-weighted longitudinal wake
+potential:
+
+$$
+k_\parallel
+=\frac{\displaystyle\int W_\parallel(s)\lambda(s)\,ds}
+{\displaystyle\int\lambda(s)\,ds}.
+$$
+
+Because `WakeSolver.lambdas` is normalized, the denominator is ideally one;
+it is retained in the numerical implementation to account for sampling or a
+truncated profile. `calc_loss_factor()` returns the signed value in
+$\mathrm{V/pC}$.
+
+For a source offset $\Delta\alpha_s\ne0$, the dipolar **kick factor** is
+
+$$
+k_{\perp,\alpha}
+=\frac{1}{\Delta\alpha_s}
+\frac{\displaystyle\int W_{\perp,\alpha}(s)\lambda(s)\,ds}
+{\displaystyle\int\lambda(s)\,ds},
+\qquad \alpha=x,y.
+$$
+
+`calc_kick_factors()` returns signed $k_x$ and $k_y$ in
+$\mathrm{V/(pC\,m)}$. A kick factor is undefined for a zero source offset, so
+the corresponding result is `None`. In asymmetric structures, a coherent or
+quadrupolar contribution may also be present; a single-offset division should
+then not be interpreted as a pure dipolar coefficient.
 
 
 ```{admonition} Modularity

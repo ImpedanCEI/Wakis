@@ -1,281 +1,479 @@
-import sys
+"""Voxelized pipe geometry and staggered material assignment."""
 
 import numpy as np
-import pyvista as pv
-
-sys.path.append("../wakis")
-
 import pytest
+import pyvista as pv
+from scipy.constants import epsilon_0, mu_0
 
-from wakis import GridFIT3D, SolverFIT3D, WakeSolver
-
-
-@pytest.mark.slow
-class TestGridFIT3DMeshing:
-    # Reference data
-    tol = dict(rtol=50e-5, atol=50e-4)
-    dtype = np.float32
-
-    # fmt: off
-    WP = np.array([ 3.03999377e-18, -1.57436678e-14, -5.81744067e-11, -4.16962878e-08,
-                    -8.37576052e-06, -5.10188367e-04, -9.65024317e-03, -5.62474460e-02,
-                    -8.92658495e-02,  1.94104416e-02,  1.20731894e-01,  6.94716656e-02,
-                    -2.25460627e-02, -4.91365346e-02, -2.81756714e-02, -1.07040993e-02,
-                    6.24067287e-02,  7.76899724e-02, -6.41804617e-02, -1.09100607e-01,
-                    3.17122367e-02,  9.95300771e-02,  1.59930539e-02, -6.11959223e-02,
-                    -3.38419464e-02, -3.31974531e-03,  1.97809615e-02,  7.32837232e-02,
-                    2.14655914e-03, -9.54641911e-02, -3.93029761e-02,  7.85793202e-02,
-                    6.92603412e-02, -4.44469131e-02, -5.61724850e-02, -4.31207455e-03,
-                    1.37319512e-02,  4.47538136e-02,  3.30728875e-02, -4.91526078e-02,
-                    -7.17331871e-02,  2.30389026e-02,  9.07601155e-02,  4.60074950e-03,
-                    -6.82039506e-02, -2.42327580e-02,  1.47484248e-02,  3.33755469e-02,
-                    3.07827068e-02, -1.10044189e-02, -6.00957767e-02, -2.83398905e-02,
-                    7.01179625e-02,  5.07391705e-02, -4.55863327e-02, -5.23725044e-02,
-                    3.64085044e-03,  3.55489172e-02,  2.52530595e-02,  3.40678159e-03,
-                    -3.39325723e-02, -4.70488102e-02,  2.66807614e-02,  6.77546427e-02,
-                    -3.49550941e-03, -5.86094480e-02, -2.46501822e-02,  3.33310938e-02,
-                    3.19647879e-02,  3.80802801e-03, -1.52754979e-02, -4.11351141e-02,
-                    -7.28641157e-03,  5.23813004e-02,  3.22026092e-02, -3.76132883e-02,
-                    -4.92387915e-02,  1.42774059e-02,  4.05807388e-02,  1.10590376e-02,
-                    -1.09048635e-02, -2.85400383e-02, -2.08799885e-02,  2.56681667e-02,
-                    4.33091263e-02, -4.11216871e-03, -5.22413075e-02, -1.57761296e-02,
-                    3.85064574e-02,  2.44861946e-02, -5.94644029e-03, -2.37867277e-02,
-                    -2.08974540e-02,  6.12977218e-03,  3.41808685e-02,  2.11225797e-02,
-                    -3.48074853e-02, -3.68432258e-02,  1.84538236e-02,  3.62614155e-02,
-                    5.71392888e-03, -2.22282929e-02, -2.07595900e-02, -2.14059628e-03])
+from wakis import GridFIT3D, SolverFIT3D
 
 
-    Z = np.array([ 4.87770399e+00   -0.j,         -9.37231333e-01   +9.76902j,
-                    -4.24056580e-02   +5.75895605j,  7.64718800e+00  +15.05633851j,
-                    2.25805798e-02  +22.94919652j,  1.81227395e+00  +18.44213153j,
-                    9.25440294e+00  +29.07627434j,  2.80600688e-01  +36.56571882j,
-                    3.21773007e+00  +31.43991496j,  1.09670695e+01  +44.23182763j,
-                    4.43604660e-02  +51.73186851j,  4.57961315e+00  +45.61130327j,
-                    1.31989216e+01  +61.78568579j, -7.53366266e-01  +69.74316051j,
-                    6.17983511e+00  +62.00941222j,  1.65219994e+01  +83.7460061j,
-                    -2.43993772e+00  +92.90805422j,  8.45866414e+00  +82.50488264j,
-                    2.21727722e+01 +114.27862094j, -5.88329858e+00 +126.41846549j,
-                    1.25234418e+01 +111.41469792j,  3.38300774e+01 +164.58570432j,
-                    -1.36120025e+01 +186.02864687j,  2.28328211e+01 +163.1007426j,
-                    6.98071354e+01 +281.32459768j, -3.41036324e+01 +359.14919895j,
-                    9.25735014e+01 +348.74599877j,  8.21857579e+02+1199.51083954j,
-                    1.12890901e+03-1003.57407371j, -1.01266995e+01 -186.88815086j,
-                    -4.70789813e+01 -262.98926442j,  1.12077022e+02  -91.51376311j,
-                    -1.54554302e+01  +54.34806626j, -2.88613554e+01  -36.43009739j,
-                    8.69109385e+01  +55.12056128j, -1.08808342e+01 +164.39050487j,
-                    -1.17645744e+01  +86.56414324j,  1.18563803e+02 +213.48816771j,
-                    1.20556558e+01 +395.18631788j,  9.57219766e+01 +399.30569715j,
-                    1.16332782e+03 +970.86145883j,  1.04839496e+03-1020.32813672j,
-                    6.54871934e+01 -429.14499028j,  2.24857075e+01 -363.85175326j,
-                    6.78880242e+01 -188.44076494j, -1.98911757e+01 -125.63772553j,
-                    2.05538171e+01 -141.29209289j,  3.79217091e+01  -41.08975005j,
-                    -2.73138490e+01  -38.01589641j,  3.61895934e+01  -59.80608412j])
+@pytest.mark.parametrize("method", ["legacy", "voxelize_rectilinear"])
+@pytest.mark.parametrize("axis", [0, 1, 2])
+@pytest.mark.parametrize("thin", [False, True])
+@pytest.mark.parametrize("material", ["pec", [2.0, 1.0, 0.0]])
+@pytest.mark.parametrize("verbose", [0, 1])
+def test_thin_sheet(tmp_path, capsys, method, axis, thin, material, verbose):
+    """Report midpoint-only material sheets once, preserving their sampled masks.
 
-    #Ez = np.array([])
+    The sheet crosses 25 normal edges for both PEC and dielectric materials.
+    Resolved walls and verbosity zero do not emit the diagnostic.
+    """
+    bounds = np.tile([-1.0, 2.0], (3, 1))
+    bounds[axis] = (0.35, 0.4) if thin else (0.2, 0.55)
+    path = tmp_path / "sheet.stl"
+    pv.Cube(bounds=bounds.ravel()).triangulate().save(path)
+    nodes = np.linspace(0, 1, 5)
+    grid = GridFIT3D(
+        x=nodes,
+        y=nodes,
+        z=nodes,
+        stl_solids={"sheet": str(path)},
+        stl_materials={"sheet": material},
+        stl_method=method,
+        verbose=verbose,
+    )
+    diagnostics = [
+        line for line in capsys.readouterr().out.splitlines() if line.startswith("[!]")
+    ]
+    assert len(diagnostics) == int(bool(verbose) and thin)
+    for component in "xyz":
+        coords = np.meshgrid(*grid.primal_coords[component], indexing="ij")
+        expected = (coords[axis] > bounds[axis, 0]) & (coords[axis] < bounds[axis, 1])
+        physical = tuple(slice(0, n) for n in expected.shape)
+        np.testing.assert_array_equal(
+            grid.primal_masks["sheet"].to_matrix(component)[physical], expected
+        )
 
-    # fmt: on
-    def test_voxelize_rectilinear(self, use_gpu):
-        """
-        Tests 'voxelize_rectilinear' and subpixel smoothing using the
-        exact cavity and shell gridLogs configuration.
-        """
 
-        # Geometry & Materials
-        solid_1 = "tests/stl/007_vacuum_cavity.stl"  # logs["stl_solids"]["cavity"]
-        solid_2 = "tests/stl/007_lossymetal_shell.stl"  # logs["stl_solids"]["shell"]
+def test_grid_h5_roundtrip_without_solids(tmp_path):
+    """Nonuniform node axes rebuild the symmetric FIT metrics after loading."""
+    grid = GridFIT3D(
+        x=np.array([0.0, 0.2, 0.5, 1.0]),
+        y=np.array([-1.0, -0.4, 0.5]),
+        z=np.array([0.0, 0.1, 0.4, 1.0]),
+        verbose=0,
+    )
+    path = str(tmp_path / "grid.h5")
+    grid.save_to_h5(path)
+    loaded = GridFIT3D(load_from_h5=path, verbose=0)
+    with pytest.raises(NotImplementedError, match="MPI decomposition"):
+        GridFIT3D(load_from_h5=path, use_mpi=True, verbose=0)
 
-        stl_solids = {"cavity": solid_1, "shell": solid_2}
+    for attr in ("x", "y", "z", "dx", "dy", "dz", "tx", "ty", "tz"):
+        np.testing.assert_array_equal(getattr(loaded, attr), getattr(grid, attr))
+    for attr in ("L", "iA", "tL", "itA"):
+        np.testing.assert_array_equal(
+            getattr(loaded, attr).toarray(), getattr(grid, attr).toarray()
+        )
+    for component in "xyz":
+        for axis, nodes in zip("xyz", (grid.x, grid.y, grid.z)):
+            midpoint = (nodes[:-1] + nodes[1:]) / 2
+            index = "xyz".index(axis)
+            for obj in (grid, loaded):
+                np.testing.assert_array_equal(
+                    obj.primal_coords[component][index],
+                    midpoint if axis == component else nodes,
+                )
+                np.testing.assert_array_equal(
+                    obj.dual_coords[component][index],
+                    nodes if axis == component else midpoint,
+                )
+    assert loaded.grid.n_cells == grid.Nx * grid.Ny * grid.Nz
+    assert not loaded.grid.cell_data
 
-        stl_materials = {
-            "cavity": "vacuum",
-            "shell": [30, 1.0, 30],  # [eps_r, mu_r, sigma[S/m]]
-        }
 
-        # Extract domain bounds from geometry
-        solids = pv.read(solid_1) + pv.read(solid_2)
-        xmin, xmax, ymin, ymax, zmin, zmax = solids.bounds
+def test_grid_h5_roundtrip_with_solid(tmp_path):
+    """A saved STL mask remains aligned with the rebuilt computational grid."""
+    solid = tmp_path / "solid.stl"
+    pv.Cube(bounds=(0.2, 0.8, 0.2, 0.8, 0.2, 0.8)).triangulate().save(solid)
+    grid = GridFIT3D(
+        x=np.array([0.0, 0.25, 0.6, 1.0]),
+        y=np.array([0.0, 0.3, 0.7, 1.0]),
+        z=np.array([0.0, 0.2, 0.5, 1.0]),
+        stl_solids={"solid": str(solid)},
+        stl_materials={"solid": [2.0, 1.0, 0.0]},
+        stl_method="legacy",
+        verbose=0,
+    )
+    path = str(tmp_path / "grid.h5")
+    grid.save_to_h5(path)
+    loaded = GridFIT3D(load_from_h5=path, verbose=0)
 
-        # Number of mesh cells
-        Nx = 60  # logs["Nx"]
-        Ny = 60  # logs["Ny"]
-        Nz = 140  # logs["Nz"]
+    np.testing.assert_array_equal(
+        loaded.primal_masks["solid"].array, grid.primal_masks["solid"].array
+    )
+    for attr in ("L", "iA", "tL", "itA"):
+        np.testing.assert_array_equal(
+            getattr(loaded, attr).toarray(), getattr(grid, attr).toarray()
+        )
+    assert loaded.stl_materials["solid"] == pytest.approx([2.0, 1.0, 0.0])
 
+
+@pytest.mark.parametrize(
+    "method,nonuniform",
+    [("voxelize_rectilinear", False), ("legacy", False), ("legacy", True)],
+)
+def test_staggered_masks(tmp_path, method, nonuniform):
+    """Translated solids classify electric and magnetic samples and survive HDF5.
+
+    Include vacuum and a dielectric. Bounds lie
+    away from sample locations so surface classification is unambiguous.
+    """
+    solids = {}
+    bounds = {
+        "vacuum": (-0.023, 0.037, -0.033, 0.027, -0.017, 0.027),
+        "dielectric": (-0.031, 0.016, -0.034, 0.018, -0.037, 0.037),
+    }
+    for key, box in bounds.items():
+        path = tmp_path / f"{key}.stl"
+        pv.Cube(bounds=box).triangulate().save(path)
+        solids[key] = str(path)
+    axes = [np.linspace(-0.06, 0.06, n) for n in (9, 9, 7)]
+    if nonuniform:
+        axes = [0.06 * np.sign(a) * (np.abs(a) / 0.06) ** 1.3 for a in axes]
+    grid = GridFIT3D(
+        x=axes[0],
+        y=axes[1],
+        z=axes[2],
+        stl_solids=solids,
+        stl_materials={"vacuum": "vacuum", "dielectric": [2.0, 2.0, 0.01]},
+        stl_method=method,
+        verbose=0,
+    )
+    dimensions = (grid.Nx, grid.Ny, grid.Nz)
+    solver = SolverFIT3D(
+        grid,
+        use_stl=True,
+        bg=[3.0, 1.5, 0.02],
+        bc_low=["pmc"] * 3,
+        bc_high=["pmc"] * 3,
+        verbose=0,
+    )
+    expected_ieps = np.full((3, *dimensions), 1 / (3 * epsilon_0))
+    expected_sigma = np.full((3, *dimensions), 0.02)
+    expected_imu = np.full((3, *dimensions), 1 / (1.5 * mu_0))
+    for field in (solver.E, solver.J, solver.ieps, solver.sigma):
+        assert field.coordinates is grid.primal_coords
+    for field in (solver.H, solver.imu):
+        assert field.coordinates is grid.dual_coords
+    assert not grid.grid.cell_data
+    for key, box in bounds.items():
+        material_mask = grid.primal_masks[key]
+        assert material_mask.coordinates is grid.primal_coords
+        packed = material_mask.array
+        assert packed.dtype == bool
+        assert packed.shape == (3 * np.prod(dimensions),)
+        for component, block in enumerate(packed.reshape(3, -1)):
+            positions = [a.copy() for a in axes]
+            a = axes[component]
+            positions[component] = (a[:-1] + a[1:]) / 2
+            xyz = np.meshgrid(*positions, indexing="ij")
+            expected = np.ones(xyz[0].shape, dtype=bool)
+            for axis, values in enumerate(xyz):
+                expected &= (values > box[2 * axis]) & (values < box[2 * axis + 1])
+            mask = block.reshape(dimensions, order="F")
+            physical = tuple(slice(0, n) for n in expected.shape)
+            np.testing.assert_array_equal(mask[physical], expected)
+            occupancy = np.zeros(dimensions, dtype=bool)
+            occupancy[physical] = expected
+            eps, _, conductivity = grid.stl_materials[key]
+            expected_ieps[component][occupancy] = 1 / (eps * epsilon_0)
+            expected_sigma[component][occupancy] = conductivity
+            terminal = [slice(None)] * 3
+            terminal[component] = -1
+            assert not mask[tuple(terminal)].any()
+
+    for key, box in bounds.items():
+        dual_mask = grid.dual_masks[key]
+        assert dual_mask.coordinates is grid.dual_coords
+        for index, component in enumerate("xyz"):
+            xyz = np.meshgrid(*grid.dual_coords[component], indexing="ij")
+            expected = np.ones(xyz[0].shape, dtype=bool)
+            for axis, values in enumerate(xyz):
+                expected &= (values > box[2 * axis]) & (values < box[2 * axis + 1])
+            occupancy = np.zeros(dimensions, dtype=bool)
+            physical = tuple(slice(0, n) for n in expected.shape)
+            occupancy[physical] = expected
+            np.testing.assert_array_equal(dual_mask.to_matrix(component), occupancy)
+            expected_imu[index][occupancy] = 1 / (grid.stl_materials[key][1] * mu_0)
+
+    for index, component in enumerate("xyz"):
+        np.testing.assert_allclose(
+            solver.ieps.to_matrix(component), expected_ieps[index]
+        )
+        np.testing.assert_allclose(solver.imu.to_matrix(component), expected_imu[index])
+        np.testing.assert_allclose(
+            solver.sigma.to_matrix(component), expected_sigma[index]
+        )
+    solver.one_step()
+    assert solver.E.coordinates is grid.primal_coords
+    assert solver.H.coordinates is grid.dual_coords
+
+    path = str(tmp_path / "grid.h5")
+    grid.save_to_h5(path)
+    loaded = GridFIT3D(load_from_h5=path, verbose=0)
+    for key in solids:
+        assert loaded.dual_masks[key].coordinates is loaded.dual_coords
+        np.testing.assert_array_equal(
+            loaded.dual_masks[key].array, grid.dual_masks[key].array
+        )
+        assert loaded.primal_masks[key].coordinates is loaded.primal_coords
+        np.testing.assert_array_equal(
+            loaded.primal_masks[key].array, grid.primal_masks[key].array
+        )
+
+
+class TestVoxelize:
+    def test_pipe(self, pipe_surface, tmp_path):
+        """Electric samples match translated analytical pipe walls and material values."""
+        shape, surface, path = pipe_surface
         grid = GridFIT3D(
-            xmin,
-            xmax,
-            ymin,
-            ymax,
-            zmin,  # Global domain zmin
-            zmax,  # Global domain zmax
-            Nx,
-            Ny,
-            Nz,  # Global domain Nz
-            stl_solids=stl_solids,
-            stl_materials=stl_materials,
+            xmin=-0.055,
+            xmax=0.065,
+            ymin=-0.06,
+            ymax=0.05,
+            zmin=-0.02,
+            zmax=0.03,
+            Nx=25,
+            Ny=23,
+            Nz=7,
+            stl_solids={"pipe": str(path)},
+            stl_materials={"pipe": [2.0, 1.0, 0.1]},
             stl_method="voxelize_rectilinear",
-            subpixel_smoothing=False,
-            stl_scale=1.0,
-            stl_rotate=[0, 0, 0],
-            stl_translate=[0, 0, 0],
-            verbose=1,
+            verbose=0,
+        )
+        solver = SolverFIT3D(
+            grid,
+            use_stl=True,
+            bc_low=["pmc"] * 3,
+            bc_high=["pmc"] * 3,
+            verbose=0,
+        )
+        for component in "xyz":
+            x, y, z = np.meshgrid(*grid.primal_coords[component], indexing="ij")
+            distance = (
+                np.maximum(abs(x - 0.007), abs(y + 0.004))
+                if shape == "square"
+                else np.hypot(x - 0.007, y + 0.004)
+            )
+            expected = (distance >= 0.023) & (distance <= 0.04)
+            physical = tuple(slice(0, n) for n in expected.shape)
+            actual = grid.primal_masks["pipe"].to_matrix(component)[physical]
+            # Polygonal STL walls differ from a circle by at most the sagitta.
+            margin = 0.04 * (1 - np.cos(np.pi / 256)) + 1e-8
+            away = (abs(distance - 0.023) > margin) & (abs(distance - 0.04) > margin)
+            np.testing.assert_array_equal(actual[away], expected[away])
+            expected[~away] = actual[~away]
+            np.testing.assert_allclose(
+                solver.ieps.to_matrix(component)[physical] * epsilon_0,
+                np.where(expected, 0.5, 1.0),
+            )
+            np.testing.assert_allclose(
+                solver.sigma.to_matrix(component)[physical], 0.1 * expected, atol=0
+            )
+            np.testing.assert_allclose(solver.imu.to_matrix(component) * mu_0, 1.0)
+
+        for scale, offset in ((1.0, (0.2, -0.3, 0.4)), (0.01, (0.0, 0.0, 0.0))):
+            transformed_path = tmp_path / "transformed.stl"
+            surface.scale(scale).translate(offset).save(transformed_path)
+            coordinates = {
+                axis: scale * getattr(grid, axis) + shift
+                for axis, shift in zip("xyz", offset)
+            }
+            transformed = GridFIT3D(
+                **coordinates,
+                stl_solids={"pipe": str(transformed_path)},
+                stl_materials={"pipe": [2.0, 1.0, 0.1]},
+                stl_method="voxelize_rectilinear",
+                verbose=0,
+            )
+            np.testing.assert_array_equal(
+                transformed.primal_masks["pipe"].array,
+                grid.primal_masks["pipe"].array,
+            )
+
+
+@pytest.fixture(params=["square", "circular"])
+def pipe_surface(request, tmp_path):
+    """Closed notebook pipe shells, with end caps outside the physical domain."""
+    shape = request.param
+    segments = 4 if shape == "square" else 256
+    if shape == "square":
+        ring = np.array([[-1, -1], [1, -1], [1, 1], [-1, 1]])
+    else:
+        angle = np.linspace(0, 2 * np.pi, segments, endpoint=False)
+        ring = np.column_stack((np.cos(angle), np.sin(angle)))
+    points = []
+    for z in (-0.05, 0.06):
+        for radius in (0.023, 0.04):
+            xy = np.array([0.007, -0.004]) + radius * ring
+            points.extend(np.column_stack((xy, np.full(segments, z))))
+    faces = []
+    for i in range(segments):
+        j = (i + 1) % segments
+        for quad in (
+            (i, j, segments + j, segments + i),
+            (2 * segments + i, 3 * segments + i, 3 * segments + j, 2 * segments + j),
+            (i, 2 * segments + i, 2 * segments + j, j),
+            (segments + i, segments + j, 3 * segments + j, 3 * segments + i),
+        ):
+            faces.extend((4, *quad))
+    surface = pv.PolyData(np.asarray(points), faces).triangulate().clean()
+    surface = surface.compute_normals(auto_orient_normals=True, consistent_normals=True)
+    path = tmp_path / f"{shape}_pipe.stl"
+    surface.save(path)
+    return shape, surface, path
+
+
+@pytest.mark.parametrize("xmin", [0.7, 0.99])
+def test_voxel_terminal_material(tmp_path, xmin):
+    """Boundary node samples resolve material even beyond the final edge midpoint."""
+    path = tmp_path / "boundary.stl"
+    pv.Box(bounds=(xmin, 1.01, -1, 2, -1, 2)).triangulate().save(path)
+    grid = GridFIT3D(
+        xmin=0,
+        xmax=1,
+        ymin=0,
+        ymax=1,
+        zmin=0,
+        zmax=1,
+        Nx=5,
+        Ny=4,
+        Nz=2,
+        stl_solids={"solid": str(path)},
+        stl_materials={"solid": [2.0, 1.0, 0.1]},
+        stl_method="voxelize_rectilinear",
+        verbose=0,
+    )
+    solver = SolverFIT3D(
+        grid, use_stl=True, bc_low=["pmc"] * 3, bc_high=["pmc"] * 3, verbose=0
+    )
+    for component in "xyz":
+        x, y, z = np.meshgrid(*grid.primal_coords[component], indexing="ij")
+        expected = x > xmin
+        physical = tuple(slice(0, n) for n in expected.shape)
+        np.testing.assert_array_equal(
+            grid.primal_masks["solid"].to_matrix(component)[physical], expected
+        )
+        np.testing.assert_allclose(
+            solver.ieps.to_matrix(component)[physical] * epsilon_0,
+            np.where(expected, 0.5, 1.0),
         )
 
-        # number of cells in the mask
-        n_inside = grid.grid.threshold(scalars="shell", value=0.5).n_cells
-        n_inside_expected = 61258
-        assert n_inside == n_inside_expected, (
-            f"Number of cells masked inside the shell is {n_inside}, expected {n_inside_expected}"
+
+# To be removed after v0.9.0
+@pytest.mark.parametrize("method", ["implicit_distance", "interior_points"])
+def test_unsupported_stl_method(tmp_path, method):
+    """Removed classification methods fail explicitly rather than producing scalar masks."""
+    path = tmp_path / "solid.stl"
+    pv.Cube().triangulate().save(path)
+    with pytest.raises(NotImplementedError):
+        GridFIT3D(
+            x=[-1.0, 0.0, 1.0],
+            y=[-1.0, 0.0, 1.0],
+            z=[-1.0, 0.0, 1.0],
+            stl_solids={"solid": str(path)},
+            stl_materials={"solid": "vacuum"},
+            stl_method=method,
+            verbose=0,
         )
 
-        # volume
-        vol = n_inside * np.min(grid.dx) * np.min(grid.dy) * np.min(grid.dz)
-        vol_expected = 0.02629232100267493
-        assert np.allclose(vol, vol_expected, rtol=1e-5), (
-            f"Volume of the shell mask is {vol}, expected {vol_expected}"
-        )
 
-    def test_subpixel_smoothing(self):
-        """
-        Tests 'voxelize_rectilinear' and subpixel smoothing using the
-        exact cavity and shell gridLogs configuration.
-        """
+@pytest.mark.parametrize("method", ["legacy", "voxelize_rectilinear"])
+def test_mirrored_beam_wakes(tmp_path, monkeypatch, method):
+    """A symmetric PEC pipe/cavity gives opposite on-axis kicks for mirrored beams.
 
-        # Geometry & Materials
-        solid_1 = "tests/stl/007_vacuum_cavity.stl"  # logs["stl_solids"]["cavity"]
-        solid_2 = "tests/stl/007_lossymetal_shell.stl"  # logs["stl_solids"]["shell"]
+    The step excites a nonzero wake. Both runs include TF/SF injection, CPML,
+    saved longitudinal edges, and Panofsky-Wenzel transverse integration.
+    """
+    from wakis import WakeSolver
 
-        stl_solids = {"cavity": solid_1, "shell": solid_2}
-
-        stl_materials = {
-            "cavity": "vacuum",
-            "shell": [30, 1.0, 30],  # [eps_r, mu_r, sigma[S/m]]
-        }
-
-        # Extract domain bounds from geometry
-        solids = pv.read(solid_1) + pv.read(solid_2)
-        xmin, xmax, ymin, ymax, zmin, zmax = solids.bounds
-
-        # Number of mesh cells
-        Nx = 60  # logs["Nx"]
-        Ny = 60  # logs["Ny"]
-        Nz = 140  # logs["Nz"]
-
-        global grid
-        grid = GridFIT3D(
-            xmin,
-            xmax,
-            ymin,
-            ymax,
-            zmin,  # Global domain zmin
-            zmax,  # Global domain zmax
-            Nx,
-            Ny,
-            Nz,  # Global domain Nz
-            stl_solids=stl_solids,
-            stl_materials=stl_materials,
-            stl_method="voxelize_rectilinear",
-            subpixel_smoothing=True,
-            subpixel_smoothing_factor=4,
-            subpixel_smoothing_bool=True,
-            subpixel_smoothing_threshold=0.3,
-            stl_scale=1.0,
-            stl_rotate=[0, 0, 0],
-            stl_translate=[0, 0, 0],
-            verbose=1,
-        )
-
-        # number of cells in the mask
-        n_inside = grid.grid.threshold(scalars="shell", value=0.5).n_cells
-        n_inside_expected = 89256
-        assert n_inside == n_inside_expected, (
-            f"Number of cells masked inside the shell is {n_inside}, expected {n_inside_expected}"
-        )
-
-        # volume
-        vol = n_inside * np.min(grid.dx) * np.min(grid.dy) * np.min(grid.dz)
-        vol_expected = 0.038309239665264186
-        assert np.allclose(vol, vol_expected, rtol=1e-5), (
-            f"Volume of the shell mask is {vol}, expected {vol_expected}"
-        )
-
-    def test_long_wake_potential_and_impedance(self, use_gpu, plot_comparison):
-        global grid
-        # ------------ Beam source ----------------
-        # Beam parameters
-        sigmaz = 10e-2  # [m] -> 2 GHz
-        q = 1e-9  # [C]
-        beta = 1.0  # beam beta
-        xs = 0.0  # x source position [m]
-        ys = 0.0  # y source position [m]
-        xt = 0.0  # x test position [m]
-        yt = 0.0  # y test position [m]
-        # [DEFAULT] tinj = 8.53*sigmaz/c_light  # injection time offset [s]
-
-        # ----------- Wake Solver  setup  ----------
-        # Wakefield post-processor
-        wakelength = 10.0  # [m] -> Partially decayed
-        skip_cells = 20  # no. cells to skip at zlo/zhi for wake integration
-        results_folder = "tests/013_results/"
-
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / "vacuum.stl"
+    # Build a closed stepped square pipe directly, avoiding boolean-surface
+    # intersection artifacts in the legacy point classifier.
+    ring = np.array([[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]])
+    sections = [
+        (-0.16, 0.0415),
+        (-0.05, 0.0415),
+        (-0.05, 0.078),
+        (0.05, 0.078),
+        (0.05, 0.0415),
+        (0.16, 0.0415),
+    ]
+    points = np.vstack(
+        [np.column_stack((radius * ring, np.full(4, z))) for z, radius in sections]
+    )
+    faces = [[4, 3, 2, 1, 0]]
+    for section in range(len(sections) - 1):
+        for i in range(4):
+            j = (i + 1) % 4
+            faces.append(
+                [
+                    4,
+                    4 * section + i,
+                    4 * section + j,
+                    4 * (section + 1) + j,
+                    4 * (section + 1) + i,
+                ]
+            )
+    faces.append([4, 20, 21, 22, 23])
+    surface = pv.PolyData(points, np.array(faces).ravel()).triangulate()
+    surface.compute_normals(auto_orient_normals=True, consistent_normals=True).save(
+        path
+    )
+    grid = GridFIT3D(
+        xmin=-0.09,
+        xmax=0.09,
+        ymin=-0.09,
+        ymax=0.09,
+        zmin=-0.15,
+        zmax=0.15,
+        Nx=21,
+        Ny=21,
+        Nz=41,
+        stl_solids={"vacuum": str(path)},
+        stl_materials={"vacuum": "vacuum"},
+        stl_method=method,
+        verbose=0,
+    )
+    results = []
+    for index, offset in enumerate((0.009, -0.009)):
         wake = WakeSolver(
-            q=q,
-            sigmaz=sigmaz,
-            beta=beta,
-            xsource=xs,
-            ysource=ys,
-            xtest=xt,
-            ytest=yt,
-            skip_cells=skip_cells,
-            results_folder=results_folder,
-            Ez_file=results_folder + "Ez.h5",
+            xsource=offset,
+            xtest=0.0,
+            ysource=0.0,
+            ytest=0.0,
+            sigmaz=0.015,
+            skip_cells=7,
+            save=False,
+            verbose=0,
+            results_folder=str(tmp_path / f"run{index}"),
+            Ez_file=str(tmp_path / f"Ez{index}.h5"),
         )
-
-        # ----------- Solver & Simulation ----------
-        # boundary conditions
-        bc_low = ["pec", "pec", "pec"]
-        bc_high = ["pec", "pec", "pec"]
-
-        # Solver setup
         solver = SolverFIT3D(
             grid,
             wake,
-            bc_low=bc_low,
-            bc_high=bc_high,
             use_stl=True,
-            bg="pec",  # Background material
-            dtype=self.dtype,
-            use_gpu=use_gpu,
+            bg="pec",
+            bc_low=["pec", "pec", "cpml"],
+            bc_high=["pec", "pec", "cpml"],
+            n_pml=4,
+            verbose=0,
         )
-
-        # Run simulation
-        solver.wakesolve(wakelength=wakelength)
-
-        # print(wake.WP[::50])
-        np.cumsum(np.abs(wake.WP))[-1]
-        assert len(wake.WP) == 5195, "Wake potential mesh samples length mismatch"
-        plot_comparison(wake.WP[::50], self.WP, "Wake potential")
-        assert np.allclose(wake.WP[::50], self.WP, **self.tol), (
-            "Wake potential mesh samples failed"
+        assert solver.E_trans.coordinates is grid.primal_coords
+        assert solver.H_trans.coordinates is grid.dual_coords
+        solver.wakesolve(wakelength=0.08)
+        results.append(
+            (wake.WP.copy(), wake.WPx.copy(), solver.E.to_matrix("z").copy())
         )
-        assert np.cumsum(np.abs(wake.WP))[-1] == pytest.approx(
-            179.95393780891274, 0.1
-        ), "Wake potential cumsum mesh failed"
-
-        assert len(wake.Z) == 998, "Impedance samples length mismatch"
-        plot_comparison(np.abs(wake.Z)[::20], np.abs(self.Z), "Impedance magnitude")
-        assert np.allclose(np.abs(wake.Z)[::20], np.abs(self.Z), **self.tol), (
-            "Abs Impedance samples mesh failed"
-        )
-        plot_comparison(np.real(wake.Z)[::20], np.real(self.Z), "Impedance real part")
-        assert np.allclose(np.real(wake.Z)[::20], np.real(self.Z), **self.tol), (
-            "Real Impedance samples mesh failed"
-        )
-        plot_comparison(
-            np.imag(wake.Z)[::20], np.imag(self.Z), "Impedance imaginary part"
-        )
-        assert np.allclose(np.imag(wake.Z)[::20], np.imag(self.Z), **self.tol), (
-            "Imag Impedance samples mesh failed"
-        )
-        assert np.cumsum(np.abs(wake.Z))[-1] == pytest.approx(
-            249395.46953432143, 0.1
-        ), "Abs Impedance cumsum mesh failed"
+    plus, minus = results
+    assert np.max(abs(plus[1])) > 1e-10
+    for left, right in (
+        (plus[0], minus[0]),
+        (plus[1], -minus[1]),
+        (plus[2], minus[2][::-1, :, :]),
+    ):
+        scale = max(np.max(abs(left)), np.max(abs(right)))
+        np.testing.assert_allclose(left, right, rtol=0, atol=5e-11 * scale)

@@ -18,72 +18,128 @@ from wakis.sources import Beam
 # mpiexec -n 2 python -m pytest --color=yes -v -s tests/test_007_mpi_lossy_cavity.py
 
 
+def test_mpi_single_rank():
+    """Reject MPI decomposition without multiple ranks; serial remains valid."""
+    MPI = pytest.importorskip("mpi4py.MPI")
+    if MPI.COMM_WORLD.Get_size() != 1:
+        pytest.skip("run with one MPI rank")
+
+    bounds = (0, 1, 0, 1, 0, 1, 4, 4, 6)
+    with pytest.raises(ValueError):
+        GridFIT3D(*bounds, use_mpi=True, verbose=0)
+    grid = GridFIT3D(*bounds, use_mpi=False, verbose=0)
+    solver = SolverFIT3D(grid, verbose=0)
+    solver.one_step()
+    assert np.isfinite(solver.E.toarray()).all()
+
+
+def test_mpi_rounds_uneven_node_count():
+    """Round up the global node count while preserving the domain bounds."""
+    MPI = pytest.importorskip("mpi4py.MPI")
+    size = MPI.COMM_WORLD.Get_size()
+    if size < 2:
+        pytest.skip("run with multiple MPI ranks")
+
+    grid = GridFIT3D(0, 1, 0, 1, 0, 1, 4, 4, 2 * size + 1, use_mpi=True, verbose=0)
+    assert grid.NZ == 3 * size
+    np.testing.assert_allclose(grid.Z, np.linspace(0, 1, 3 * size))
+    assert grid.logger.grid["Nz"] == grid.NZ
+    np.testing.assert_allclose(grid.logger.grid["dz"], np.diff(grid.Z))
+
+
+def test_mpi_custom_axes():
+    """MPI partitions supplied nonuniform nodes without changing their positions."""
+    MPI = pytest.importorskip("mpi4py.MPI")
+    rank = MPI.COMM_WORLD.Get_rank()
+    size = MPI.COMM_WORLD.Get_size()
+    if size < 2:
+        pytest.skip("run with multiple MPI ranks")
+
+    x = np.array([0.0, 0.2, 1.0])
+    y = np.array([0.0, 0.3, 1.0])
+    z = np.linspace(0.0, 1.0, 3 * size) ** 2
+    grid = GridFIT3D(x=x, y=y, z=z, use_mpi=True, verbose=0)
+    start = 3 * rank - (rank > 0)
+    stop = 3 * (rank + 1) + (rank < size - 1)
+    np.testing.assert_array_equal(grid.Z, z)
+    np.testing.assert_array_equal(grid.z, z[start:stop])
+    np.testing.assert_allclose(grid.dz, np.diff(grid.z))
+    solver = SolverFIT3D(
+        grid, use_mpi=True, bc_low=["pec"] * 3, bc_high=["pec"] * 3, verbose=0
+    )
+    solver.one_step()
+    assert np.isfinite(solver.E.toarray()).all()
+    gathered = grid.mpi_gather_asGrid()
+    if rank == 0:
+        np.testing.assert_array_equal(gathered.x, x)
+        np.testing.assert_array_equal(gathered.y, y)
+        np.testing.assert_array_equal(gathered.z, z)
+
+    with pytest.raises(ValueError, match="Custom z"):
+        GridFIT3D(x=x, y=y, z=z[:-1], use_mpi=True, verbose=0)
+
+
 @pytest.mark.slow
 class TestMPILossyCavity:
-    # Regression data
+    # Float32 regression samples with staggered primal/dual material masks.
     # fmt: off
     tol = dict(rtol=50e-3, atol=50e-3)
     dtype = np.float32
 
-    WP = np.array([-1.20513623e-18 ,-3.43161145e-14 ,-9.12255548e-11 ,-5.96997512e-08,
-                    -1.14173019e-05 ,-6.67499094e-04 ,-1.20239747e-02 ,-6.53062215e-02,
-                    -9.26520639e-02 , 2.78321623e-02  ,1.25518516e-01 , 7.30670041e-02,
-                    -1.90239810e-02 ,-4.85596408e-02 ,-3.20357619e-02 ,-1.41604640e-02,
-                    6.08356174e-02 , 8.46570691e-02 ,-5.47181776e-02 ,-1.16180823e-01,
-                    1.96111216e-02 , 9.92679050e-02 , 2.71878152e-02 ,-5.20035156e-02,
-                    -4.06137472e-02 ,-1.13185667e-02 , 1.23530805e-02 , 7.68524041e-02,
-                    2.25859758e-02 ,-9.37436643e-02 ,-5.75287185e-02 , 6.39890431e-02,
-                    8.01280003e-02 ,-2.25671230e-02 ,-5.80154107e-02 ,-1.67525750e-02,
-                    1.87720028e-03 , 4.10247646e-02  ,5.36731566e-02 ,-3.30682943e-02,
-                    -8.35234400e-02 ,-3.49965114e-03 , 8.57976513e-02 , 3.52580927e-02,
-                    -5.59291793e-02 ,-3.74168173e-02 ,-1.57790071e-03 , 2.16477574e-02,
-                    4.65687493e-02 , 1.13356268e-02 ,-5.61946649e-02 ,-5.45040228e-02,
-                    4.41993189e-02  ,7.38920452e-02 ,-1.60854441e-02 ,-5.54896162e-02,
-                    -1.77145556e-02 , 1.61884877e-02 , 3.33170207e-02 , 2.63165394e-02,
-                    -1.83733826e-02 ,-5.94726314e-02 ,-1.15493543e-02 , 6.90379083e-02,
-                    3.30361171e-02 ,-4.32087737e-02 ,-4.14862834e-02 , 2.95742481e-03,
-                    3.11653273e-02 , 2.43513549e-02 , 5.17266702e-03 ,-3.70591561e-02,
-                    -4.24818163e-02 , 3.09681557e-02 , 5.76902933e-02 ,-4.78519848e-03,
-                    -5.02625318e-02 ,-2.09821868e-02 , 2.46893459e-02 , 2.77009485e-02,
-                    1.12395692e-02 ,-1.34117335e-02 ,-4.22375110e-02 ,-8.34037808e-03,
-                    4.81709861e-02 , 3.05819110e-02 ,-2.98222467e-02 ,-4.38079436e-02,
-                    6.51694708e-03 , 3.11637911e-02 , 1.61475003e-02 ,-1.03231050e-03,
-                    -2.84581274e-02 ,-2.64695160e-02  ,1.92431962e-02 , 4.34036616e-02,
-                    3.00897180e-03 ,-4.36364833e-02 ,-2.09601909e-02 , 2.48741294e-02,
-                    2.47321674e-02  ,5.34334063e-03 ,-1.56819510e-02 ,-2.75503078e-02])
+    WP = np.array([-0.0004026 ,  0.00027794, -0.00017184, -0.00083057, -0.00060233,
+     -0.00145604, -0.01312497, -0.06482247, -0.08244733,  0.03434283,
+      0.11589965,  0.06046678, -0.02340266, -0.04483478, -0.0297972 ,
+     -0.01310285,  0.06405763,  0.07658612, -0.06082742, -0.10690969,
+      0.02484745,  0.09268114,  0.02197733, -0.04916016, -0.03665001,
+     -0.01345519,  0.0113517 ,  0.07605018,  0.02040046, -0.09004878,
+     -0.05537993,  0.05982754,  0.07664514, -0.02084891, -0.05213315,
+     -0.01789111, -0.00318974,  0.03947597,  0.05411599, -0.02681416,
+     -0.08207606, -0.01017831,  0.08111501,  0.03780685, -0.04817523,
+     -0.03671768, -0.00688199,  0.01609029,  0.0459357 ,  0.01897085,
+     -0.049344  , -0.06072381,  0.03355563,  0.07457674, -0.00643386,
+     -0.04964995, -0.02373695,  0.00927688,  0.02940441,  0.03117144,
+     -0.00641678, -0.05952122, -0.0243881 ,  0.06029855,  0.04316816,
+     -0.03164741, -0.04345649, -0.00621395,  0.02451872,  0.02579245,
+      0.0155434 , -0.02799833, -0.05146875,  0.01567277,  0.05784659,
+      0.01247266, -0.04403659, -0.03072473,  0.01552933,  0.02451961,
+      0.01926392, -0.00216515, -0.04040078, -0.02445187,  0.03708677,
+      0.04275544, -0.01373566, -0.04615982, -0.00792156,  0.02514695,
+      0.01954769,  0.01036258, -0.02036232, -0.03392315,  0.00138416,
+      0.0423807 ,  0.02285074, -0.03508729, -0.03199817,  0.01089761,
+      0.02483087,  0.01474126, -0.00520535])
 
-    Z = np.array([ 1.39494420e+01   -0.j,   -1.92596139e+00  +12.14277743j,
-                    -2.04348603e+00   +3.02851583j,  1.22695563e+01  +15.8399473j,
-                    -6.50605645e-01  +29.9225005j,  -1.65424766e+00  +18.94989745j,
-                    1.37576308e+01  +31.01645375j,  2.65950658e-01  +46.55181503j,
-                    -1.97534475e+00  +34.40198795j,  1.53779924e+01  +46.52226957j,
-                    8.60779742e-01  +64.60337834j, -2.81193463e+00  +50.74670707j,
-                    1.77811468e+01  +63.57088258j,  1.52087428e+00  +85.82446456j,
-                    -4.10843816e+00  +69.38387661j,  2.18343119e+01  +83.88119354j,
-                    2.59651772e+00 +113.28087363j, -6.14559798e+00  +92.80429367j,
-                    2.91887955e+01 +110.85988556j,  4.60993585e+00 +153.89071454j,
-                    -9.94451904e+00 +126.83885701j,  4.45478983e+01 +153.43414465j,
-                    9.47258576e+00 +229.06989569j, -1.89013483e+01 +192.00422647j,
-                    9.15962914e+01 +249.432772j,    3.91409984e+01 +465.98109678j,
-                    -3.54400946e+01 +488.20015838j,  1.46569804e+03 +892.95179609j,
-                    4.50786904e+02-1081.60659854j,  1.48737786e+02 -160.81052458j,
-                    -7.68871185e+01 -106.30116174j,  4.12323110e+01 -125.48455177j,
-                    5.87559863e+01  +53.38395571j, -4.24625985e+01  +54.36630224j,
-                    3.99792315e+01  +33.96133138j,  4.96479510e+01 +169.90128475j,
-                    -2.68588737e+01 +170.13079256j,  8.04887980e+01 +193.09475383j,
-                    9.01859274e+01 +426.74907513j,  7.31057816e+01 +541.50361688j,
-                    1.40645468e+03 +756.68000225j,  7.28899882e+02-1078.53088928j,
-                    1.17812854e+02 -322.42673477j, -4.35713455e+01 -287.17594956j,
-                    7.52009772e+01 -210.85748915j,  2.00727569e+01  -50.34061675j,
-                    -4.02209245e+01  -97.78101888j,  5.93485923e+01  -70.71854011j,
-                    1.83947873e+01  +43.94667805j, -3.23582668e+01  -20.89422029j])
+    Z = np.array([-7.81316997e-02   +0.j        ,  5.77177494e+00   +1.4456561j ,
+      5.35918067e+00  +14.32032345j, -2.19945201e-01  +15.16648261j,
+      7.21532960e+00  +17.50698155j,  6.04980534e+00  +30.26047293j,
+      3.31877512e-01  +29.7281581j ,  8.90811767e+00  +32.62381384j,
+      6.47638630e+00  +46.62882817j,  2.07196058e-01  +44.69452311j,
+      1.08137384e+01  +48.48289569j,  6.86360253e+00  +65.00981475j,
+     -4.63607316e-01  +61.25165745j,  1.35790904e+01  +66.36428379j,
+      7.54443455e+00  +87.46051302j, -1.77410806e+00  +81.07439661j,
+      1.82534700e+01  +88.38539687j,  8.95862601e+00 +118.12575627j,
+     -4.31534681e+00 +107.63944694j,  2.72663637e+01 +119.29915117j,
+      1.21853713e+01 +167.87795672j, -1.01299235e+01 +150.78138288j,
+      4.93826701e+01 +174.25483185j,  2.32288868e+01 +280.34773601j,
+     -2.75941894e+01 +260.35297488j,  1.63687558e+02 +356.34345449j,
+      3.07198584e+02+1081.73879113j,  1.50449095e+03 -561.43709168j,
+     -1.25219735e+02 -341.21573769j,  5.38619420e+01 -293.30308203j,
+      9.29978913e+01   -9.11321819j, -6.23689510e+01  +15.56624391j,
+      2.70281128e+01  -44.01937901j,  7.05373022e+01 +112.19018717j,
+     -4.72035345e+01 +127.81977387j,  3.82715208e+01  +75.39653407j,
+      9.26017211e+01 +257.0175632j , -3.81362572e+01 +316.81903673j,
+      1.46902327e+02 +327.00273439j,  7.78474585e+02+1062.04612813j,
+      1.24693472e+03 -828.19968183j,  2.42309055e+01 -435.50663272j,
+      4.40323447e+01 -335.6337068j ,  5.36818928e+01 -143.92638763j,
+     -2.00188428e+01 -108.31369966j,  2.71419237e+01  -99.28786838j,
+      2.24063407e+01  -14.30601427j, -1.29589382e+01  -19.49291477j,
+      4.02307983e+01  -18.22168932j,  1.92175597e+01  +54.63369431j])
 
-    Ez = np.array([ 173.0133,     -16.503159,    -7.379827,    -7.106013,   -10.790575,
-                    -2.9021797,   -9.144537,   -23.47881,    -46.128967,   -71.88119,
-                    -88.91851,   -106.84356,   -117.83744,   -136.86569,   -144.82545,
-                    -146.83551,   -142.0079,    -137.68463,   -117.18314,    -92.1836,
-                    -58.804626,   -31.48718,     -6.6670427,   -5.2338524,   -3.8040538,
-                    -4.508667,    -1.3254653,    3.6782658])
+    Ez = np.array([  18.061344 ,   -9.153261 ,  -11.58048  ,   -8.437785 ,   -6.873616 ,
+      -10.673922 ,  -31.06836  ,  -67.36018  , -111.72592  , -153.16042  ,
+     -184.0861   , -204.05917  , -214.5473   , -216.9742   , -213.10362  ,
+     -202.92325  , -187.07582  , -166.50366  , -140.19456  , -107.53213  ,
+      -70.57386  ,  -36.18224  ,  -13.983852 ,   -4.422415 ,   -1.6875826,
+       -1.0345211,   -1.159411 ,   -1.5268996])
 
     # fmt: on
 
@@ -92,9 +148,9 @@ class TestMPILossyCavity:
         "Nx": 60,
         "Ny": 60,
         "Nz": 140,
-        "dx": 0.00866666634877522,
-        "dy": 0.00866666634877522,
-        "dz": 0.005714285799435207,
+        "dx": 0.008813558998754467,
+        "dy": 0.008813558998754467,
+        "dz": 0.005755395769215315,
         "xmin": -0.25999999046325684,
         "xmax": 0.25999999046325684,
         "ymin": -0.25999999046325684,
@@ -116,7 +172,7 @@ class TestMPILossyCavity:
         "background": "pec",
         "bc_low": ["pec", "pec", "pec"],
         "bc_high": ["pec", "pec", "pec"],
-        "dt": dtype(6.970326659611059e-12),
+        "dt": dtype(7.051852157768934e-12),
         "solverInitializationTime": 0,
     }
 
@@ -240,6 +296,11 @@ class TestMPILossyCavity:
             if not os.path.exists(self.img_folder):
                 os.mkdir(self.img_folder)
 
+        # Late-time float32 ringing varies between numerical backends. Scale
+        # the absolute floor to the pulse peak, while checking its main shape
+        # more tightly than the general wake/impedance regression tolerance.
+        field_tol = dict(rtol=5e-3, atol=5e-3 * np.max(np.abs(self.Ez)))
+
         # -------------- Custom time loop  -----------------
         if use_mpi:
             Nt = 3000
@@ -253,7 +314,7 @@ class TestMPILossyCavity:
                 # print(len(Ez))
                 assert len(Ez) == NZ, "Electric field Ez samples length mismatch"
                 plot_comparison(Ez[::5], self.Ez, "Electric field Ez (MPI)")
-                assert np.allclose(Ez[np.s_[::5]], self.Ez, **self.tol), (
+                assert np.allclose(Ez[np.s_[::5]], self.Ez, **field_tol), (
                     "Electric field Ez samples MPI failed"
                 )
         else:
@@ -268,7 +329,7 @@ class TestMPILossyCavity:
                 "Electric field Ez samples length mismatch"
             )
             plot_comparison(Ez, self.Ez, "Electric field Ez")
-            assert np.allclose(Ez, self.Ez, **self.tol), (
+            assert np.allclose(Ez, self.Ez, **field_tol), (
                 "Electric field Ez samples failed"
             )
 
@@ -400,7 +461,7 @@ class TestMPILossyCavity:
             if solver.rank == 0:
                 # MPI wake samples near zero carry small interface noise.
                 tol = dict(rtol=0.1, atol=5e-3)
-                assert len(wake.WP) == 5195, (
+                assert len(wake.WP) == 5135, (
                     "Wake potential MPI samples length mismatch"
                 )
                 plot_comparison(wake.WP[::50], self.WP, "Wake potential (MPI)")
@@ -408,16 +469,16 @@ class TestMPILossyCavity:
                     "Wake potential MPI samples failed"
                 )
                 assert np.cumsum(np.abs(wake.WP))[-1] == pytest.approx(
-                    184.43818552913254, 0.1
+                    175.68955492337625, 0.1
                 ), "Wake potential cumsum MPI failed"
         else:
-            assert len(wake.WP) == 5195, "Wake potential samples length mismatch"
+            assert len(wake.WP) == 5135, "Wake potential samples length mismatch"
             plot_comparison(wake.WP[::50], self.WP, "Wake potential")
             assert np.allclose(wake.WP[::50], self.WP, **self.tol), (
                 "Wake potential samples failed"
             )
             assert np.cumsum(np.abs(wake.WP))[-1] == pytest.approx(
-                184.43818552913254, 0.1
+                175.68955492337625, 0.1
             ), "Wake potential cumsum MPI failed"
 
     def test_long_impedance(self, plot_comparison):
@@ -426,7 +487,7 @@ class TestMPILossyCavity:
         if use_mpi:
             if solver.rank == 0:
                 tol = dict(rtol=0.1)
-                assert len(wake.Z) == 998, "Impedance samples length mismatch"
+                assert len(wake.Z) == 995, "Impedance samples length mismatch"
                 plot_comparison(
                     np.abs(wake.Z)[::20], np.abs(self.Z), "Impedance magnitude (MPI)"
                 )
@@ -448,11 +509,11 @@ class TestMPILossyCavity:
                     "Imag Impedance samples MPI failed"
                 )
                 assert np.cumsum(np.abs(wake.Z))[-1] == pytest.approx(
-                    250910.51090497518, 0.1
+                    230801.9220738263, 0.1
                 ), "Abs Impedance cumsum MPI failed"
         else:
             # print(wake.Z[::20])
-            assert len(wake.Z) == 998, "Impedance samples length mismatch"
+            assert len(wake.Z) == 995, "Impedance samples length mismatch"
             plot_comparison(np.abs(wake.Z)[::20], np.abs(self.Z), "Impedance magnitude")
             assert np.allclose(np.abs(wake.Z)[::20], np.abs(self.Z), **self.tol), (
                 "Abs Impedance samples failed"
@@ -470,7 +531,7 @@ class TestMPILossyCavity:
                 "Imag Impedance samples failed"
             )
             assert np.cumsum(np.abs(wake.Z))[-1] == pytest.approx(
-                250910.51090497518, 0.1
+                230801.9220738263, 0.1
             ), "Abs Impedance cumsum failed"
 
     def test_log_file(self, use_gpu):

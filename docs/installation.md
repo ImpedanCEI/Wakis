@@ -65,7 +65,7 @@ To contribute, first fork the repository, create a new branch, and submit a pull
 
 ## Dependencies
 
-`wakis` is a 100% pyhton code that relies only on a few renowed python packages:
+`wakis` is Python code that relies on a few established packages:
 
 * `numpy`: Used for numerical operations, especially for matrix operations.
 * `scipy`: Provides additional functionality for sparse matrices and other scientific computations.
@@ -77,15 +77,11 @@ To contribute, first fork the repository, create a new branch, and submit a pull
 Extra dependencies include:
 * `cupy` and `cupyx`: to operate arrays and matrices on GPU
 * `mkl`, `mkl-service`, `sparse_dot_mkl`: to enable multithreaded calculations
-* `mpi4py` and `ipyparallel`: to enable multi-processign across different cores
+* `mpi4py`: to enable MPI domain decomposition across processes
 * `bihc`: satellite package to compute beam-induced heating due to impedance: https://github.com/ImpedanCEI/BIHC
-* `iddefix`: satellite package to extrapolate partially decayed simulations and using the resonator formalism. It provides a useful representation of the fully decayed impedance as a list of resonators described via ${Rs,\ Q, \ fres}$
+* `iddefix`: satellite package to extrapolate partially decayed simulations using the resonator formalism. It represents the fully decayed impedance with resonators described by $R_s$, $Q$, and $f_{\mathrm{res}}$.
 
-All the dependencies are A frozen environment with version-pinning is provided for Python 3.9-3.11 via `requirements.txt`:
-
-```
-pip install -r requirements.txt
-```
+The core dependencies are installed by `pip install wakis`. Optional dependencies are available through `pip install wakis['all']`, or can be installed individually for GPU and MPI use.
 
 ## Python installation
 

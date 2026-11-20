@@ -11,6 +11,7 @@ import time
 import h5py
 import numpy as np
 from scipy.constants import c as c_light
+from scipy.integrate import trapezoid
 from tqdm import tqdm
 
 from .logger import Logger
@@ -114,9 +115,14 @@ class WakeSolver:
         Zy : ndarray
             Transverse impedance in y-dir Zy(f) [Ohm]
         lambdas : ndarray
-            Linear charge distribution of the passing beam λ(s) [C/m]
+            Charge-normalized bunch profile λ(s) [1/m]
         lambdaf : ndarray
-            Charge distribution spectrum λ(f) [C]
+            Fourier transform of the normalized bunch profile [dimensionless]
+        k_loss : float or None
+            Signed longitudinal bunch loss factor [V/pC]
+        kx, ky : float or None
+            Signed transverse bunch kick factors [V/pC/m]. None when the
+            corresponding source offset is zero.
         dx : float
             Ez field mesh step in transverse plane, x-dir [m]
         dy : float
@@ -202,6 +208,8 @@ class WakeSolver:
         self.Z = None
         self.Zx, self.Zy = None, None
         self.lambdaf = None
+        self.k_loss = None
+        self.kx, self.ky = None, None
 
         # user
         self.logger = Logger()
@@ -350,8 +358,15 @@ class WakeSolver:
         ----------
         t : ndarray
             Vector containing time values [s].
-        z : ndarray
-            Vector containing z-coordinates [m].
+        z : ndarray, optional
+            Full simulation-domain coordinates [m]. Their extrema define the
+            beam's flight-time reference boundaries; they are not Ez positions.
+        zf : ndarray, optional
+            Longitudinal positions of saved Ez samples [m], loaded from the HDF5
+            z dataset. Wakis output uses physical primal-edge midpoints.
+        dz : ndarray, optional
+            Primal-edge lengths [m], one per zf sample, loaded from HDF5.
+            These are integration weights, not dual-edge lengths.
         sigmaz : float
             Beam longitudinal sigma, to calculate injection time [m].
         q : float
@@ -364,6 +379,14 @@ class WakeSolver:
             HDF5 file containing the Ez(x, y, z) field data for every timestep.
         **kwargs
             Additional parameters to set as attributes.
+
+        Notes
+        -----
+        If z is absent, the field monitor must cover the full longitudinal
+        domain: its boundaries are inferred from the end midpoints and dz/2.
+        Supply z explicitly for a monitor covering only part of the domain.
+        For compatibility, if zf is absent, z is also used as the field positions.
+        skip_cells trims zf, dz, and Ez together without moving the domain origin.
         """
         for key, val in kwargs.items():
             setattr(self, key, val)
@@ -380,12 +403,23 @@ class WakeSolver:
         dt = self.t[2] - self.t[1]
         ti = self.ti
 
-        # longitudinal variables
+        # zf locates the saved Ez samples; z optionally describes the full
+        # simulation domain. Keep the legacy z-only input convention.
         if self.zf is None:
             self.zf = self.z
-        zmax = np.max(self.zf)  # should it be domain's edge instead?
-        zmin = np.min(self.zf)
 
+        # The beam's flight-time reference is the domain boundary, not the
+        # first retained field sample. Find boundaries before applying skip_cells.
+        if self.z is not None:
+            zmin = np.min(self.z)
+            zmax = np.max(self.z)
+        else:
+            # With full-domain midpoint data, recover the outer edge boundaries.
+            zmin = self.zf[0] - self._cell_widths(np.s_[0:1], 1)[0] / 2
+            zmax = self.zf[-1] + self._cell_widths(np.s_[-1:], 1)[0] / 2
+
+        # Local z contains retained field positions from zf, not domain nodes.
+        # Apply the same slice to their primal-edge integration lengths.
         if self.skip_cells != 0:
             zz = slice(self.skip_cells, -self.skip_cells)
         else:
@@ -421,21 +455,22 @@ class WakeSolver:
         if len(Ez.shape) == 3:
             for n in range(nt):
                 Ez = self.Ez_hf[keys[n]]
-                Ezt[:, n] = Ez[Ez.shape[0] // 2 + 1, Ez.shape[1] // 2 + 1, zz]
+                Ezt[:, n] = Ez[Ez.shape[0] // 2, Ez.shape[1] // 2, zz]
 
         elif len(Ez.shape) == 1:
             for n in range(nt):
                 Ezt[:, n] = self.Ez_hf[keys[n]][zz]
         self.Ezt = Ezt
 
-        # integral of (Ez(xtest, ytest, z, t=(s+z)/c))dz
+        # Sample the moving test charge at ti + (z - zmin + s)/v.
+        # ts is measured from the first saved field time.
         print("Calculating longitudinal wake potential WP(s)...")
         with tqdm(total=len(s) * len(z)) as pbar:
             for n in range(len(s)):
                 for k in range(nz):
                     ts = (z[k] + s[n]) / self.v - zmin / self.v - self.t[0] + ti
-                    it = int(ts / dt)  # find index for t
-                    if it < nt:
+                    it = int(ts / dt)  # preceding saved timestep
+                    if 0 <= it < nt:
                         WP[n] = WP[n] + (Ezt[k, it]) * dz[k]  # compute integral
                     pbar.update(1)
 
@@ -465,14 +500,29 @@ class WakeSolver:
             HDF5 file containing the Ez(x,y,z) field data for every timestep.
         t : ndarray
             Vector containing time values [s].
-        z : ndarray
-            Vector containing z-coordinates [m].
+        z : ndarray, optional
+            Full simulation-domain coordinates [m]. Their extrema define the
+            beam's flight-time reference boundaries; they are not Ez positions.
+        zf : ndarray, optional
+            Longitudinal positions of saved Ez samples [m], loaded from the HDF5
+            z dataset. Wakis output uses physical primal-edge midpoints.
+        dz : ndarray, optional
+            Primal-edge lengths [m], one per zf sample, loaded from HDF5.
+            These are integration weights, not dual-edge lengths.
         q : float
             Total beam charge in [C].
         n_transverse_cells : int, optional
             Number of transverse cells used for the 3d calculation: 2*n+1.
         **kwargs
             Additional parameters to set as attributes.
+
+        Notes
+        -----
+        If z is absent, the field monitor must cover the full longitudinal
+        domain: its boundaries are inferred from the end midpoints and dz/2.
+        Supply z explicitly for a monitor covering only part of the domain.
+        For compatibility, if zf is absent, z is also used as the field positions.
+        skip_cells trims zf, dz, and Ez together without moving the domain origin.
         """
         for key, val in kwargs.items():
             setattr(self, key, val)
@@ -486,12 +536,23 @@ class WakeSolver:
         dt = self.t[2] - self.t[1]
         ti = self.ti
 
-        # longitudinal variables
+        # zf locates the saved Ez samples; z optionally describes the full
+        # simulation domain. Keep the legacy z-only input convention.
         if self.zf is None:
             self.zf = self.z
-        zmax = np.max(self.zf)
-        zmin = np.min(self.zf)
 
+        # The beam's flight-time reference is the domain boundary, not the
+        # first retained field sample. Find boundaries before applying skip_cells.
+        if self.z is not None:
+            zmin = np.min(self.z)
+            zmax = np.max(self.z)
+        else:
+            # With full-domain midpoint data, recover the outer edge boundaries.
+            zmin = self.zf[0] - self._cell_widths(np.s_[0:1], 1)[0] / 2
+            zmax = self.zf[-1] + self._cell_widths(np.s_[-1:], 1)[0] / 2
+
+        # Local z contains retained field positions from zf, not domain nodes.
+        # Apply the same slice to their primal-edge integration lengths.
         if self.skip_cells != 0:
             zz = slice(self.skip_cells, -self.skip_cells)
         else:
@@ -521,7 +582,6 @@ class WakeSolver:
 
         # field subvolume in No.cells for x, y
         i0, j0 = self.n_transverse_cells, self.n_transverse_cells
-        WP = np.zeros_like(s)
         WP_3d = np.zeros((i0 * 2 + 1, j0 * 2 + 1, len(s)))
         Ezt = np.zeros((nz, nt))
         keys = sorted(
@@ -533,12 +593,17 @@ class WakeSolver:
         with tqdm(total=len(s) * (i0 * 2 + 1) * (j0 * 2 + 1)) as pbar:
             for i in range(-i0, i0 + 1, 1):
                 for j in range(-j0, j0 + 1, 1):
+                    # Each transverse point needs its own accumulator; reusing
+                    # it leaks the previous point's wake into WP_3d
+                    WP = np.zeros_like(s)
+
                     # Assembly Ez field
                     for n in range(nt):
                         Ez = self.Ez_hf[keys[n]]
                         Ezt[:, n] = Ez[Ez.shape[0] // 2 + i, Ez.shape[1] // 2 + j, zz]
 
-                    # integral of (Ez(xtest, ytest, z, t=(s+z)/c))dz
+                    # Follow the test charge from zmin (+z) or zmax (-z).
+                    # ts is relative to the first saved field time.
                     if self.counter_moving:
                         for n in range(len(s)):
                             for k in range(nz):
@@ -548,8 +613,8 @@ class WakeSolver:
                                     - self.t[0]
                                     + ti
                                 )
-                                it = int(ts / dt)  # find index for t
-                                if it < nt:
+                                it = int(ts / dt)  # preceding saved timestep
+                                if 0 <= it < nt:
                                     WP[n] = WP[n] + (Ezt[-k - 1, it]) * (
                                         -1 * dz[-k - 1]
                                     )  # compute integral
@@ -564,8 +629,8 @@ class WakeSolver:
                                     - self.t[0]
                                     + ti
                                 )
-                                it = int(ts / dt)  # find index for t
-                                if it < nt:
+                                it = int(ts / dt)  # preceding saved timestep
+                                if 0 <= it < nt:
                                     WP[n] = (
                                         WP[n] + (Ezt[k, it]) * dz[k]
                                     )  # compute integral
@@ -619,41 +684,25 @@ class WakeSolver:
         for key, val in kwargs.items():
             setattr(self, key, val)
 
+        t0 = time.time()
         ds = self.s[2] - self.s[1]
         i0, j0 = self.n_transverse_cells, self.n_transverse_cells
 
-        # Initialize variables
-        WPx = np.zeros_like(self.s)
-        WPy = np.zeros_like(self.s)
-        int_WP = np.zeros_like(self.WP_3d)
-
-        dxf = np.diff(self.xf)
-        dyf = np.diff(self.yf)
-
         print("Calculating transverse wake potential WPx, WPy...")
-        # Obtain the transverse wake potential
-        with tqdm(total=len(self.s) * (i0 * 2 + 1) * (j0 * 2 + 1)) as pbar:
-            for n in range(len(self.s)):
-                for i in range(-i0, i0 + 1, 1):
-                    for j in range(-j0, j0 + 1, 1):
-                        # Perform the integral
-                        int_WP[i0 + i, j0 + j, n] = (
-                            np.sum(self.WP_3d[i0 + i, j0 + j, 0:n]) * ds
-                        )
-                        pbar.update(1)
+        # Integral of the wake potential over s, excluding the current sample
+        int_WP = np.zeros_like(self.WP_3d)
+        int_WP[:, :, 1:] = np.cumsum(self.WP_3d[:, :, :-1], axis=-1) * ds
 
-                # Perform the gradient (second order scheme)
-                WPx[n] = -(int_WP[i0 + 1, j0, n] - int_WP[i0 - 1, j0, n]) / (
-                    dxf[i0 - 1] + dxf[i0]
-                )
-                WPy[n] = -(int_WP[i0, j0 + 1, n] - int_WP[i0, j0 - 1, n]) / (
-                    dyf[j0 - 1] + dyf[j0]
-                )
+        # Gradient on the integration path (second order also for non-uniform grids)
+        wx = self._central_diff_weights(self.xf[i0 - 1 : i0 + 2])
+        wy = self._central_diff_weights(self.yf[j0 - 1 : j0 + 2])
+        WPx = -np.tensordot(wx, int_WP[i0 - 1 : i0 + 2, j0, :], axes=1)
+        WPy = -np.tensordot(wy, int_WP[i0, j0 - 1 : j0 + 2, :], axes=1)
 
         self.WPx = WPx
         self.WPy = WPy
 
-        self.log(f"Elapsed time {pbar.format_dict['elapsed']} s")
+        self.log(f"Elapsed time {time.time() - t0} s")
 
         if self.save:
             np.savetxt(
@@ -667,6 +716,23 @@ class WakeSolver:
                 header="   s [m]" + " " * 20 + "WP [V/pC]" + "\n" + "-" * 48,
             )
 
+    @staticmethod
+    def _central_diff_weights(nodes):
+        """
+        Weights of the 3-point first derivative at nodes[1].
+
+        Second-order accurate for unequal spacings; reduces to
+        (-1, 0, 1) / (2h) on a uniform grid.
+        """
+        h1, h2 = nodes[1] - nodes[0], nodes[2] - nodes[1]
+        return np.array(
+            [
+                -h2 / (h1 * (h1 + h2)),
+                (h2 - h1) / (h1 * h2),
+                h1 / (h2 * (h1 + h2)),
+            ]
+        )
+
     def calc_long_Z(self, samples=1001, fmax=None, **kwargs):
         """
         Obtain the longitudinal impedance from the longitudinal wake potential and the
@@ -679,7 +745,8 @@ class WakeSolver:
         s : ndarray
             Wakelength vector s=c*t-z.
         lambdas : ndarray
-            Charge distribution λ(s) interpolated to s axis, normalized by the beam charge.
+            Charge distribution λ(s) interpolated to s axis and normalized by
+            the beam charge [1/m].
         chargedist : ndarray, optional
             Charge distribution λ(z).
         q : float, optional
@@ -731,8 +798,9 @@ class WakeSolver:
             level=2,
         )
 
-        # Obtain DFTs - is it v or c?
-        lambdafft = np.fft.fft(self.lambdas * self.v, n=N)
+        # Transform the spatial, charge-normalized bunch profile. Its spectrum
+        # is dimensionless; velocity enters the impedance conversion below.
+        lambdafft = np.fft.fft(self.lambdas, n=N)
         WPfft = np.fft.fft(self.WP * 1e12, n=N)
         ffft = np.fft.fftfreq(len(WPfft), ds / self.v)
 
@@ -743,7 +811,7 @@ class WakeSolver:
         self.f = ffft[mask]  # Positive frequencies
 
         # Compute the impedance
-        self.Z = -WPf / lambdaf
+        self.Z = -WPf / (self.v * lambdaf)
         self.lambdaf = lambdaf
 
         if self.save:
@@ -757,7 +825,7 @@ class WakeSolver:
                 np.c_[self.f, self.lambdaf],
                 header="   f [Hz]"
                 + " " * 20
-                + "Charge distribution spectrum [C/s]"
+                + "Normalized charge distribution spectrum [dimensionless]"
                 + "\n"
                 + "-" * 48,
             )
@@ -793,10 +861,24 @@ class WakeSolver:
             level=2,
         )
 
+        # setup charge distribution in s
+        if self.lambdas is None and self.chargedist is not None:
+            self.calc_lambdas()
+        elif self.lambdas is None and self.chargedist is None:
+            self.calc_lambdas_analytic()
+            try:
+                self.log(
+                    "[!] Using analytic charge distribution λ(s) since no data was provided"
+                )
+            except Exception:  # ascii encoder error handling
+                self.log(
+                    "[!] Using analytic charge distribution since no data was provided"
+                )
+
         # Obtain DFTs
 
         # Normalized charge distribution λ(w)
-        lambdafft = np.fft.fft(self.lambdas * self.v, n=N)
+        lambdafft = np.fft.fft(self.lambdas, n=N)
         ffft = np.fft.fftfreq(len(lambdafft), ds / self.v)
         mask = np.logical_and(ffft >= 0, ffft < fmax)
         lambdaf = lambdafft[mask] * ds
@@ -805,13 +887,13 @@ class WakeSolver:
         WPxfft = np.fft.fft(self.WPx * 1e12, n=N)
         WPxf = WPxfft[mask] * ds
 
-        self.Zx = 1j * WPxf / lambdaf
+        self.Zx = 1j * WPxf / (self.v * lambdaf)
 
         # Vertical impedance Zy⊥(w)
         WPyfft = np.fft.fft(self.WPy * 1e12, n=N)
         WPyf = WPyfft[mask] * ds
 
-        self.Zy = 1j * WPyf / lambdaf
+        self.Zy = 1j * WPyf / (self.v * lambdaf)
 
         self.fx = ffft[mask]
         self.fy = ffft[mask]
@@ -876,9 +958,9 @@ class WakeSolver:
             np.savetxt(
                 self.folder + "lambda.txt",
                 np.c_[self.s, self.lambdas],
-                header="   s [Hz]"
+                header="   s [m]"
                 + " " * 20
-                + "Charge distribution [C/m]"
+                + "Normalized charge distribution [1/m]"
                 + "\n"
                 + "-" * 48,
             )
@@ -910,12 +992,130 @@ class WakeSolver:
             np.savetxt(
                 self.folder + "lambda.txt",
                 np.c_[self.s, self.lambdas],
-                header="   s [Hz]"
+                header="   s [m]"
                 + " " * 20
-                + "Charge distribution [C/m]"
+                + "Normalized charge distribution [1/m]"
                 + "\n"
                 + "-" * 48,
             )
+
+    def _factor_profile(self):
+        """Return the longitudinal coordinate and normalized bunch profile."""
+        if self.s is None:
+            raise ValueError("s must be calculated before wake factors")
+        if self.lambdas is None:
+            if self.chargedist is None:
+                self.calc_lambdas_analytic()
+            else:
+                self.calc_lambdas()
+
+        s = np.asarray(self.s)
+        profile = np.asarray(self.lambdas)
+
+        if s.ndim != 1 or profile.ndim != 1 or len(s) < 2 or len(s) != len(profile):
+            raise ValueError(
+                "s and lambdas must be one-dimensional arrays of equal length"
+            )
+        if not np.all(np.isfinite(s)) or not np.all(np.isfinite(profile)):
+            raise ValueError("s and lambdas must contain finite values")
+        if not np.all(np.diff(s) > 0):
+            raise ValueError("s must be strictly increasing")
+
+        integral = trapezoid(profile, s)
+        if not np.isfinite(integral) or integral <= 0:
+            raise ValueError("lambdas must have a positive integral")
+
+        return s, profile / integral
+
+    @staticmethod
+    def _factor_wake(wake, s, name):
+        if wake is None:
+            raise ValueError(f"{name} must be calculated before its wake factor")
+
+        wake = np.asarray(wake)
+        if wake.ndim != 1 or len(wake) != len(s) or not np.all(np.isfinite(wake)):
+            raise ValueError(
+                f"{name} must be a finite one-dimensional array matching s"
+            )
+
+        return wake
+
+    def calc_loss_factor(self, save=None):
+        """Calculate the signed bunch loss factor [V/pC].
+
+        If neither ``s`` nor ``WP`` is available, calculate them from the
+        longitudinal field first. The bunch profile is calculated if needed.
+        The bunch profile is normalized over the available s samples, so a
+        truncated or sampled charge distribution retains its intended weight.
+        ``save`` overrides the solver's ``save`` setting when supplied.
+        """
+        if self.s is None and self.WP is None:
+            self.calc_long_WP()
+
+        s, profile = self._factor_profile()
+        wake = self._factor_wake(self.WP, s, "WP")
+        self.k_loss = float(trapezoid(wake * profile, s))
+
+        save_result = self.save if save is None else save
+        if save_result:
+            os.makedirs(self.folder, exist_ok=True)
+            with open(self.folder + "loss_factor.txt", "w") as output:
+                output.write(f"Loss factor [V/pC] = {self.k_loss:.16e}\n")
+
+        return self.k_loss
+
+    def calc_kick_factors(self, x_offset=None, y_offset=None, save=None):
+        """Calculate signed horizontal and vertical kick factors [V/pC/m].
+
+        Offsets are source displacement from the structure axis [m], defaulting
+        to ``xsource`` and ``ysource``. A zero offset gives ``None`` for that
+        plane because the dipole kick factor is undefined there. A wake array
+        is required only for a plane with a nonzero offset.
+        """
+        s, profile = self._factor_profile()
+        x_offset = self.xsource if x_offset is None else x_offset
+        y_offset = self.ysource if y_offset is None else y_offset
+
+        for name, offset in (("x_offset", x_offset), ("y_offset", y_offset)):
+            if not np.isscalar(offset) or not np.isfinite(offset):
+                raise ValueError(f"{name} must be a finite scalar")
+
+        self.kx = self.ky = None
+        if x_offset != 0:
+            wake = self._factor_wake(self.WPx, s, "WPx")
+            self.kx = float(trapezoid(wake * profile, s) / x_offset)
+
+        if y_offset != 0:
+            wake = self._factor_wake(self.WPy, s, "WPy")
+            self.ky = float(trapezoid(wake * profile, s) / y_offset)
+
+        save_result = self.save if save is None else save
+        if save_result:
+            os.makedirs(self.folder, exist_ok=True)
+            with open(self.folder + "kick_factors.txt", "w") as output:
+                output.write(f"Kick factor x [V/pC/m] = {self.kx}\n")
+                output.write(f"Kick factor y [V/pC/m] = {self.ky}\n")
+                output.write(f"x_offset [m] = {x_offset}\n")
+                output.write(f"y_offset [m] = {y_offset}\n")
+
+        return self.kx, self.ky
+
+    def reset(self):
+        # Reset all calculated wake and factor attributes
+        self.s = None
+        self.WP = None
+        self.WPx = None
+        self.WPy = None
+        self.k_loss = None
+        self.kx = None
+        self.ky = None
+        self.Z = None
+        self.Zx = None
+        self.Zy = None
+        self.lambdas = None
+        self.f = None
+        self.fx = None
+        self.fy = None
 
     def get_SmartBounds(
         self,
@@ -1222,7 +1422,7 @@ class WakeSolver:
         impedance = self.DE_model.get_impedance(
             frequency_data=f,
             use_minimization=use_minimization,
-            wakelength=wakelength,
+            wake_length=wakelength,
         )
         return f, impedance
 
@@ -1362,6 +1562,11 @@ class WakeSolver:
         """
         Read the Ez.h5 file containing the Ez field information.
 
+        For wakesolve output, z contains the physical Ez edge midpoints and dz
+        contains their lengths. These restore zf and dz; the integration recovers
+        the domain boundaries from the end midpoints and their half-lengths.
+        An explicitly supplied full-domain z axis overrides these boundaries.
+
         Parameters
         ----------
         filename : str, optional
@@ -1485,7 +1690,7 @@ class WakeSolver:
         Notes
         -----
         - The data is saved in a two-column format where `x_data` and `y_data`
-        are combined column-wise.
+          are combined column-wise.
         - If `x_data` or `y_data` is missing, the function prints a warning and does not save a file.
 
         Examples
@@ -1496,7 +1701,7 @@ class WakeSolver:
         >>> y = np.sin(x)
         >>> save_txt("data", x, y, x_name="Time [s]", y_name="Amplitude")
 
-        The saved file will look like:
+        The saved file will look like::
 
             Time [s]               Amplitude
             --------------------------------

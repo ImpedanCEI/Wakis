@@ -154,7 +154,7 @@ ax[0].set_xlim(xmax=wakelength * 1e2)
 
 ax[1].plot(wake.f * 1e-9, np.abs(wake.Z), c="b", lw=1.5, label="Wakis")
 ax[1].set_xlabel("f [GHz]")
-ax[1].set_ylabel("Longitudinal impedance [Abs][$\Omega$]", color="b")
+ax[1].set_ylabel("Longitudinal impedance [Abs][Ω]", color="b")
 ax[1].legend()
 
 fig1.tight_layout()
@@ -171,7 +171,7 @@ ax[0].set_xlim(xmax=wakelength * 1e2)
 
 ax[1].plot(wake.f * 1e-9, np.abs(wake.Zx), c="b", lw=1.5, label="Wakis")
 ax[1].set_xlabel("f [GHz]")
-ax[1].set_ylabel("Transverse impedance X [Abs][$\Omega$]", color="b")
+ax[1].set_ylabel("Transverse impedance X [Abs][Ω]", color="b")
 ax[1].legend()
 
 fig2.tight_layout()
@@ -188,7 +188,7 @@ ax[0].set_xlim(xmax=wakelength * 1e2)
 
 ax[1].plot(wake.f * 1e-9, np.abs(wake.Zy), c="b", lw=1.5, label="Wakis")
 ax[1].set_xlabel("f [GHz]")
-ax[1].set_ylabel("Transverse impedance Y [Abs][$\Omega$]", color="b")
+ax[1].set_ylabel("Transverse impedance Y [Abs][Ω]", color="b")
 ax[1].legend()
 
 fig3.tight_layout()

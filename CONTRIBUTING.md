@@ -1,125 +1,81 @@
-<!-- omit in toc -->
 # Contributing to Wakis
 
-First off, thanks for taking the time to contribute! ❤️
+Thank you for your interest in contributing to Wakis!
 
-All types of contributions are encouraged and valued. See the [Table of Contents](#table-of-contents) for different ways to help and details about how this project handles them. Please make sure to read the relevant section before making your contribution. It will make it a lot easier for us maintainers and smooth out the experience for all involved. The community looks forward to your contributions. 🎉
+Wakis is an open-source electromagnetic simulation code developed at CERN. We welcome contributions from the accelerator physics and computational electromagnetics communities, including new numerical methods, performance improvements, bug fixes, documentation, and examples.
 
-> And if you like the project, but just don't have time to contribute, that's fine. There are other easy ways to support the project and show your appreciation, which we would also be very happy about:
-> - Star the project ⭐
-> - Refer this project in your project's readme
-> - Mention the project at local meetups and tell your friends/colleagues
-> - [Cite the project](https://github.com/ImpedanCEI/wakis/blob/main/CITATION.cff) if you use it in your research
+Our development philosophy is:
 
-<!-- omit in toc -->
-## Table of Contents
+> **Physics first, simple implementations, meaningful validation, and documentation that enables others to understand and reproduce the results.**
 
-- [Code of Conduct](#code-of-conduct)
-- [I Have a Question](#i-have-a-question)
-  - [I Want To Contribute](#i-want-to-contribute)
-  - [Reporting Bugs](#reporting-bugs)
-  - [Suggesting Enhancements](#suggesting-enhancements)
+We aim to develop scientifically reliable software that is accessible, maintainable, and transparent, encouraging collaboration and reproducibility. Our practices are informed by the [CERN ABP Clean Coding Guidelines](https://abpcomputing.web.cern.ch/guides/clean_coding/), with Wakis-specific expectations for numerical validation and scientific documentation.
 
-## Code of Conduct
+Suggestions, feature requests, and bug reports can be submitted through [GitHub Issues](https://github.com/ImpedanCEI/Wakis/issues). Code contributions should be submitted through [Pull Requests](https://github.com/ImpedanCEI/Wakis/pulls), preferably linked to an existing issue to provide context and facilitate discussion.
 
-This project and everyone participating in it is governed by the
-[Wakis Code of Conduct](https://github.com/ImpedanCEI/wakis/blob//CODE_OF_CONDUCT.md).
-By participating, you are expected to uphold this code. Please report unacceptable behavior
-to <>.
+## Scientific and numerical correctness
 
+- Explain the physical problem and the motivation for a new method before implementing it.
+- Preserve and clearly identify units, sign conventions, discrete field locations, update order, boundary conditions, and applicability limits.
+- For new formulations, provide governing equations, approximations, numerical discretization or algorithm, and supporting scientific references. Distinguish published methods from Wakis-specific modifications.
+- Prioritize correctness, then tests, then performance. Profile or benchmark before performance-driven refactoring, and verify that optimization preserves numerical behavior and reproducibility.
 
-## I Have a Question
+## Code quality
 
-> If you want to ask a question, we assume that you have read the available [Documentation](https://wakis.readthedocs.io/).
+- Prefer the smallest maintainable change, not merely the fewest modified lines. If existing code is fragile or duplicated, make the minimal refactoring needed to extend it safely; keep broader refactors separate.
+- Follow [PEP 8](https://peps.python.org/pep-0008/) and the formatting/import conventions in `.pre-commit-config.yaml` (Ruff formatter and isort). Keep changes focused; avoid unrelated reformatting.
+- Write readable functions with clear responsibilities and minimal unnecessary abstractions. Prefer explicit inputs and outputs, minimal unexpected side effects, and clear separation of physical models, numerics, configuration, and plotting; avoid hidden global state. Prefer straightforward `if`/`elif`/`else` logic, guard clauses where useful, and specific exceptions. Avoid unnecessary nesting, `else` after an unconditional return, broad `try`/`except` blocks, silent fallbacks, and exceptions used for ordinary control flow.
+- Use descriptive `snake_case` names for functions and variables and `PascalCase` for classes. Reserve uppercase names for genuine constants, not ordinary simulation parameters. Preserve established public API names for compatibility.
+- Keep library output appropriately quiet: reserve warnings for actionable, recoverable problems and exceptions for invalid inputs or unrecoverable states. Avoid repeated progress prints in numerical loops.
+- Add comments where they clarify the *reason* behind a formula, algorithm, or design choice. Maintain NumPy-style docstrings for public functionality, including units and assumptions.
+- Consider effects on supported CPU, GPU, and MPI execution paths when modifying the solver.
 
-Before you ask a question, it is best to search for existing [Issues](https://github.com/ImpedanCEI/wakis/issues) that might help you. In case you have found a suitable issue and still need clarification, you can write your question in this issue. It is also advisable to search the internet for answers first.
+## Tests and validation
 
-If you then still feel the need to ask a question and need clarification, we recommend the following:
-- Contact the developer elena.de.la.fuente.garcia@cern.ch :woman_technologist: :wave:
-- Or open an [Issue](https://github.com/ImpedanCEI/wakis/issues/new).
-  - Provide as much context as you can about what you're running into.
-  - Provide project and platform versions (nodejs, npm, etc), depending on what seems relevant.
+Every new feature and bug fix should have a reproducible test. Prefer **behavioral, integration, and end-to-end tests** that exercise realistic simulations using the public API, rather than tests coupled to internal implementation details.
 
-We will then take care of the issue as soon as possible.
+- Validate against analytical solutions, conservation properties, limiting cases, converged solutions, or independent simulation/measurement benchmarks when possible.
+- Use physically justified numerical tolerances and small deterministic cases for CI; mark expensive tests consistently with the existing pytest configuration.
+- Avoid tests that only check function signatures, mock calls, or discretization stencils without verifying observable numerical correctness. Targeted low-level tests remain useful when an invariant is otherwise difficult to exercise.
+- Include regression coverage for fixed bugs. Report which backends and configurations were actually tested.
 
-## I Want To Contribute
+The test suite runs automatically when a pull request is opened or updated. You can also run tests locally after installing pytest (and Wakis with its required dependencies):
 
-> ### Legal Notice <!-- omit in toc -->
-> When contributing to this project, you must agree that you have authored 100% of the content, that you have the necessary rights to the content and that the content you contribute may be provided under the project licence.
+```bash
+python -m pip install pytest
+python -m pytest -v -s
+```
 
-### Your first code contribution
-Wakis is an open-source code developed and maintained at CERN. It aims to be a platform for the electromagnetism and accelerator community to use and improve with each individual expertise. Therefore, if you as a user feel you can improve the code, we would be very grateful to review and accept pull-requests!
+Run a specific test file with `python -m pytest tests/<test_file>.py`. Wakis also defines these optional pytest flags in `tests/conftest.py`:
 
-We recommend the following workflow:
-* Create a fork: https://github.com/ImpedanCEI/wakis/fork
-* Commit your contributions to your fork
-* If any feature is added, it needs a test! Inside the `tests/` folder, add a reproducible piece of code that can check the correct functionality of your feature.
-* Run your new `test_00x_your feature.py` together with all other Wakis tests by doing `pytest -v -s`. All tests must be passing before your feature can be merged!
-* Last step is to open a pull request on https://github.com/ImpedanCEI/wakis/pulls. The maintainer will review and approve your contribution and it will be available for the next package relase 🎉
+- `--gpu`: enable GPU execution in supported tests (requires a working GPU/CuPy environment).
+- `--interactive`: enable on-screen PyVista rendering instead of off-screen rendering (requires a display).
+- `--debug-plots`: display simulation-versus-reference comparison plots for regression checks.
 
-### Reporting Bugs
+For example, `python -m pytest -v -s --debug-plots` displays available comparison plots. Flags can be combined; use the defaults for ordinary automated runs.
 
-<!-- omit in toc -->
-#### Before Submitting a Bug Report
+## Documentation and examples
 
-A good bug report shouldn't leave others needing to chase you up for more information. Therefore, we ask you to investigate carefully, collect information and describe the issue in detail in your report. Please complete the following steps in advance to help us fix any potential bug as fast as possible.
+Documentation is part of the feature, not a follow-up task.
 
-- Make sure that you are using the latest version.
-- Determine if your bug is really a bug and not an error on your side e.g. using incompatible environment components/versions (Make sure that you have read the [documentation](https://wakis.readthedocs.io/). If you are looking for support, you might want to check [this section](#i-have-a-question)).
-- To see if other users have experienced (and potentially already solved) the same issue you are having, check if there is not already a bug report existing for your bug or error in the [bug tracker](https://github.com/ImpedanCEI/wakis/issues?q=label%3Abug).
-- Also make sure to search the internet (including Stack Overflow) to see if users outside of the GitHub community have discussed the issue.
-- Collect information about the bug:
-  - Stack trace (Traceback)
-  - OS, Platform and Version (Windows, Linux, macOS, x86, ARM)
-  - Version of the interpreter, compiler, SDK, runtime environment, package manager, depending on what seems relevant.
-  - Possibly your input and the output
-  - Can you reliably reproduce the issue? And can you also reproduce it with older versions?
+- Update the relevant user/API documentation whenever user-facing behavior changes.
+- Add new physical formalisms and substantial numerical methods to `docs/physicsguide.md`, with equations, notation, assumptions, numerical details, limitations, and **verifiable references**. A notebook alone is not sufficient for a new core method.
+- Demonstrate new functionality through the **public API**; do not hide essential algorithms or reusable calculations inside examples. Move them into the library instead.
+- Prefer one cohesive, reproducible tutorial with motivation, setup, execution, plots, and interpretation over many small overlapping examples. Notebooks (`.ipynb`) are preferred for narrative tutorials when appropriate; existing `.py` examples remain valid for runnable scripts and specific workflows.
+- Make examples portable, modest in runtime/data size, and executable from a clean environment. Ensure notebook-based documentation continues to build correctly where applicable.
+- Do not commit generated PDFs, large result files, caches, or other derived binary artifacts merely to show output. Use tracked Markdown/notebook sources and `.gitignore` entries as appropriate.
 
-<!-- omit in toc -->
-#### How Do I Submit a Good Bug Report?
+## AI-assisted development
 
-> You must never report security related issues, vulnerabilities or bugs including sensitive information to the issue tracker, or elsewhere in public. Instead sensitive bugs must be sent by email to <>.
-<!-- You may add a PGP key to allow the messages to be sent encrypted as well. -->
+Generative AI coding assistants may be used to support development and contributions. When using these tools, follow the additional instructions in [AGENTS.md](AGENTS.md), which complement this contribution guide.
 
-We use GitHub issues to track bugs and errors. If you run into an issue with the project:
+All contributions, whether AI-assisted or not, must meet the same standards for scientific correctness, code quality, testing, and documentation.
 
-- Open an [Issue](https://github.com/ImpedanCEI/wakis/issues/new). (Since we can't be sure at this point whether it is a bug or not, we ask you not to talk about a bug yet and not to label the issue.)
-- Explain the behavior you would expect and the actual behavior.
-- Please provide as much context as possible and describe the *reproduction steps* that someone else can follow to recreate the issue on their own. This usually includes your code. For good bug reports you should isolate the problem and create a reduced test case.
-- Provide the information you collected in the previous section.
+## Contribution workflow
 
-Once it's filed:
+1. Open or find an issue for significant changes and discuss the intended physical/numerical approach when useful.
+2. Fork the repository or create a focused branch; implement the change with corresponding tests and documentation.
+3. Run relevant tests and formatting hooks (for example, `pre-commit run --all-files` when configured). Keep commits and diffs reviewable.
+4. Open a pull request using [the repository template](.github/pull_request_template.md). Describe the problem, solution, scientific references, validation results, documentation updates, limitations, and related issues. Mark checklist items accurately.
+5. Respond to review feedback collaboratively. Review evaluates scientific validity, maintainability, and usability—not only whether the code executes.
 
-- The project team will label the issue accordingly.
-- A team member will try to reproduce the issue with your provided steps. If there are no reproduction steps or no obvious way to reproduce the issue, the team will ask you for those steps and mark the issue as `needs-repro`. Bugs with the `needs-repro` tag will not be addressed until they are reproduced.
-- If the team is able to reproduce the issue, it will be marked `needs-fix`, as well as possibly other tags (such as `critical`), and the issue will be left to be [implemented by someone](#your-first-code-contribution).
-
-
-### Suggesting Enhancements
-
-This section guides you through submitting an enhancement suggestion for Wakis, **including completely new features and minor improvements to existing functionality**. Following these guidelines will help maintainers and the community to understand your suggestion and find related suggestions.
-
-<!-- omit in toc -->
-#### Before Submitting an Enhancement
-
-- Make sure that you are using the latest version.
-- Read the [documentation](https://wakis.readthedocs.io/) carefully and find out if the functionality is already covered, maybe by an individual configuration.
-- Perform a [search](https://github.com/ImpedanCEI/wakis/issues) to see if the enhancement has already been suggested. If it has, add a comment to the existing issue instead of opening a new one.
-- Find out whether your idea fits with the scope and aims of the project. It's up to you to make a strong case to convince the project's developers of the merits of this feature. Keep in mind that we want features that will be useful to the majority of our users and not just a small subset. If you're just targeting a minority of users, consider writing an add-on/plugin library.
-
-<!-- omit in toc -->
-#### How Do I Submit a Good Enhancement Suggestion?
-
-Enhancement suggestions are tracked as [GitHub issues](https://github.com/ImpedanCEI/wakis/issues).
-
-- Use a **clear and descriptive title** for the issue to identify the suggestion.
-- Provide a **step-by-step description of the suggested enhancement** in as many details as possible.
-- **Describe the current behavior** and **explain which behavior you expected to see instead** and why. At this point you can also tell which alternatives do not work for you.
-- You may want to **include screenshots or screen recordings** which help you demonstrate the steps or point out the part which the suggestion is related to. You can use [LICEcap](https://www.cockos.com/licecap/) to record GIFs on macOS and Windows, and the built-in [screen recorder in GNOME](https://help.gnome.org/users/gnome-help/stable/screen-shot-record.html.en) or [SimpleScreenRecorder](https://github.com/MaartenBaert/ssr) on Linux. <!-- this should only be included if the project has a GUI -->
-- **Explain why this enhancement would be useful** to most Wakis users. You may also want to point out the other projects that solved it better and which could serve as inspiration.
-
-<!-- You might want to create an issue template for enhancement suggestions that can be used as a guide and that defines the structure of the information to be included. If you do so, reference it here in the description. -->
-
-<!-- omit in toc -->
-## Attribution
-This guide is based on the [contributing.md](https://contributing.md/generator)!
+For details on using Wakis, see the [documentation](https://wakis.readthedocs.io/) and [README](README.md). Please follow the repository's [code of conduct](CODE_OF_CONDUCT.md).

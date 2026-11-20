@@ -1,5 +1,6 @@
 import h5py
 import numpy as np
+import pytest
 
 from wakis import GridFIT3D, SolverFIT3D, WakeSolver
 from wakis.field import Field

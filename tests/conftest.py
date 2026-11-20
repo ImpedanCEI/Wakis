@@ -13,7 +13,7 @@ def pytest_addoption(parser):
     parser.addoption(
         "--debug-plots",
         action="store_true",
-        help="Show simulation versus static reference comparison plots",
+        help="Show optional diagnostic plots for simulation regression tests",
     )
 
 

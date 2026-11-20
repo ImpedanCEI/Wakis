@@ -16,7 +16,7 @@ ECT_*
 *.log
 *.dat
 */hdf5*
-*/results*/*
+*/*results*/*
 *.txt
 *.PNG
 _build/
@@ -25,3 +25,6 @@ dist/
 wakis.egg-info/
 .coverage
 .vscode/
+notes/*
+tmp/*
+*.stl

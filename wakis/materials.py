@@ -6,19 +6,16 @@
 """
 Material library dictionary
 
-Format (non-conductive):
-{
-    'material key' : [eps_r, mu_r],
-}
+Format (non-conductive)::
 
-Format (conductive):
-{
-    'material key' : [eps_r, mu_r, sigma[S/m]],
-}
+    {'material key': [eps_r, mu_r]}
 
-! Note:
-* 'material key' in lower case only
-* eps = eps_r*eps_0 and mu = mu_r*mu_0
+Format (conductive)::
+
+    {'material key': [eps_r, mu_r, sigma[S/m]]}
+
+Material keys use lower case only. Permittivity and permeability are relative
+to vacuum: eps = eps_r * eps_0 and mu = mu_r * mu_0. Conductivity is in S/m.
 """
 
 import numpy as np

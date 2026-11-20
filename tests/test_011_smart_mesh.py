@@ -101,6 +101,7 @@ class TestSmartMesh:
 
     def test_grid_generation(self):
         global grid
+        assert (grid.Nx, grid.Ny, grid.Nz) == (len(grid.x), len(grid.y), len(grid.z))
         for edg in self.zedges:
             diff = np.min(np.abs(grid.z - edg))
             assert diff <= 1e-8 + 1e-2, "Mesh not inside the tolerance at the z edges"
