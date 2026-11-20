@@ -226,8 +226,8 @@ The required parameters `bc_low` and `bc_high` allow to choose the 6 boundary co
 * `pmc` stands for Perfect Magnetic Conductor: similarly to pec, it is a Dirichlet boundary conditions that forces the tangent magnetic $H$ field at the boundary to be 0.
 * `periodic`: The field values of the high-end boundary are passed to the lower-end boundary, simulating a periodic structure where the fields re-enter the simulation domain.
 * `abc`: First-order Mur absorbing boundary condition (ABC)[^2], suited to waves approaching the boundary near normal incidence.
-* `pml`: Graded conductive absorbing layer. Its reflection depends on layer thickness and the conductivity profile; see the [physics guide](physicsguide.md).
-* `cpml`: Convolutional perfectly matched layer, the preferred absorbing boundary for broadband and oblique waves [^3].
+* `pml`: Graded conductive absorbing layer matched to the homogeneous background material `bg`. Its reflection depends on layer thickness and the conductivity profile; see the [physics guide](physicsguide.md).
+* `cpml`: Convolutional perfectly matched layer matched to the homogeneous background material `bg`, the preferred absorbing boundary for broadband and oblique waves [^3].
 
 An example of the boundary conditions that are typically used for the pillbox cavity example are:
 
