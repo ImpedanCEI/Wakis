@@ -1,10 +1,10 @@
 """The z-cell widths the wake-potential integrals multiply Ez by.
 
-The same code serves a uniform grid (`dz` is a scalar), a grid that stores one
-width per cell, and the MPI writer, which stores `np.diff(z)` and so has one
-entry fewer than there are cells. Each case has to end up with one width per
-selected cell: a scalar left as a scalar raised `TypeError` at `dz[k]`, and a
-`np.diff` array ran one cell short (issue #58).
+`WakeSolver.dz` reaches the integration in three shapes: a scalar on a uniform
+grid, one primal-edge length per field sample, or `np.diff(z)`, which the MPI
+writer stores and which has one entry fewer than there are samples. Each shape
+must integrate the same field to the same wake potential; before #58 a scalar
+raised `TypeError` at `dz[k]` and a `np.diff` array ran one cell short.
 """
 
 import numpy as np
@@ -12,47 +12,20 @@ import pytest
 
 from wakis import WakeSolver
 
-
-def _solver(zf, dz):
-    """A solver with just the z-axis state the width helper reads."""
-    solver = WakeSolver.__new__(WakeSolver)  # no grid, no files
-    solver.zf = np.asarray(zf, dtype=float)
-    solver.z = solver.zf
-    solver.dz = dz
-    return solver
+# A uniform grid expressed each way it reaches the solver.
+UNIFORM = [
+    pytest.param(2.0, id="scalar"),
+    pytest.param(np.array([2.0, 2.0, 2.0, 2.0]), id="per-cell"),
+    pytest.param(np.array([2.0, 2.0, 2.0]), id="np-diff"),
+]
 
 
-def test_a_scalar_dz_is_broadcast_to_one_width_per_cell():
-    solver = _solver([0.0, 1.0, 2.0, 3.0], 0.5)
-    assert np.allclose(solver._cell_widths(np.s_[:], 4), [0.5] * 4)
-
-
-def test_a_np_diff_dz_keeps_one_width_per_cell():
-    zf = np.array([0.0, 0.2, 0.5, 0.6, 1.0])
-    solver = _solver(zf, np.diff(zf))
-    widths = solver._cell_widths(np.s_[:], len(zf))
-    assert widths.shape == (len(zf),)
-    assert np.allclose(widths, [0.2, 0.3, 0.1, 0.4, 0.4])
-
-
-def test_skipped_cells_slice_the_widths_like_the_coordinates():
-    zf = np.array([0.0, 0.2, 0.5, 0.6, 1.0])
-    solver = _solver(zf, np.array([0.2, 0.3, 0.1, 0.4, 0.5]))
-    assert np.allclose(solver._cell_widths(slice(1, -1), 3), [0.3, 0.1, 0.4])
-
-
-def test_a_dz_that_matches_no_known_shape_is_refused():
-    solver = _solver([0.0, 1.0, 2.0, 3.0], np.array([0.1, 0.2]))
-    with pytest.raises(ValueError, match="dz has 2 entries"):
-        solver._cell_widths(np.s_[:], 4)
-
-
-def _longitudinal_solver(dz, counter_moving):
+def _longitudinal_solver(dz, *, counter_moving=False, skip_cells=0, z=None):
     """A solver with one transverse cell and a field that grows with z."""
-    solver = WakeSolver.__new__(WakeSolver)
-    z = np.array([0.0, 1.0, 3.0, 6.0])
-    solver.z = z
-    solver.zf = z
+    solver = WakeSolver.__new__(WakeSolver)  # no grid, no files
+    coordinates = np.array([0.0, 1.0, 3.0, 6.0])
+    solver.z = coordinates if z is None else z
+    solver.zf = coordinates
     solver.dz = dz
     solver.t = np.linspace(0.0, 8e-9, 9)
     solver.ti = 0.0
@@ -61,7 +34,7 @@ def _longitudinal_solver(dz, counter_moving):
     solver.wakelength = 4e-9
     solver.counter_moving = counter_moving
     solver.n_transverse_cells = 0
-    solver.skip_cells = 0
+    solver.skip_cells = skip_cells
     solver.verbose = 0
     solver.save = False
     solver.folder = ""
@@ -76,19 +49,43 @@ def _longitudinal_solver(dz, counter_moving):
     return solver
 
 
+@pytest.mark.parametrize("dz", UNIFORM)
+def test_every_dz_shape_integrates_the_same_uniform_grid(dz):
+    """A scalar, per-cell and np.diff spelling of one grid agree."""
+    solver = _longitudinal_solver(dz)
+    solver.calc_long_WP_3d()
+    # (0 + 1 + 2 + 3) * 2.0 / q
+    assert np.isclose(abs(solver.WP[0]), 12.0 / 1e12, rtol=1e-9, atol=0.0)
+
+
+@pytest.mark.parametrize("dz", UNIFORM)
+def test_skipped_cells_keep_the_widths_aligned(dz):
+    """`skip_cells` trims the coordinates and the widths together."""
+    solver = _longitudinal_solver(dz, skip_cells=1)
+    solver.calc_long_WP_3d()
+    # Two cells remain, so only the middle of the field contributes.
+    assert np.isclose(abs(solver.WP[0]), 6.0 / 1e12, rtol=1e-9, atol=0.0)
+
+
+def test_the_outer_edges_are_recovered_when_z_is_not_given():
+    """Without `z`, the domain edges come from `zf` and the edge widths."""
+    solver = _longitudinal_solver(2.0, z=None)
+    solver.calc_long_WP_3d()
+    assert np.isclose(abs(solver.WP[0]), 12.0 / 1e12, rtol=1e-9, atol=0.0)
+
+
 def test_counter_moving_uses_the_width_of_the_cell_it_reads():
     """Both directions must integrate the same cells with the same widths.
 
-    With one width per cell the counter-moving loop reads `Ezt[-k-1]`, so it
-    has to multiply by `dz[-k-1]`. Pairing it with `dz[k]` instead halves the
-    result for these widths (20 -> 10), which is what this pins.
+    The counter-moving loop reads `Ezt[-k-1]`, so it has to multiply by
+    `dz[-k-1]`. Pairing it with `dz[k]` halves the result for these widths
+    (20 -> 10), which is what this pins. `atol=0` on purpose: the values are
+    ~1e-11 and numpy's default atol of 1e-8 would call a factor of two close.
     """
     widths = np.array([1.0, 2.0, 3.0, 4.0])
     forward = _longitudinal_solver(widths, counter_moving=False)
     backward = _longitudinal_solver(widths, counter_moving=True)
     forward.calc_long_WP_3d()
     backward.calc_long_WP_3d()
-    # atol=0 on purpose: the values are ~1e-11 and numpy's default atol of 1e-8
-    # would call a factor-of-two difference close.
     assert np.isclose(abs(backward.WP[0]), abs(forward.WP[0]), rtol=1e-9, atol=0.0)
     assert np.isclose(abs(forward.WP[0]), 20.0 / 1e12, rtol=1e-9, atol=0.0)
