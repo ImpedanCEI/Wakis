@@ -85,7 +85,7 @@ Each Field stores `3 * Nx * Ny * Nz` values, one block per component. Both masks
 
 **Material assignment:** later solids take precedence in overlaps; other samples retain the background material. Piecewise constant scalar permeability is supported.
 
-**TF/SF only:** PEC constraints are completed between marked conductor nodes to match the injection potential. This can extend the staircase wall by a neighboring edge. Direct-source simulations retain the sampled coefficients. Check curved walls and narrow gaps under mesh refinement.
+**TF/SF only:** only longitudinal (z-directed) PEC edges are completed, using an existing three-edge PEC path around an adjacent grid face. This cannot join separate sampled conductors; transverse coefficients and stored masks remain unchanged. The longitudinal staircase wall can still extend locally, including across a slot in a connected conductor. Direct-source simulations retain the sampled coefficients. Check curved walls and narrow gaps under mesh refinement.
 
 **Thin material features:** grid construction prints one `[!]` diagnostic per solid, reporting the
 number of edges whose midpoint is inside a solid while both endpoint nodes are

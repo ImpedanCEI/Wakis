@@ -915,27 +915,31 @@ class BCsMixin:
         del self.pml_b_E, self.pml_c_E, self.pml_b_H, self.pml_c_H
 
     def _complete_tfsf_pec_edges(self):
-        """Align the time-domain PEC constraints with the TF/SF potential nodes.
+        """Complete longitudinal PEC edges using local sampled-edge paths.
 
-        Complete edges between endpoints of sampled PEC edges, excluding
-        inactive terminal storage. This changes solver ieps near staircase
-        walls; the geometric masks remain unchanged. Call before material
-        matrices and conductivity timestep limits are constructed.
+        A candidate needs a three-edge PEC path around an adjacent xz or yz
+        face: two transverse edges and the opposite longitudinal edge. Thus
+        completion cannot join separate sampled conductors. Only original
+        sampled paths are used, without propagating newly completed edges.
+        Transverse coefficients, geometric masks, and terminal storage remain
+        unchanged. Call before material matrices and timestep limits are built.
         """
-        pec_nodes = np.zeros((self.Nx, self.Ny, self.Nz), dtype=bool)
-
-        # |= adds nodes with logical OR, preserving nodes already marked True.
-        pec_nodes[:-1, :, :] |= self.ieps[:-1, :, :, "x"] == 0  # starting nodes
-        pec_nodes[1:, :, :] |= self.ieps[:-1, :, :, "x"] == 0  # ending nodes
-        pec_nodes[:, :-1, :] |= self.ieps[:, :-1, :, "y"] == 0
-        pec_nodes[:, 1:, :] |= self.ieps[:, :-1, :, "y"] == 0
-        pec_nodes[:, :, :-1] |= self.ieps[:, :, :-1, "z"] == 0
-        pec_nodes[:, :, 1:] |= self.ieps[:, :, :-1, "z"] == 0
-
-        # Set an edge to PEC when both endpoint nodes are marked PEC
-        self.ieps[:-1, :, :, "x"][pec_nodes[:-1, :, :] & pec_nodes[1:, :, :]] = 0
-        self.ieps[:, :-1, :, "y"][pec_nodes[:, :-1, :] & pec_nodes[:, 1:, :]] = 0
-        self.ieps[:, :, :-1, "z"][pec_nodes[:, :, :-1] & pec_nodes[:, :, 1:]] = 0
+        for k in range(self.Nz - 1):
+            pec_z = self.ieps[:, :, k, "z"] == 0
+            pec_x = (self.ieps[:-1, :, k, "x"] == 0) & (
+                self.ieps[:-1, :, k + 1, "x"] == 0
+            )
+            pec_y = (self.ieps[:, :-1, k, "y"] == 0) & (
+                self.ieps[:, :-1, k + 1, "y"] == 0
+            )
+            # Use the sampled z mask for all four detours. Newly completed
+            # edges must not authorize further completion in the same slab.
+            join = pec_z.copy()
+            join[:-1, :] |= pec_x & pec_z[1:, :]
+            join[1:, :] |= pec_x & pec_z[:-1, :]
+            join[:, :-1] |= pec_y & pec_z[:, 1:]
+            join[:, 1:] |= pec_y & pec_z[:, :-1]
+            self.ieps[:, :, k, "z"][join] = 0
 
     def _initialize_tfsf(self):
         """

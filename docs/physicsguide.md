@@ -527,28 +527,45 @@ This is a **staircase point classification**, without interface averaging or con
 
 **PEC consistency for TF/SF:**
 
-The injection potential and time-domain fields must share a conductor boundary. During TF/SF initialization, before material matrices and conductivity timestep limits are built, Wakis:
+The scalar incident model sets $E_z=0$, but the sampled staircase wall can
+leave longitudinal vacuum edges at nodes where the potential has a conductor
+boundary reaction. The discrete magnetic curl then drives $E_z$ on those
+edges. Longitudinal completion aligns the time-domain wall with this model.
 
-1. Marks both endpoints of every active electric edge with zero inverse permittivity.
-2. Sets inverse permittivity to zero on edges joining two marked nodes.
+During TF/SF initialization, before material matrices and conductivity timestep
+limits are built, Wakis completes **only z-directed edges throughout the domain**.
+A candidate edge needs a sampled three-edge PEC path around an adjacent $xz$
+or $yz$ face: the two transverse sides and the opposite longitudinal side.
+For example, the positive-$x$ detour requires
 
-For marked-node indicators $M_p$ and $M_q$, the second step is $M_p M_q=1\Rightarrow\varepsilon^{-1}_{pq}=0$. This preserves existing PEC edges without adding marked nodes and excludes inactive terminal storage. It prevents a grounded injection node from supporting an unconstrained longitudinal field along an extruded wall.
+$$
+\varepsilon^{-1}_{x,i,j,k}=0,\qquad
+\varepsilon^{-1}_{z,i+1,j,k}=0,\qquad
+\varepsilon^{-1}_{x,i,j,k+1}=0.
+$$
 
-**Direct-source simulations do not apply this correction.** Stored masks, permeability, and conductivity remain unchanged. The effective PEC wall can extend by a neighboring edge: resolve narrow gaps and check curved walls under mesh refinement.
+The three other transverse neighbours supply equivalent alternatives. All
+conditions use the original sampled edges; newly completed edges do not
+propagate completion to further neighbours.
 
-Completion currently applies throughout the domain, rather than only at the
-injection planes. Restricting it to transverse edges on those planes and
-longitudinal edges touching them restores a spurious transverse DC impedance
-of approximately 119 Ω in the coarse straight-pipe regression
-(`test_straight_pipe_wake`, both meshing methods and precisions). With this
-sampling and injection formulation, unconstrained longitudinal wall edges in
-the interior also matter. Plane-only completion therefore requires a separate
-change to the wall/injection discretization; it is not an equivalent reduction
-of the current correction. The global correction can close narrow gaps away
-from injection planes, so TF/SF and direct-source material assignments should
-not be assumed identical.
+This rule never joins separate sampled conductors because an existing PEC path
+already connects the candidate's endpoints. It is more conservative than global
+connectivity: longer or remote paths do not authorize completion.
+Only Boolean masks for one adjacent pair of transverse planes are needed,
+using auxiliary storage proportional to $N_xN_y$. No connectivity graph or
+component labels are constructed for completion. Transverse inverse-permittivity
+coefficients, material masks, permeability, conductivity, and inactive terminal
+storage remain unchanged. **Direct-source simulations do not apply completion.**
 
-This completion rule is a **Wakis adaptation**. The underlying edge/node representation and discrete gradient/curl identities follow [Clemens and Weiland (2001)](https://doi.org/10.2528/PIER00080103).
+Completion still changes the effective longitudinal PEC wall. It can close a
+sampled vacuum or dielectric edge with an existing three-edge PEC detour,
+including a slot in a connected conductor. It cannot reconstruct
+unresolved geometry or guarantee preservation of every physical gap. Refine
+narrow features and do not assume identical TF/SF and direct-source materials.
+
+This completion rule is a **Wakis adaptation**. The underlying edge/node
+representation and discrete gradient/curl identities follow
+[Clemens and Weiland (2001)](https://doi.org/10.2528/PIER00080103).
 
 | STL geometry | Imported material mask |
 | ----- | ---- |
