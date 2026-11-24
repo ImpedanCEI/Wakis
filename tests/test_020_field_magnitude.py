@@ -216,7 +216,7 @@ def test_gpu_matches_cpu(use_gpu, staggering):
         coordinates=_coords(grid, staggering),
     )
     for c in "xyz":
-        gpu.from_matrix(cpu.to_matrix(c), c)
+        gpu.from_matrix(gpu.xp.asarray(cpu.to_matrix(c)), c)  # to the device
     for as_matrix in (True, False):
         mag = gpu.get_abs(as_matrix=as_matrix)
         assert isinstance(mag, np.ndarray)  # returned on the host
