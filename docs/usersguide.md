@@ -264,12 +264,10 @@ ix, iy = Nx//2, Ny//2
 solver.J[ix, iy, :,'y']
 
 # get the absolute value of the electric field
-E_abs = solver.E.get_abs() #size [Nx, Ny, Nz]
-# magnitude at the physical cell centres, size [Nx-1, Ny-1, Nz-1]
-E_abs_cc = solver.E.get_abs(collocated=True)
+E_abs = solver.E.get_abs() #size [Nx-1, Ny-1, Nz-1], at the cell centres
 ```
 
-The default `get_abs()` takes the norm index-wise, but the three components stored at index `(i, j, k)` of the staggered FIT grid sit at different points. With `collocated=True` each component is first linearly interpolated, using the coordinates the solver attaches to `E`, `H` and `J`, to the physical cell centres `(grid.tx[1:-1], grid.ty[1:-1], grid.tz[1:-1])`; terminal ghost storage is excluded.
+The three components stored at index `(i, j, k)` of the staggered FIT grid sit at different points. Fields that carry coordinates (the solver attaches them to `E`, `H`, `J` and the material fields) are therefore averaged to the physical cell centres `(grid.tx[1:-1], grid.ty[1:-1], grid.tz[1:-1])` before the norm is taken; terminal ghost storage is excluded. A `Field` created without coordinates keeps the index-wise norm, of size `[Nx, Ny, Nz]`. Indexing with `'abs'` (e.g. `solver.E[ix, iy, :, 'abs']`) still uses the storage layout.
 
 The `inspect()` and `inspect3D()` methods allow quick visualization of field values:
 ``` python

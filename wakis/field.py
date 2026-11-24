@@ -299,7 +299,7 @@ class Field:
                     )
                     return field[key[0], key[1], key[2]]
             elif type(key[3]) is str and key[3].lower() == "abs":
-                field = self.get_abs()
+                field = self._get_abs_indexwise()
                 return field[key[0], key[1], key[2]]
             else:
                 raise IndexError("Component id not valid")
@@ -565,98 +565,98 @@ class Field:
 
         return i, j, k
 
-    def get_abs(self, as_matrix=True, collocated=False):
+    def get_abs(self, as_matrix=True):
         """
         Compute the magnitude of the field.
 
-        By default the norm ``sqrt(|Fx|**2 + |Fy|**2 + |Fz|**2)`` is taken
-        index-wise. On the staggered FIT grid the three components stored at
-        index ``(i, j, k)`` sit at different physical points, so with
-        ``collocated=True`` each component is first linearly interpolated, using
-        the attached ``coordinates``, to the physical cell centres
-        ``(tx[1:-1], ty[1:-1], tz[1:-1])`` of the grid.
+        If the Field carries ``coordinates`` (the solver attaches them to ``E``,
+        ``H``, ``J`` and the material fields), the three components, which sit at
+        different points of the staggered FIT grid, are first averaged to the
+        physical cell centres ``(tx[1:-1], ty[1:-1], tz[1:-1])``; terminal ghost
+        storage is excluded. The cell centres are the midpoints of the primal
+        nodes, so averaging the two neighbouring samples is exact for linear
+        fields on uniform and stretched grids. Without ``coordinates`` the norm
+        is taken index-wise on the full storage.
+
+        The norm is ``sqrt(|Fx|**2 + |Fy|**2 + |Fz|**2)``, so complex (phasor)
+        fields are supported.
 
         Parameters
         ----------
         as_matrix : bool, optional
-            If True, return as a 3D matrix. If False, return as a 1D array
-            (Fortran order for the collocated result, matching ``to_matrix``).
-        collocated : bool, optional
-            If True, interpolate the components to the cell centres before
-            taking the norm. Requires ``coordinates``. Default is False.
+            If True, return as a 3D matrix. If False, return as a 1D array in
+            Fortran order (matching ``to_matrix``).
 
         Returns
         -------
         abs_field : ndarray
-            Magnitude of the field: shape ``(Nx, Ny, Nz)`` index-wise, or
-            ``(Nx-1, Ny-1, Nz-1)`` at the cell centres when ``collocated``.
-            Returned on the host.
+            Magnitude of the field, returned on the host. Shape
+            ``(Nx-1, Ny-1, Nz-1)`` (or its product, flattened) with
+            ``coordinates``; ``(Nx, Ny, Nz)`` (or ``(N,)``) without.
         """
-        if collocated:
-            mag = xp.sqrt(sum(abs(c) ** 2 for c in self._collocated_components()))
-            if not as_matrix:
-                mag = mag.ravel(order="F")
-        elif as_matrix:
-            mag = xp.sqrt(
+        if self.coordinates is None:
+            return self._get_abs_indexwise(as_matrix)
+        mag = self.xp.sqrt(sum(abs(c) ** 2 for c in self._collocated_components()))
+        if not as_matrix:
+            mag = mag.ravel(order="F")
+        return mag.get() if self.on_gpu and hasattr(mag, "get") else mag
+
+    def _get_abs_indexwise(self, as_matrix=True):
+        """Index-wise magnitude on the full storage, shape (Nx, Ny, Nz) or (N,)."""
+        if as_matrix:
+            mag = self.xp.sqrt(
                 abs(self.to_matrix("x")) ** 2
                 + abs(self.to_matrix("y")) ** 2
                 + abs(self.to_matrix("z")) ** 2
             )
         else:  # 1d array
-            mag = xp.sqrt(
+            mag = self.xp.sqrt(
                 abs(self.field_x) ** 2 + abs(self.field_y) ** 2 + abs(self.field_z) ** 2
             )
         return mag.get() if self.on_gpu and hasattr(mag, "get") else mag
 
+    def _cell_centre_coords(self):
+        """Cell-centre axes: the shortest of the three components' axes per direction."""
+        return tuple(
+            min((self.coordinates[c][d] for c in "xyz"), key=len) for d in range(3)
+        )
+
     def _collocated_components(self):
-        """Interpolate the x, y, z components to common cell-centre axes.
+        """Average the x, y, z components to the physical cell centres.
 
-        Each component's physical samples are ``to_matrix(c)`` restricted to the
-        lengths of its axes in ``coordinates`` (terminal ghost storage is
-        excluded). Along each direction the target axis is the shortest of the
-        three components' axes (the primal cell midpoints for both primal and
-        dual coordinates); components sampled elsewhere along that direction are
-        linearly interpolated with weights from the actual coordinates, so
-        non-uniform grids are handled exactly for fields linear in space.
+        Assumes the standard Wakis layouts (``grid.primal_coords`` or
+        ``grid.dual_coords``): along each direction a component is sampled
+        either at the primal nodes (one sample more than there are cells) or
+        already at the cell centres.
         """
-        if self.coordinates is None:
-            raise ValueError(
-                "get_abs(collocated=True) needs the component coordinates; "
-                "create the Field with coordinates=grid.primal_coords (E, J) "
-                "or grid.dual_coords (H)"
-            )
-        axes = {
-            c: [xp.asarray(a, dtype=float) for a in self.coordinates[c]] for c in "xyz"
-        }
-        targets = [min((axes[c][d] for c in "xyz"), key=len) for d in range(3)]
+        # Cell-centre axes have one fewer sample than the corresponding node axes.
+        shape = tuple(len(a) for a in self._cell_centre_coords())
 
-        out = []
+        components = []
         for c in "xyz":
-            arr = self.to_matrix(c)
-            arr = arr[tuple(slice(0, len(a)) for a in axes[c])]
-            for d, (src, tgt) in enumerate(zip(axes[c], targets)):
-                if len(src) == len(tgt) and xp.array_equal(src, tgt):
-                    continue
-                if len(src) < 2 or tgt[0] < src[0] or tgt[-1] > src[-1]:
+            axes = self.coordinates[c]
+
+            # Exclude terminal ghost storage using the physical coordinate lengths.
+            arr = self.to_matrix(c)[tuple(slice(len(a)) for a in axes)]
+
+            for d, axis in enumerate(axes):
+                if len(axis) == shape[d]:
+                    continue  # midpoint axis, already centred
+                if len(axis) != shape[d] + 1:
                     raise ValueError(
-                        f"cannot interpolate component {c!r} along axis {d}: "
-                        "target cell centres lie outside its sample axis"
+                        f"component {c!r} has {len(axis)} samples along axis {d}, "
+                        f"expected {shape[d]} (cell centres) or {shape[d] + 1} "
+                        "(primal nodes)"
                     )
-                i0 = xp.clip(
-                    xp.searchsorted(src, tgt, side="right") - 1, 0, len(src) - 2
-                )
-                w1 = (tgt - src[i0]) / (src[i0 + 1] - src[i0])
-                shape = [1, 1, 1]
-                shape[d] = len(tgt)
-                w1 = w1.reshape(shape)
-                if self.on_gpu:
-                    w1 = self.xp.asarray(w1)
-                    i0 = self.xp.asarray(i0)
-                lo = self.xp.take(arr, i0, axis=d)
-                hi = self.xp.take(arr, i0 + 1, axis=d)
-                arr = (1.0 - w1) * lo + w1 * hi
-            out.append(arr)
-        return out
+                # Average node-based axes, using the same slices for x, y and z.
+                arr = self.xp.moveaxis(arr, d, 0)
+                arr = 0.5 * (arr[:-1] + arr[1:])
+                arr = self.xp.moveaxis(arr, 0, d)
+
+            # All components now share the same physical cell-centre locations.
+            components.append(arr)
+
+        return components
 
     def inspect(
         self,
@@ -745,8 +745,8 @@ class Field:
         With coordinates attached, plots use metres and exclude storage beyond
         each component's physical axes. Matplotlib uses pcolormesh to preserve
         nonuniform spacing. PyVista interpolates a slice of the selected
-        component. Absolute values use the current index-wise norm and the
-        x-component axes for display, pending interpolation to common locations.
+        component. Absolute values are shown at the cell centres, where
+        ``get_abs`` collocates the three components.
         """
         # ------------------------------------------------------------------ #
         # PyVista backend                                                      #
@@ -758,7 +758,11 @@ class Field:
 
             # --- Build / retrieve the structured grid ---
             if self.coordinates is not None:
-                coords = self.coordinates["x" if component == "abs" else component]
+                coords = (
+                    self._cell_centre_coords()
+                    if component == "abs"
+                    else self.coordinates[component]
+                )
                 pv_grid = pv.RectilinearGrid(*coords)
                 xlo, xhi = coords[0][0], coords[0][-1]
                 ylo, yhi = coords[1][0], coords[1][-1]
@@ -1076,8 +1080,8 @@ class Field:
         ----------
         field : {'x', 'y', 'z', 'abs', 'all'}, optional
             Component to display, or separate panels for all three components.
-            Absolute values use the current index-wise norm; with coordinates
-            attached they use the x-component axes for display.
+            With coordinates attached, absolute values are shown at the cell
+            centres (see ``get_abs``); without, the index-wise norm is used.
         backend : {'pyvista', 'matplotlib'}, optional
             Interactive clipping (default) or static voxel rendering.
         grid : GridFIT3D, optional
@@ -1131,8 +1135,10 @@ class Field:
             coords = (
                 index_coords
                 if self.coordinates is None
-                else self.coordinates["x" if component == "abs" else component]
-            )  # TODO use cell centers for absolute values
+                else self._cell_centre_coords()
+                if component == "abs"
+                else self.coordinates[component]
+            )
             values = self.get_abs() if component == "abs" else self.to_matrix(component)
             if self.on_gpu and hasattr(values, "get"):
                 values = values.get()
