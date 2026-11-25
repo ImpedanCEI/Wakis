@@ -194,6 +194,9 @@ T_00 = 0.5*(solver.E.get_abs()**2 + solver.H.get_abs()**2)
 solver.J.inspect()
 ```
 
+`get_abs()` averages each component to the cell centres $(x_{i+1/2}, y_{j+1/2}, z_{k+1/2})$ before taking the norm, so `E` and `H` in `T_00` refer to the same points. The centres are midpoints of the primal nodes, so the average of the two neighbouring samples is exact for linear fields and second order for smooth fields, also on non-uniform grids. An index-wise norm would combine components from different edges (E, J) or faces (H), an $O(h)$ error.
+
+
 This formulation enables stable, explicit time stepping and modular extensions to lossy media, materials, and sources.
 
 #### Material tensors and grid information
