@@ -46,7 +46,7 @@ def test_016_wake_factors(tmp_path):
         30,
         stl_solids={name: str(path) for name, path in solids.items()},
         stl_materials={"cavity": "vacuum", "shell": "pec"},
-        stl_method="implicit_distance",
+        stl_method="voxelize_rectilinear",
         verbose=0,
     )
     wake = WakeSolver(
