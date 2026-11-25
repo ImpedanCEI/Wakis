@@ -914,6 +914,33 @@ class BCsMixin:
 
         del self.pml_b_E, self.pml_c_E, self.pml_b_H, self.pml_c_H
 
+    def _complete_tfsf_pec_edges(self):
+        """Complete longitudinal PEC edges using local sampled-edge paths.
+
+        A candidate needs a three-edge PEC path around an adjacent xz or yz
+        face: two transverse edges and the opposite longitudinal edge. Thus
+        completion cannot join separate sampled conductors. Only original
+        sampled paths are used, without propagating newly completed edges.
+        Transverse coefficients, geometric masks, and terminal storage remain
+        unchanged. Call before material matrices and timestep limits are built.
+        """
+        for k in range(self.Nz - 1):
+            pec_z = self.ieps[:, :, k, "z"] == 0
+            pec_x = (self.ieps[:-1, :, k, "x"] == 0) & (
+                self.ieps[:-1, :, k + 1, "x"] == 0
+            )
+            pec_y = (self.ieps[:, :-1, k, "y"] == 0) & (
+                self.ieps[:, :-1, k + 1, "y"] == 0
+            )
+            # Use the sampled z mask for all four detours. Newly completed
+            # edges must not authorize further completion in the same slab.
+            join = pec_z.copy()
+            join[:-1, :] |= pec_x & pec_z[1:, :]
+            join[1:, :] |= pec_x & pec_z[:-1, :]
+            join[:, :-1] |= pec_y & pec_z[:, 1:]
+            join[:, 1:] |= pec_y & pec_z[:, :-1]
+            self.ieps[:, :, k, "z"][join] = 0
+
     def _initialize_tfsf(self):
         """
         Initialize the Total-Field/Scattered-Field (TFSF) boundary conditions.
@@ -923,6 +950,9 @@ class BCsMixin:
         the simulation to handle incident fields and scattered fields
         appropriately.
         """
+
+        if self.use_stl:
+            self._complete_tfsf_pec_edges()
 
         N = self.N
         tLx = diags(self.tL.field_x, shape=(N, N), dtype=self.dtype)

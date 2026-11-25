@@ -59,6 +59,13 @@ class Beam:
             Indices of the source in x and y (set on first update).
         zmin : float
             Minimum z position (set on first update).
+
+        Notes
+        -----
+        TF/SF injection assumes beta=1 and straight vacuum pipe cross-sections
+        at the injection planes. Incident fields are evaluated at staggered
+        positions/times and injection ends eight rms bunch lengths after the
+        bunch centre passes the exit plane to suppress Gaussian-tail offsets.
         """
 
         self.xsource, self.ysource = xsource, ysource
@@ -214,9 +221,10 @@ class Beam:
             solver.H_trans[:, :, self.j_stop, "x"] = Hinj_x
             solver.H_trans[:, :, self.j_stop, "y"] = Hinj_y
 
-        # Truncate injection after the beam has passed the plane by 5 sigma.
+        # At 8 sigma the omitted Gaussian charge is about 6e-16 of the bunch;
+        # earlier truncation leaves an exit offset.
         z_source = self.zmin + self.v * (t + solver.dt / 2 - self.ti)
-        if z_source - self.high_plane > 5 * self.sigmaz:
+        if z_source - self.high_plane > 8 * self.sigmaz:
             solver.injection_done = True
             del solver.E_trans, solver.H_trans
             del self._tfsf_field_templates
@@ -255,15 +263,15 @@ class Beam:
         """Return the transverse potential nodes fixed to zero by PEC."""
         # The outer boundary is PEC, so only the interior nodes need inspection.
         pec_nodes = np.ones((solver.Nx, solver.Ny), dtype=bool)
-        inverse_epsilon_x = solver.ieps[:, :, z_index, "x"]
-        inverse_epsilon_y = solver.ieps[:, :, z_index, "y"]
 
-        # A potential node is PEC when any of its four adjacent field edges is PEC.
+        # A potential node is PEC when any incident electric edge is PEC.
         pec_nodes[1:-1, 1:-1] = (
-            (inverse_epsilon_x[1:-1, 1:-1] == 0)
-            | (inverse_epsilon_x[:-2, 1:-1] == 0)
-            | (inverse_epsilon_y[1:-1, 1:-1] == 0)
-            | (inverse_epsilon_y[1:-1, :-2] == 0)
+            (solver.ieps[1:-1, 1:-1, z_index, "x"] == 0)
+            | (solver.ieps[:-2, 1:-1, z_index, "x"] == 0)
+            | (solver.ieps[1:-1, 1:-1, z_index, "y"] == 0)
+            | (solver.ieps[1:-1, :-2, z_index, "y"] == 0)
+            | (solver.ieps[1:-1, 1:-1, z_index, "z"] == 0)
+            | (solver.ieps[1:-1, 1:-1, z_index - 1, "z"] == 0)
         )
         return pec_nodes
 
@@ -272,8 +280,12 @@ class Beam:
 
         The relativistic beam is represented by a line charge at ``(ixs, iys)``.
         Its normalized scalar potential satisfies the two-dimensional Poisson
-        equation on the selected z-plane. The outer boundary and any nodes next
-        to PEC field edges use the Dirichlet condition ``potential = 0``.
+        equation on the selected z-plane. The outer boundary and nodes incident
+        to any PEC electric edge use the Dirichlet condition ``potential = 0``.
+        TF/SF initialization completes the PEC edge constraints between
+        these nodes so the potential and time-domain walls agree.
+        Primal and dual edge lengths come from ``solver.L`` and ``solver.tL``
+        on this plane, matching the lengths used by the time-domain operators.
 
         Every remaining node contributes one row of a five-point finite-
         difference stencil, ordered as::
@@ -304,10 +316,14 @@ class Beam:
 
         # Compute the four directional coefficients for every free node at once.
         # Each free row contains [center, east, west, north, south].
-        east = 1.0 / (solver.dx[free_x] * solver.tdx[free_x])
-        west = 1.0 / (solver.dx[free_x - 1] * solver.tdx[free_x])
-        north = 1.0 / (solver.dy[free_y] * solver.tdy[free_y])
-        south = 1.0 / (solver.dy[free_y - 1] * solver.tdy[free_y])
+        lx = solver.L[:, :, z_index, "x"]
+        ly = solver.L[:, :, z_index, "y"]
+        tlx = solver.tL[:, :, z_index, "x"]
+        tly = solver.tL[:, :, z_index, "y"]
+        east = 1.0 / (lx[free_x, free_y] * tlx[free_x, free_y])
+        west = 1.0 / (lx[free_x - 1, free_y] * tlx[free_x, free_y])
+        north = 1.0 / (ly[free_x, free_y] * tly[free_x, free_y])
+        south = 1.0 / (ly[free_x, free_y - 1] * tly[free_x, free_y])
 
         stencil_columns = np.column_stack(
             (
@@ -351,7 +367,7 @@ class Beam:
         return potential.reshape((nx, ny))
 
     def _calculate_tfsf_injected_fields(self, solver, z_index, side):
-        """Precompute normalized transverse TEM fields on an injection plane."""
+        """Compute transverse TEM templates using the plane's primal edge lengths."""
         if self.beta != 1.0:
             raise NotImplementedError(
                 "Only relativistic beta=1 is currently implemented."
@@ -362,8 +378,15 @@ class Beam:
         potential = self._solve_tfsf_transverse_potential(solver, z_index)
         electric_x = np.zeros((solver.Nx, solver.Ny), dtype=solver.dtype)
         electric_y = np.zeros_like(electric_x)
-        electric_x[:-1, :] = -np.diff(potential, axis=0) / solver.dx[:, None]
-        electric_y[:, :-1] = -np.diff(potential, axis=1) / solver.dy[None, :]
+        lx = solver.L[:-1, :, z_index, "x"]
+        ly = solver.L[:, :-1, z_index, "y"]
+        # Zero-length constrained edges carry no electric line integral.
+        np.divide(
+            -np.diff(potential, axis=0), lx, out=electric_x[:-1, :], where=lx != 0
+        )
+        np.divide(
+            -np.diff(potential, axis=1), ly, out=electric_y[:, :-1], where=ly != 0
+        )
 
         wave_impedance = np.dtype(solver.dtype).type(Z0)
         magnetic_x = -electric_y / wave_impedance
