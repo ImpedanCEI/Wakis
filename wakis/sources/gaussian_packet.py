@@ -141,6 +141,7 @@ class GaussianPacket(WaveformSource):
     def update(self, solver, t):
         """Inject the selected carrier-free Gaussian field at time ``t``."""
         self._ensure_initialized(solver)
+        t = float(t)
 
         # Retrieve physical coordinates of the staggered fields
         X, Y = np.meshgrid(solver.tx[1:][self.xs], solver.y[self.ys], indexing="ij")

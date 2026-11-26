@@ -284,18 +284,18 @@ class WakeSolver:
         -----
         Work in progress. Calculation of wake potential on the fly.
         """
-        it = int(t / self.dt)
+        dt = float(self.dt)
+        t = float(t)
+        it = int(t / dt)
         if it == 0:
-            self.s = np.arange(
-                -self.ti * self.v, self.wake.wakelength, self.dt * self.v
-            )
+            self.s = np.arange(-self.ti * self.v, self.wake.wakelength, dt * self.v)
             self.WP = np.zeros_like(self.s, dtype=np.float64)
 
         Ez_curr = self.E[self.Nx // 2, self.Ny // 2, :, "z"]
         s_vals = self.v * t - self.v * self.ti + np.min(self.z) - self.z
 
         # convert to fractional index in s-array
-        idxf = (s_vals - self.s[0]) / (self.v * self.dt)
+        idxf = (s_vals - self.s[0]) / (self.v * dt)
         mask = (idxf >= 0.0) & (idxf <= (len(self.s) - 1))
 
         # count contributions that fall in the valid s range
@@ -374,6 +374,7 @@ class WakeSolver:
             self.read_Ez()
 
         # time variables
+        self.t = np.asarray(self.t, dtype=np.float64)
         nt = len(self.t)
         dt = self.t[2] - self.t[1]
         ti = self.ti
@@ -507,6 +508,7 @@ class WakeSolver:
             self.read_Ez()
 
         # time variables
+        self.t = np.asarray(self.t, dtype=np.float64)
         nt = len(self.t)
         dt = self.t[2] - self.t[1]
         ti = self.ti
@@ -1582,7 +1584,7 @@ class WakeSolver:
         if "dz" in hf.keys():
             self.dz = hf["dz"][()]
         if "t" in hf.keys():
-            self.t = hf["t"][()]
+            self.t = np.asarray(hf["t"][()], dtype=np.float64)
 
         if return_value:
             return hf

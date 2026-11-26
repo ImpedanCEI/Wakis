@@ -73,6 +73,7 @@ class ModePacket(WaveformSource):
     def update(self, solver, t):
         """Inject the Gaussian-windowed TE01 electric field at time ``t``."""
         self._ensure_initialized(solver)
+        t = float(t)
 
         temporal = self.gaussian_profile(t - self.tinj, self.sigma_t)
         carrier = self.harmonic_carrier(self.omega * t + self.phase)

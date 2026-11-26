@@ -94,6 +94,7 @@ class RoutinesMixin:
         self.Nt = Nt
         if source is not None:
             self.source = source
+        times = np.arange(Nt) * float(self.dt)
 
         if save:
             hfs = {}
@@ -106,14 +107,14 @@ class RoutinesMixin:
                 else:
                     hfs[field] = h5py.File(field + ".h5", "w")
 
-            for hf in hfs:
+            for hf in hfs.values():
                 hf["x"], hf["y"], hf["z"] = self.x, self.y, self.z
                 hf["dx"], hf["dy"], hf["dz"] = (
                     self.dx,
                     self.dy,
                     self.dz,
                 )
-                hf["t"] = np.arange(0, Nt * self.dt, save_every * self.dt)
+                hf["t"] = times[::save_every]
 
             if subdomain is not None:
                 xx, yy, zz = subdomain
@@ -159,7 +160,7 @@ class RoutinesMixin:
         # Time loop
         for n in tqdm(range(Nt)):
             if source is not None:
-                source.update(self, n * self.dt)
+                source.update(self, times[n])
 
             if save and n % save_every == 0:
                 for field in hfs.keys():
@@ -186,7 +187,7 @@ class RoutinesMixin:
 
             # Callback func(solver, t)
             if callback is not None:
-                callback(self, n * self.dt)
+                callback(self, times[n])
 
         # End
         if save:
