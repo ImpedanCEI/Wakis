@@ -704,10 +704,17 @@ t_k(s)=t_i+\frac{z_{k+1/2}-z_\min+s}{v}, \qquad
 W_\parallel(s)=\frac{1}{q}\sum_k E_z(x_t,y_t,z_{k+1/2},t_k(s))\,\Delta z_k.
 $$
 
-The saved field timestep immediately preceding the requested trajectory time
-is used. `skip_cells` removes the same physical edges and lengths at both ends;
-it does not move the bunch's reference origin. The 1D integration and the
-central point of the transverse stencil follow the same trajectory.
+Because $E_z$ is stored at discrete steps $t_n=n\Delta t$ while the test
+charge arrives at $z_{k+1/2}$ at $t_k(s)=t_0+(i_0+w)\Delta t$ with
+$i_0=\lfloor(t_k(s)-t_0)/\Delta t\rfloor$ and $w\in[0,1)$, `WakeSolver`
+interpolates $E_z$ linearly between the two bracketing stored steps
+$t_{i_0}$ and $t_{i_0+1}$ (and uses the last stored step when
+$i_0=N_t-1$). This makes the time sampling second order in $\Delta t$,
+matching the leapfrog scheme; taking the nearest earlier step
+$E_z(t_{i_0})$ alone would be first order in $\Delta t$. `skip_cells` removes
+the same physical edges and lengths at both ends; it does not move the
+bunch's reference origin. The 1D integration and the central point of the
+transverse stencil follow the same trajectory.
 
 Wakis obtains the transverse wake potential from the 3D longitudinal wake
 potential using the Panofsky--Wenzel relation. With the $s$ and force signs
