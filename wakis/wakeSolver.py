@@ -4,6 +4,7 @@
 # ########################################### #
 
 import glob
+import math
 import os
 import shutil
 import time
@@ -362,6 +363,8 @@ class WakeSolver:
         Supply z explicitly for a monitor covering only part of the domain.
         For compatibility, if zf is absent, z is also used as the field positions.
         skip_cells trims zf, dz, and Ez together without moving the domain origin.
+        Ez is interpolated linearly in time between the two saved steps
+        bracketing the test-charge arrival at each zf[k].
         """
         for key, val in kwargs.items():
             setattr(self, key, val)
@@ -438,15 +441,22 @@ class WakeSolver:
         self.Ezt = Ezt
 
         # Sample the moving test charge at ti + (z - zmin + s)/v.
-        # ts is measured from the first saved field time.
+        # ts is measured from the first saved field time. Ez is stored at t[n]
+        # while the test charge passes z[k] between two stored steps; linear
+        # interpolation is second order in dt (nearest-earlier is O(dt)).
         print("Calculating longitudinal wake potential WP(s)...")
         with tqdm(total=len(s) * len(z)) as pbar:
             for n in range(len(s)):
                 for k in range(nz):
                     ts = (z[k] + s[n]) / self.v - zmin / self.v - self.t[0] + ti
-                    it = int(ts / dt)  # preceding saved timestep
-                    if 0 <= it < nt:
-                        WP[n] = WP[n] + (Ezt[k, it]) * dz[k]  # compute integral
+                    x = ts / dt
+                    it = math.floor(x)
+                    if 0 <= it < nt - 1:
+                        w = x - it
+                        ez = (1.0 - w) * Ezt[k, it] + w * Ezt[k, it + 1]
+                        WP[n] = WP[n] + ez * dz[k]
+                    elif it == nt - 1:
+                        WP[n] = WP[n] + Ezt[k, it] * dz[k]
                     pbar.update(1)
 
         WP = WP / (self.q * 1e12)  # [V/pC]
@@ -498,6 +508,8 @@ class WakeSolver:
         Supply z explicitly for a monitor covering only part of the domain.
         For compatibility, if zf is absent, z is also used as the field positions.
         skip_cells trims zf, dz, and Ez together without moving the domain origin.
+        Ez is interpolated linearly in time between the two saved steps
+        bracketing the test-charge arrival at each zf[k].
         """
         for key, val in kwargs.items():
             setattr(self, key, val)
@@ -578,7 +590,9 @@ class WakeSolver:
                         Ezt[:, n] = Ez[Ez.shape[0] // 2 + i, Ez.shape[1] // 2 + j, zz]
 
                     # Follow the test charge from zmin (+z) or zmax (-z).
-                    # ts is relative to the first saved field time.
+                    # ts is relative to the first saved field time. Ez is stored
+                    # at t[n] while the test charge passes z[k] between stored
+                    # steps; linear interpolation is second order in dt.
                     if self.counter_moving:
                         for n in range(len(s)):
                             for k in range(nz):
@@ -588,11 +602,16 @@ class WakeSolver:
                                     - self.t[0]
                                     + ti
                                 )
-                                it = int(ts / dt)  # preceding saved timestep
-                                if 0 <= it < nt:
-                                    WP[n] = WP[n] + (Ezt[-k - 1, it]) * (
-                                        -1 * dz[-k - 1]
-                                    )  # compute integral
+                                x = ts / dt
+                                it = math.floor(x)
+                                if 0 <= it < nt - 1:
+                                    w = x - it
+                                    ez = (1.0 - w) * Ezt[-k - 1, it] + w * Ezt[
+                                        -k - 1, it + 1
+                                    ]
+                                    WP[n] = WP[n] + ez * (-1 * dz[-k - 1])
+                                elif it == nt - 1:
+                                    WP[n] = WP[n] + Ezt[-k - 1, it] * (-1 * dz[-k - 1])
                             pbar.update(1)
 
                     else:
@@ -604,11 +623,14 @@ class WakeSolver:
                                     - self.t[0]
                                     + ti
                                 )
-                                it = int(ts / dt)  # preceding saved timestep
-                                if 0 <= it < nt:
-                                    WP[n] = (
-                                        WP[n] + (Ezt[k, it]) * dz[k]
-                                    )  # compute integral
+                                x = ts / dt
+                                it = math.floor(x)
+                                if 0 <= it < nt - 1:
+                                    w = x - it
+                                    ez = (1.0 - w) * Ezt[k, it] + w * Ezt[k, it + 1]
+                                    WP[n] = WP[n] + ez * dz[k]
+                                elif it == nt - 1:
+                                    WP[n] = WP[n] + Ezt[k, it] * dz[k]
 
                             pbar.update(1)
 
