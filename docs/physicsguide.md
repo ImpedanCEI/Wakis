@@ -78,7 +78,7 @@ Wakis employs a **time-domain approach** using the Finite Integration Technique 
 - Natural support for transient excitation (e.g., Gaussian bunch)
 - Efficient use of explicit solvers with GPU and MPI support
 
-This makes Wakis well-suited for impedance characterization across a **wide frequency range**, complementing frequency-domain solvers like CST or HFSS.
+This makes Wakis well-suited for impedance characterization across a **wide frequency range**, complementing frequency-domain solvers.
 
 For a broader overview of impedance modeling, see [Metral et al., 2020](https://cds.cern.ch/record/2743945).
 ```
@@ -841,7 +841,6 @@ then not be interpreted as a pure dipolar coefficient.
 
 The wake and impedance analysis is performed within the `WakeSolver` class in `Wakesolver.py`. Even if this module is tailored for Wakis, it is completely modular and can be used with other EM solvers besides Wakis' `SolverFIT3D` output:
 - It has been tested with **WarpX** EM fields. WarpX is a powerful open-source PIC solver for full 3D EM fields
-- It has been benchmarked with **CST** Wakefield solver, using both EM field ouput (time-domain field monitors) and calculated wake potential and impedance. > See the full wake analysis benchmark in [IPAC'23 proceedings, E. de la Fuente](https://doi.org/10.18429/JACoW-IPAC2023-WEPL170).
 - **Interoperability**: Wakis can read field maps in HDF5, CSV, or NumPy format
 - **Subvolume extraction** and interpolation are supported for field-based post-processing
 ```

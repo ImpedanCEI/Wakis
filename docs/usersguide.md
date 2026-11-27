@@ -742,9 +742,6 @@ ax[1].set_xlim((0, 2.0))
 To compute the power loss, we need to fill the `Impedance` class with the impedance data of the accelerator device under study:
 ```python
 Z = bihc.Impedance(f=wake30.f, Z=wake30.Z)
-
-# To load a CST file instead, use:
-# Z = bihc.Impedance(CST_file='impedance.txt')
 ```
 
 ### Power loss calculation, 1 beam case

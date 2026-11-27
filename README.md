@@ -54,12 +54,6 @@ Check 🌐📁 [`SWAN_tutorial/`](https://github.com/ImpedanCEI/SWAN_tutorial) f
 
 [gallery_url]:https://cern.ch/swanserver/cgi-bin/go?projurl=https://github.com/ImpedanCEI/SWAN_tutorial.git
 
-Check 🌐📁 [`wakis-benchmarks/`](https://github.com/ImpedanCEI/wakis-benchmarks) for beam-coupling impedance calculations & comparisons to the commercial tool *CST® Wakefield solver*:
-* PEC cubic cavity below cutoff (mm) and above cutoff (cm)
-* Conductive cubic cavity below cutoff
-* Lossy pillbox cavity (cylindrical) above cutoff
-* Simulations using beams with different relativistic $\beta$
-
 Check 🌐📁 [`BE-Seminar-demo/`](https://github.com/ImpedanCEI/BE-Seminar-demo) for a complete live demonstration of Wakis usage.
 
 ## Installation
