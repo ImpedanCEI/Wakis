@@ -803,6 +803,25 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             hy[:, :, -1] = 0
             hz[:, :, -1] = hz[:, :, 0]
 
+    def _update_H(self):
+        """Advance H in place: ``H -= dt * (tDsiDmuiDaC @ E)``.
+
+        ``dt`` multiplies the curl vector, not the operator: ``dt * A @ x``
+        evaluates ``dt * A`` first and copies the sparse matrix every step.
+        """
+        self.H.array -= self.dt * (self.tDsiDmuiDaC * self.E.toarray())
+
+    def _update_E(self):
+        """Advance E in place: ``E += dt * (itDaiDepsDstC @ H - ieps * J)``.
+
+        Same arithmetic as before, reusing the curl vector instead of
+        allocating full-size temporaries.
+        """
+        curl = self.itDaiDepsDstC * self.H.toarray()
+        curl -= self.ieps.toarray() * self.J.toarray()
+        curl *= self.dt
+        self.E.array += curl
+
     def _one_step(self):
         if self.step_0:
             self._set_ghosts_to_0()
@@ -811,9 +830,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             if self.source_type == "direct" or self.use_conductivity:
                 self.J_old = np.zeros_like(self.J.toarray())
 
-        self.H.fromarray(
-            self.H.toarray() - self.dt * self.tDsiDmuiDaC * self.E.toarray()
-        )
+        self._update_H()
 
         if self.source_type == "tfsf":
             if not self.injection_done:
@@ -831,14 +848,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.J.fromarray(self.J.toarray() + dJ)
             self.J_old = Jtemp
 
-        self.E.fromarray(
-            self.E.toarray()
-            + self.dt
-            * (
-                self.itDaiDepsDstC * self.H.toarray()
-                - self.ieps.toarray() * self.J.toarray()
-            )
-        )
+        self._update_E()
 
         if self.source_type == "tfsf":
             if not self.injection_done:
@@ -1471,9 +1481,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             if self.source_type == "direct" or self.use_conductivity:
                 self.J_old = np.zeros_like(self.J.toarray())
 
-        self.H.fromarray(
-            self.H.toarray() - self.dt * self.tDsiDmuiDaC * self.E.toarray()
-        )
+        self._update_H()
 
         if self.source_type == "tfsf":
             if not self.injection_done:
@@ -1492,14 +1500,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.J.fromarray(self.J.toarray() + dJ)
             self.J_old = Jtemp
         self._mpi_communicate(self.J)
-        self.E.fromarray(
-            self.E.toarray()
-            + self.dt
-            * (
-                self.itDaiDepsDstC * self.H.toarray()
-                - self.ieps.toarray() * self.J.toarray()
-            )
-        )
+        self._update_E()
 
         if self.source_type == "tfsf":
             if not self.injection_done:
